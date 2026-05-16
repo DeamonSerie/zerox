@@ -11,6 +11,7 @@
 typedef struct {
   char **roots;
   bool *mutable_borrow;
+  bool *local_storage;
   size_t len;
   size_t cap;
 } BorrowOrigins;
@@ -67,11 +68,12 @@ static const ZTargetInfo *current_check_target = NULL;
 static MetaCacheEntry *meta_cache = NULL;
 static ZMetaCacheStats meta_stats = {0};
 
-static bool borrow_origins_add(BorrowOrigins *origins, const char *root, bool mut_borrow) {
+static bool borrow_origins_add(BorrowOrigins *origins, const char *root, bool mut_borrow, bool local_storage) {
   if (!origins || !root || !root[0]) return false;
   for (size_t i = 0; i < origins->len; i++) {
     if (strcmp(origins->roots[i], root) == 0) {
       origins->mutable_borrow[i] = origins->mutable_borrow[i] || mut_borrow;
+      origins->local_storage[i] = origins->local_storage[i] || local_storage;
       return true;
     }
   }
@@ -79,9 +81,11 @@ static bool borrow_origins_add(BorrowOrigins *origins, const char *root, bool mu
     origins->cap = origins->cap == 0 ? 4 : origins->cap * 2;
     origins->roots = realloc(origins->roots, origins->cap * sizeof(char *));
     origins->mutable_borrow = realloc(origins->mutable_borrow, origins->cap * sizeof(bool));
+    origins->local_storage = realloc(origins->local_storage, origins->cap * sizeof(bool));
   }
   origins->roots[origins->len] = z_strdup(root);
   origins->mutable_borrow[origins->len] = mut_borrow;
+  origins->local_storage[origins->len] = local_storage;
   origins->len++;
   return true;
 }
@@ -90,7 +94,7 @@ static bool borrow_origins_add_all_as(BorrowOrigins *out, const BorrowOrigins *s
   bool added = false;
   if (!out || !source) return false;
   for (size_t i = 0; i < source->len; i++) {
-    if (borrow_origins_add(out, source->roots[i], mut_borrow)) added = true;
+    if (borrow_origins_add(out, source->roots[i], mut_borrow, source->local_storage[i])) added = true;
   }
   return added;
 }
@@ -100,8 +104,10 @@ static void borrow_origins_free(BorrowOrigins *origins) {
   for (size_t i = 0; i < origins->len; i++) free(origins->roots[i]);
   free(origins->roots);
   free(origins->mutable_borrow);
+  free(origins->local_storage);
   origins->roots = NULL;
   origins->mutable_borrow = NULL;
+  origins->local_storage = NULL;
   origins->len = 0;
   origins->cap = 0;
 }
@@ -263,7 +269,7 @@ static void scope_set_borrow_origins(Scope *scope, const char *name, const Borro
       if (strcmp(cursor->names[i], name) == 0) {
         scope_clear_borrow_origins_at(scope, &cursor->borrow_origins[i]);
         for (size_t origin_index = 0; origin_index < origins->len; origin_index++) {
-          borrow_origins_add(&cursor->borrow_origins[i], origins->roots[origin_index], origins->mutable_borrow[origin_index]);
+          borrow_origins_add(&cursor->borrow_origins[i], origins->roots[origin_index], origins->mutable_borrow[origin_index], origins->local_storage[origin_index]);
           scope_adjust_borrow_count(scope, origins->roots[origin_index], origins->mutable_borrow[origin_index], 1);
         }
         return;
@@ -290,7 +296,7 @@ static bool scope_copy_borrow_origins(Scope *scope, const char *name, BorrowOrig
     for (size_t i = 0; i < cursor->len; i++) {
       if (strcmp(cursor->names[i], name) == 0) {
         for (size_t origin_index = 0; origin_index < cursor->borrow_origins[i].len; origin_index++) {
-          if (borrow_origins_add(out, cursor->borrow_origins[i].roots[origin_index], cursor->borrow_origins[i].mutable_borrow[origin_index])) added = true;
+          if (borrow_origins_add(out, cursor->borrow_origins[i].roots[origin_index], cursor->borrow_origins[i].mutable_borrow[origin_index], cursor->borrow_origins[i].local_storage[origin_index])) added = true;
         }
         return added;
       }
@@ -901,12 +907,27 @@ static bool expr_is_addressable(const Expr *expr) {
   return expr && (expr->kind == EXPR_IDENT || expr->kind == EXPR_MEMBER || expr->kind == EXPR_INDEX);
 }
 
+static bool type_is_named_generic(const char *type, const char *name);
+
+static bool borrow_expr_origin_is_local_storage(const Expr *borrowed, Scope *scope, const char *root) {
+  if (!scope_is_param(scope, root)) return true;
+  const char *root_type = scope_type(scope, root);
+  if (!type_is_named_generic(root_type, "ref") && !type_is_named_generic(root_type, "mutref")) return true;
+  return borrowed && borrowed->kind == EXPR_IDENT;
+}
+
+static bool reference_source_origin_is_local_storage(Scope *scope, const char *root) {
+  if (!scope_is_param(scope, root)) return true;
+  const char *root_type = scope_type(scope, root);
+  return !type_is_named_generic(root_type, "ref") && !type_is_named_generic(root_type, "mutref");
+}
+
 static bool expr_borrow_origins(const Expr *expr, Scope *scope, BorrowOrigins *origins) {
   if (!expr || !origins) return false;
   if (expr->kind == EXPR_BORROW) {
     char root[128];
     if (!expr_root_ident(expr->left, root, sizeof(root))) return false;
-    return borrow_origins_add(origins, root, expr->mutable_borrow);
+    return borrow_origins_add(origins, root, expr->mutable_borrow, borrow_expr_origin_is_local_storage(expr->left, scope, root));
   }
   if (expr->kind == EXPR_IDENT) {
     return scope_copy_borrow_origins(scope, expr->text, origins);
@@ -4278,7 +4299,7 @@ static bool call_result_borrow_origins(const Program *program, const Expr *expr,
       } else {
         char root[128];
         if (expr_root_ident(receiver, root, sizeof(root)) && scope_has(scope, root)) {
-          if (borrow_origins_add(origins, root, return_mut)) added = true;
+          if (borrow_origins_add(origins, root, return_mut, reference_source_origin_is_local_storage(scope, root))) added = true;
         }
       }
     }
@@ -4360,7 +4381,7 @@ static bool check_return_borrow_escape(const Program *program, const Expr *expr,
     return true;
   }
   for (size_t i = 0; i < origins.len; i++) {
-    if (!scope_is_param(scope, origins.roots[i])) {
+    if (origins.local_storage[i]) {
       char actual[256];
       snprintf(actual, sizeof(actual), "reference to local '%s'", origins.roots[i]);
       borrow_origins_free(&origins);
@@ -4379,7 +4400,7 @@ static bool check_return_call_borrow_escape(const Program *program, const Expr *
     return true;
   }
   for (size_t i = 0; i < origins.len; i++) {
-    if (!scope_is_param(scope, origins.roots[i])) {
+    if (origins.local_storage[i]) {
       char actual[256];
       snprintf(actual, sizeof(actual), "call may return reference derived from local '%s'", origins.roots[i]);
       borrow_origins_free(&origins);
