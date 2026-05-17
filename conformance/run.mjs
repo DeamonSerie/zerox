@@ -1247,6 +1247,14 @@ assert.equal(importedLineMapBody.diagnostics[0].path, "conformance/check/fail/im
 assert.equal(importedLineMapBody.diagnostics[0].line, 2);
 assert.equal(importedLineMapBody.diagnostics[0].column, 5);
 
+const importFixLineMapPatch = await execFileAsync(zero, ["fix", "--patch", "--json", "conformance/check/fail/import-fix-line-map"]);
+const importFixLineMapPatchBody = JSON.parse(importFixLineMapPatch.stdout);
+assert.equal(importFixLineMapPatchBody.diagnostics[0].code, "TYP009");
+assert.equal(importFixLineMapPatchBody.diagnostics[0].path, "conformance/check/fail/import-fix-line-map/src/helper.0");
+assert.equal(importFixLineMapPatchBody.patches[0].path, "conformance/check/fail/import-fix-line-map/src/helper.0");
+assert.equal(importFixLineMapPatchBody.patches[0].line, 2);
+assert.match(importFixLineMapPatchBody.patches[0].new, /let mut values/);
+
 const importCycleJson = await execFileAsync(zero, ["check", "--json", "conformance/check/fail/import-cycle"]).catch((error) => error);
 assert.notEqual(importCycleJson.code, 0);
 const importCycleBody = JSON.parse(importCycleJson.stdout);

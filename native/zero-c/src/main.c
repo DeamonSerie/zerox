@@ -2822,15 +2822,26 @@ static bool diagnostic_can_apply_edits(const ZDiag *diag) {
 static int print_or_apply_fix_json(const char *path, SourceInput *input, const ZDiag *diag, bool apply) {
   bool has_diag = diag && diag->code != 0;
   bool can_apply = diagnostic_can_apply_edits(diag);
+  const char *edit_path = input ? input->source_file : NULL;
+  const char *edit_source = NULL;
+  char *loaded_edit_source = NULL;
+  if (can_apply && diag && diag->path && diag->path[0]) {
+    edit_path = diag->path;
+  }
+  if (can_apply && edit_path && edit_path[0]) {
+    ZDiag read_diag = {0};
+    loaded_edit_source = z_read_file(edit_path, &read_diag);
+    edit_source = loaded_edit_source;
+  }
   int edit_line = 0;
   char *old_line = NULL;
   char *new_line = NULL;
-  bool has_edit = can_apply && find_make_binding_mutable_edit(input ? input->source : NULL, &edit_line, &old_line, &new_line);
+  bool has_edit = can_apply && edit_source && find_make_binding_mutable_edit(edit_source, &edit_line, &old_line, &new_line);
   bool applied = false;
   if (apply && has_edit) {
-    char *updated = apply_single_line_edit(input->source, edit_line, new_line);
+    char *updated = apply_single_line_edit(edit_source, edit_line, new_line);
     ZDiag write_diag = {0};
-    applied = z_write_file(input->source_file, updated, &write_diag);
+    applied = edit_path && z_write_file(edit_path, updated, &write_diag);
     free(updated);
   }
 
@@ -2860,7 +2871,7 @@ static int print_or_apply_fix_json(const char *path, SourceInput *input, const Z
   zbuf_append(&buf, "],\n  \"patches\": [");
   if (has_edit) {
     zbuf_append(&buf, "{\"path\":");
-    append_json_string(&buf, input->source_file);
+    append_json_string(&buf, edit_path);
     zbuf_appendf(&buf, ",\"line\":%d,\"old\":", edit_line);
     append_json_string(&buf, old_line);
     zbuf_append(&buf, ",\"new\":");
@@ -2872,6 +2883,7 @@ static int print_or_apply_fix_json(const char *path, SourceInput *input, const Z
   zbuf_free(&buf);
   free(old_line);
   free(new_line);
+  free(loaded_edit_source);
   return apply && has_edit && !applied ? 1 : 0;
 }
 
