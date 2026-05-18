@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "purpose": "Track minimized agent-surface repros without preserving report source context.",
+  "fixtures": [
+    {
+      "id": "generic-type-shadowing-current",
+      "path": "conformance/agent-surface/fixtures/generic-type-shadowing-current.0",
+      "classification": "compiler-gap",
+      "currentBehavior": "check-pass",
+      "followUp": "Define and enforce or expose an agent-deterministic binding rule for generic type parameters that reuse visible concrete type names.",
+      "runner": "assert-current-behavior"
+    },
+    {
+      "id": "borrow-lexical-lifetime",
+      "path": "conformance/agent-surface/fixtures/borrow-lexical-lifetime.0",
+      "classification": "intended-behavior-with-insufficient-diagnostic-detail",
+      "currentBehavior": "check-fail-BOR001",
+      "followUp": "Keep lexical borrow semantics unless deliberately changed, but expose active borrow root, path, binding, and repair facts in JSON diagnostics.",
+      "runner": "assert-diagnostic-code"
+    },
+    {
+      "id": "unresolved-package-import",
+      "path": "conformance/agent-surface/fixtures/unresolved-package-import",
+      "classification": "diagnostic-surface-gap",
+      "currentBehavior": "check-fail-IMP001",
+      "followUp": "Parse use declarations into first-class import nodes and tie resolver diagnostics to their source ranges.",
+      "runner": "assert-diagnostic-code"
+    },
+    {
+      "id": "malformed-use-current",
+      "path": "conformance/agent-surface/fixtures/malformed-use-current.0",
+      "classification": "parser-surface-gap",
+      "currentBehavior": "check-pass",
+      "followUp": "Parse use declarations as syntax-bearing nodes so malformed import paths produce parser diagnostics instead of being skipped.",
+      "runner": "assert-current-behavior"
+    },
+    {
+      "id": "owned-drop-direct-backend-unsupported",
+      "path": "conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0",
+      "classification": "backend-limitation-reported-late",
+      "currentBehavior": "check-pass-build-fail-CGEN004",
+      "followUp": "Report target-aware backend blockers before emission and keep backend diagnostics target-correct.",
+      "runner": "assert-diagnostic-code"
+    }
+  ]
+}

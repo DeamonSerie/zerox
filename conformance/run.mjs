@@ -430,6 +430,58 @@ assert.ok(checkJsonSuccessBody.incrementalInvalidation.targetDependency);
 assert.equal(checkJsonSuccessBody.incrementalInvalidation.profileDependency, "release");
 assert.equal(checkJsonSuccessBody.incrementalInvalidation.recheckStrategy, "fingerprint changed modules and dependent bodies");
 
+const agentSurfaceClassification = JSON.parse(await readFile("conformance/agent-surface/classification.json", "utf8"));
+assert.equal(agentSurfaceClassification.schema, 1);
+assert.deepEqual(agentSurfaceClassification.fixtures.map((item) => item.id), [
+  "generic-type-shadowing-current",
+  "borrow-lexical-lifetime",
+  "unresolved-package-import",
+  "malformed-use-current",
+  "owned-drop-direct-backend-unsupported",
+]);
+
+const agentSurfaceGenericShadowing = await execFileAsync(zero, ["check", "--json", "conformance/agent-surface/fixtures/generic-type-shadowing-current.0"]);
+const agentSurfaceGenericShadowingBody = JSON.parse(agentSurfaceGenericShadowing.stdout);
+assert.equal(agentSurfaceGenericShadowingBody.ok, true);
+assert.equal(agentSurfaceGenericShadowingBody.diagnostics.length, 0);
+
+const agentSurfaceBorrowLifetime = await execFileAsync(zero, ["check", "--json", "conformance/agent-surface/fixtures/borrow-lexical-lifetime.0"]).catch((error) => error);
+assert.notEqual(agentSurfaceBorrowLifetime.code, 0);
+const agentSurfaceBorrowLifetimeBody = JSON.parse(agentSurfaceBorrowLifetime.stdout);
+assert.equal(agentSurfaceBorrowLifetimeBody.diagnostics[0].code, "BOR001");
+assert.match(agentSurfaceBorrowLifetimeBody.diagnostics[0].actual, /data already has shared borrow/);
+
+const agentSurfaceUnresolvedImport = await execFileAsync(zero, ["check", "--json", "conformance/agent-surface/fixtures/unresolved-package-import"]).catch((error) => error);
+assert.notEqual(agentSurfaceUnresolvedImport.code, 0);
+const agentSurfaceUnresolvedImportBody = JSON.parse(agentSurfaceUnresolvedImport.stdout);
+assert.equal(agentSurfaceUnresolvedImportBody.diagnostics[0].code, "IMP001");
+assert.match(agentSurfaceUnresolvedImportBody.diagnostics[0].expected, /src\/missing\.utility\.0/);
+
+const agentSurfaceMalformedUse = await execFileAsync(zero, ["check", "--json", "conformance/agent-surface/fixtures/malformed-use-current.0"]);
+const agentSurfaceMalformedUseBody = JSON.parse(agentSurfaceMalformedUse.stdout);
+assert.equal(agentSurfaceMalformedUseBody.ok, true);
+assert.equal(agentSurfaceMalformedUseBody.diagnostics.length, 0);
+
+const agentSurfaceOwnedDropCheck = await execFileAsync(zero, ["check", "--json", "conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0"]);
+const agentSurfaceOwnedDropCheckBody = JSON.parse(agentSurfaceOwnedDropCheck.stdout);
+assert.equal(agentSurfaceOwnedDropCheckBody.ok, true);
+const agentSurfaceOwnedDropBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "win32-x64.exe",
+  "conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0",
+  "--out",
+  `${outDir}/agent-surface-owned-drop.obj`,
+]).catch((error) => error);
+assert.notEqual(agentSurfaceOwnedDropBuild.code, 0);
+const agentSurfaceOwnedDropBuildBody = JSON.parse(agentSurfaceOwnedDropBuild.stdout);
+assert.equal(agentSurfaceOwnedDropBuildBody.diagnostics[0].code, "CGEN004");
+assert.match(agentSurfaceOwnedDropBuildBody.diagnostics[0].expected, /COFF/);
+assert.equal(agentSurfaceOwnedDropBuildBody.diagnostics[0].actual, "owned<Tracked>");
+
 const compileTimeJson = await execFileAsync(zero, ["check", "--json", "conformance/native/pass/compile-time-v1.0"]);
 const compileTimeBody = JSON.parse(compileTimeJson.stdout);
 assert.equal(compileTimeBody.ok, true);
