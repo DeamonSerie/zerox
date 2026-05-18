@@ -140,7 +140,7 @@ document symbols, and quick-fix code actions surfaced from `zero fix` for
 zero --version [--json]
 zero new cli|lib|package <path>
 zero doctor [--json]
-zero check [--json] [--target <target>] <input>
+zero check [--json] [--target <target>] [--emit exe|obj|wasm] <input>
 zero dev [--json] [--trace] [--target <target>] <input>
 zero run [--target <target>] [--profile dev|release] [--out <file>] <input> [-- args...]
 zero build [--emit exe|obj|wasm] [--target <target>] [--profile dev|release] [--out <file>] <input>

@@ -1481,6 +1481,28 @@ assert.deepEqual(backendBlockedReadiness.targetReadiness.diagnostics[0].backendB
   stage: "lower",
   unsupportedFeature: "owned<Tracked>",
 });
+const directExeBlockedReadiness = json(["check", "--json", "--emit", "exe", "--target", "linux-musl-x64", "examples/direct-call-add.0"]).body;
+assert.equal(directExeBlockedReadiness.ok, true);
+assert.equal(directExeBlockedReadiness.diagnostics.length, 0);
+assert.equal(directExeBlockedReadiness.targetReadiness.ok, false);
+assert.equal(directExeBlockedReadiness.targetReadiness.buildable, false);
+assert.equal(directExeBlockedReadiness.targetReadiness.languageOk, true);
+assert.equal(directExeBlockedReadiness.targetReadiness.emit, "exe");
+assert.equal(directExeBlockedReadiness.targetReadiness.target, "linux-musl-x64");
+assert.equal(directExeBlockedReadiness.targetReadiness.diagnostics[0].code, "CGEN004");
+assert.equal(directExeBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker.stage, "emit");
+assert.match(directExeBlockedReadiness.targetReadiness.diagnostics[0].message, /main must not take parameters/);
+const machOObjectBlockedReadiness = json(["check", "--json", "--emit", "obj", "--target", "darwin-arm64", "examples/memory-package"]).body;
+assert.equal(machOObjectBlockedReadiness.ok, true);
+assert.equal(machOObjectBlockedReadiness.diagnostics.length, 0);
+assert.equal(machOObjectBlockedReadiness.targetReadiness.ok, false);
+assert.equal(machOObjectBlockedReadiness.targetReadiness.buildable, false);
+assert.equal(machOObjectBlockedReadiness.targetReadiness.languageOk, true);
+assert.equal(machOObjectBlockedReadiness.targetReadiness.emit, "obj");
+assert.equal(machOObjectBlockedReadiness.targetReadiness.target, "darwin-arm64");
+assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].code, "CGEN004");
+assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-macho64");
+assert.equal(machOObjectBlockedReadiness.targetReadiness.diagnostics[0].backendBlocker.stage, "emit");
 
 const routes = json(["routes", "--json", "examples/web/hello"]).body;
 assert.equal(routes.schemaVersion, 1);

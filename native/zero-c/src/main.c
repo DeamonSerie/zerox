@@ -8358,7 +8358,7 @@ static bool requested_exe_backend_matches(const Command *command, const char *em
          (strcmp(command->backend, "zero-coff-x64") == 0 && strcmp(emitter, "zero-coff-x64-exe") == 0);
 }
 
-static bool target_readiness_select_diag(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target, const IrProgram *ir, ZDiag *diag) {
+static bool target_readiness_select_emit_target(const Command *command, const SourceInput *input, const ZTargetInfo *target, ZDiag *diag) {
   EmitKind emit = command ? command->emit : EMIT_EXE;
   const char *emit_kind = emit_kind_name(emit);
   if (emit == EMIT_WASM) {
@@ -8377,6 +8377,52 @@ static bool target_readiness_select_diag(const Command *command, const SourceInp
     init_direct_backend_diag(diag, command, input, target, emit_kind, "use --emit exe, --emit obj, or --emit wasm for target readiness");
     return false;
   }
+  return true;
+}
+
+static bool target_readiness_emit_object_dry_run(const IrProgram *ir, const char *emitter, ZBuf *artifact, ZDiag *diag) {
+  if (strcmp(emitter, "zero-elf64") == 0) return z_emit_elf64_object_from_ir(ir, artifact, diag);
+  if (strcmp(emitter, "zero-elf-aarch64") == 0) return z_emit_elf_aarch64_object_from_ir(ir, artifact, diag);
+  if (strcmp(emitter, "zero-macho64") == 0) return z_emit_macho64_object_from_ir(ir, artifact, diag);
+  if (strcmp(emitter, "zero-coff-x64") == 0) return z_emit_coff_x64_object_from_ir(ir, artifact, diag);
+  return false;
+}
+
+static bool target_readiness_emit_exe_dry_run(const IrProgram *ir, const char *emitter, ZBuf *artifact, ZDiag *diag) {
+  if (strcmp(emitter, "zero-elf-aarch64-exe") == 0) return z_emit_elf_aarch64_exe_from_ir(ir, artifact, diag);
+  if (strcmp(emitter, "zero-macho64-exe") == 0) return z_emit_macho64_exe_from_ir(ir, artifact, diag);
+  if (strcmp(emitter, "zero-coff-x64-exe") == 0) return z_emit_coff_x64_exe_from_ir(ir, artifact, diag);
+  if (strcmp(emitter, "zero-elf64-exe") == 0) return z_emit_elf64_exe_from_ir(ir, artifact, diag);
+  return false;
+}
+
+static bool target_readiness_dry_emit(const Command *command, const ZTargetInfo *target, const IrProgram *ir, ZDiag *diag) {
+  EmitKind emit = command ? command->emit : EMIT_EXE;
+  const char *emit_kind = emit_kind_name(emit);
+  ZBuf artifact = {0};
+  bool emitted = false;
+  if (emit == EMIT_WASM) {
+    emitted = z_emit_wasm_from_ir(ir, &artifact, diag);
+  } else if (emit == EMIT_OBJ) {
+    emitted = target_readiness_emit_object_dry_run(ir, z_direct_object_emitter(target), &artifact, diag);
+  } else if (emit == EMIT_EXE && ir && ir_needs_zero_runtime_object(ir)) {
+    emitted = target_readiness_emit_object_dry_run(ir, z_direct_object_emitter(target), &artifact, diag);
+  } else if (emit == EMIT_EXE) {
+    emitted = target_readiness_emit_exe_dry_run(ir, z_direct_exe_emitter(target), &artifact, diag);
+  }
+  zbuf_free(&artifact);
+  if (!emitted) complete_backend_blocker_diag(diag, target, command, emit_kind, "emit");
+  return emitted;
+}
+
+static bool target_readiness_select_diag(const Command *command, const SourceInput *input, const Program *program, const ZTargetInfo *target, const IrProgram *ir, ZDiag *diag) {
+  EmitKind emit = command ? command->emit : EMIT_EXE;
+  const char *emit_kind = emit_kind_name(emit);
+  if (emit == EMIT_WASM || emit == EMIT_OBJ) return target_readiness_dry_emit(command, target, ir, diag);
+  if (emit == EMIT_C) {
+    init_direct_backend_diag(diag, command, input, target, emit_kind, "use --emit exe, --emit obj, or --emit wasm for target readiness");
+    return false;
+  }
 
   if (ir && ir_needs_zero_runtime_object(ir)) {
     RuntimeImportAudit audit = runtime_import_audit_from_ir(ir);
@@ -8391,7 +8437,7 @@ static bool target_readiness_select_diag(const Command *command, const SourceInp
       init_direct_backend_diag(diag, command, input, target, emit_kind, "HTTP runtime provider is host-only for direct executable links");
       return false;
     }
-    return true;
+    return target_readiness_dry_emit(command, target, ir, diag);
   }
 
   const char *emitter = z_direct_exe_emitter(target);
@@ -8399,7 +8445,7 @@ static bool target_readiness_select_diag(const Command *command, const SourceInp
   CapabilitySummary caps = program_capabilities(program);
   bool default_direct_exe = supported_exe && (!command || !command->backend) && self_host_subset_compatible(program, &caps);
   bool requested_direct_exe = supported_exe && command && command->backend && command->backend[0];
-  if (default_direct_exe || requested_direct_exe) return true;
+  if (default_direct_exe || requested_direct_exe) return target_readiness_dry_emit(command, target, ir, diag);
   init_direct_backend_diag(diag, command, input, target, emit_kind, "direct executable backend is not implemented for this target/backend pair; use --emit obj for direct target objects or choose a supported direct executable target");
   return false;
 }
@@ -8450,7 +8496,9 @@ static void append_target_readiness_json(ZBuf *buf, SourceInput *input, const Pr
 
   ZDiag diag = {0};
   bool ready = true;
-  if (!ir.mir_valid) {
+  if (!target_readiness_select_emit_target(command, input, target, &diag)) {
+    ready = false;
+  } else if (!ir.mir_valid) {
     init_lowering_backend_diag(&diag, input, target, command, &ir);
     ready = false;
   } else if (!target_readiness_select_diag(command, input, program, target, &ir, &diag)) {

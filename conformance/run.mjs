@@ -565,6 +565,42 @@ assert.deepEqual(agentSurfaceOwnedDropReadinessBody.targetReadiness.diagnostics[
   unsupportedFeature: "owned<Tracked>",
 });
 
+const directCallExeReadiness = await execFileAsync(zero, [
+  "check",
+  "--json",
+  "--emit",
+  "exe",
+  "--target",
+  "linux-musl-x64",
+  "examples/direct-call-add.0",
+]);
+const directCallExeReadinessBody = JSON.parse(directCallExeReadiness.stdout);
+assert.equal(directCallExeReadinessBody.ok, true);
+assert.equal(directCallExeReadinessBody.diagnostics.length, 0);
+assert.equal(directCallExeReadinessBody.targetReadiness.ok, false);
+assert.equal(directCallExeReadinessBody.targetReadiness.buildable, false);
+assert.equal(directCallExeReadinessBody.targetReadiness.diagnostics[0].code, "CGEN004");
+assert.equal(directCallExeReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "emit");
+assert.match(directCallExeReadinessBody.targetReadiness.diagnostics[0].message, /main must not take parameters/);
+
+const memoryPackageMachOReadiness = await execFileAsync(zero, [
+  "check",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "darwin-arm64",
+  "examples/memory-package",
+]);
+const memoryPackageMachOReadinessBody = JSON.parse(memoryPackageMachOReadiness.stdout);
+assert.equal(memoryPackageMachOReadinessBody.ok, true);
+assert.equal(memoryPackageMachOReadinessBody.diagnostics.length, 0);
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.ok, false);
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.buildable, false);
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].code, "CGEN004");
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-macho64");
+assert.equal(memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "emit");
+
 async function assertAgentSurfaceOwnedDropUnsupported(target, emit, outName, expectedPattern, expectedObjectFormat, expectedBackend, options = {}) {
   const nativeTarget = options.nativeTarget ?? true;
   const extraArgs = options.extraArgs ?? [];
