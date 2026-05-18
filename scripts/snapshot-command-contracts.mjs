@@ -1465,6 +1465,12 @@ const targetDeniedCapability = json(["check", "--json", "--target", "wasm32-web"
 assert.equal(targetDeniedCapability.diagnostics[0].code, "TAR002");
 assert.equal(targetDeniedCapability.diagnostics[0].repair.id, "choose-target-with-required-capability");
 assert.equal(targetDeniedCapability.generatedCBytes ?? 0, 0);
+const invalidCheckEmit = json(["check", "--json", "--emit", "bogus", "examples/hello.0"], { allowFailure: true });
+assert.equal(invalidCheckEmit.code, 1);
+assert.equal(invalidCheckEmit.body.ok, false);
+assert.equal(invalidCheckEmit.body.diagnostics[0].code, "BLD002");
+assert.equal(invalidCheckEmit.body.diagnostics[0].actual, "--emit bogus");
+assert.equal(invalidCheckEmit.body.targetReadiness, undefined);
 const backendBlockedReadiness = json(["check", "--json", "--emit", "obj", "--target", "linux-musl-x64", "conformance/agent-surface/fixtures/owned-drop-direct-backend-unsupported.0"]).body;
 assert.equal(backendBlockedReadiness.ok, true);
 assert.equal(backendBlockedReadiness.diagnostics.length, 0);

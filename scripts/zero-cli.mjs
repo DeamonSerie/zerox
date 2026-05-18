@@ -33,7 +33,7 @@ if (trySkillsCommand(args)) {
   process.exit(0);
 }
 
-rejectRemovedCBackend(args);
+rejectInvalidEmitOrRemovedCBackend(args);
 
 if (process.env.ZERO_NATIVE_BOOTSTRAP === "1") {
   runNative();
@@ -1152,9 +1152,45 @@ function selfHostSourceForms(sourceBytes) {
   return forms;
 }
 
-function rejectRemovedCBackend(argv) {
+function rejectInvalidEmitOrRemovedCBackend(argv) {
   const compilerArgs = compilerOptionArgs(argv);
   const emit = optionValue(compilerArgs, "--emit");
+  if (emit && !["exe", "obj", "wasm", "c"].includes(emit)) {
+    const json = compilerArgs.includes("--json");
+    const actual = `--emit ${emit}`;
+    const diagnostic = {
+      schemaVersion: 1,
+      ok: false,
+      diagnostics: [
+        {
+          code: "BLD002",
+          severity: "error",
+          message: `unknown emit kind '${emit}'`,
+          path: inputPath(compilerArgs),
+          line: 1,
+          column: 1,
+          length: 1,
+          expected: "one of exe, obj, wasm",
+          actual,
+          help: "use --emit exe, --emit obj, or --emit wasm",
+          fixSafety: "requires-human-review",
+          repair: {
+            id: "manual-review",
+            summary: "Inspect the diagnostic fields and choose a repair manually.",
+          },
+        },
+      ],
+    };
+    if (json) {
+      console.log(JSON.stringify(diagnostic));
+    } else {
+      console.error(`${diagnostic.diagnostics[0].path}:1:1 BLD002: ${diagnostic.diagnostics[0].message}`);
+      console.error(`  expected: ${diagnostic.diagnostics[0].expected}`);
+      console.error(`  actual: ${actual}`);
+      console.error(`  help: ${diagnostic.diagnostics[0].help}`);
+    }
+    process.exit(1);
+  }
   if (compilerArgs.includes("--legacy-backend") || emit === "c") {
     const json = compilerArgs.includes("--json");
     const actual = compilerArgs.includes("--legacy-backend") ? "--legacy-backend" : "--emit c";

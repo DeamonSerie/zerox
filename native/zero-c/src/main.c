@@ -42,6 +42,7 @@ typedef struct {
   const char *cc;
   const char *backend;
   const char *unknown_flag;
+  const char *invalid_emit;
   const char *filter;
   int run_argc;
   char **run_argv;
@@ -3299,7 +3300,8 @@ static bool parse_common_option(int argc, char **argv, int *index, Command *comm
     if (strcmp(argv[*index], "exe") == 0) command->emit = EMIT_EXE;
     else if (strcmp(argv[*index], "obj") == 0) command->emit = EMIT_OBJ;
     else if (strcmp(argv[*index], "wasm") == 0) command->emit = EMIT_WASM;
-    else command->emit = EMIT_C;
+    else if (strcmp(argv[*index], "c") == 0) command->emit = EMIT_C;
+    else command->invalid_emit = argv[*index];
     return true;
   } else if (strcmp(arg, "--out") == 0) {
     if (*index + 1 >= argc) command->unknown_flag = arg;
@@ -9028,6 +9030,20 @@ int main(int argc, char **argv) {
     fprintf(stderr, "\n");
     return 1;
   }
+  if (command.invalid_emit) {
+    ZDiag diag = {0};
+    diag.code = 2002;
+    diag.line = 1;
+    diag.column = 1;
+    diag.length = 1;
+    snprintf(diag.message, sizeof(diag.message), "unknown emit kind '%s'", command.invalid_emit);
+    snprintf(diag.expected, sizeof(diag.expected), "one of exe, obj, wasm");
+    snprintf(diag.actual, sizeof(diag.actual), "--emit %s", command.invalid_emit);
+    snprintf(diag.help, sizeof(diag.help), "use --emit exe, --emit obj, or --emit wasm");
+    if (command.json) print_diag_json(command.input, &diag);
+    else print_diag(command.input, &diag);
+    return 1;
+  }
   if (strcmp(command.command, "--version") == 0 || strcmp(command.command, "version") == 0) {
     return print_version_command(command.json);
   }
@@ -9077,7 +9093,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (command.legacy_backend || ((strcmp(command.command, "build") == 0 || strcmp(command.command, "run") == 0 || strcmp(command.command, "ship") == 0) && command.emit == EMIT_C)) {
+  if (command.legacy_backend || command.emit == EMIT_C) {
     diag.code = 2003;
     diag.line = 1;
     diag.column = 1;
