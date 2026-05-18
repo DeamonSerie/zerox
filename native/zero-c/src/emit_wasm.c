@@ -25,6 +25,7 @@ static bool wasm_ir_diag(ZDiag *diag, const IrProgram *ir) {
   snprintf(diag->expected, sizeof(diag->expected), "%s", ir && ir->mir_expected[0] ? ir->mir_expected : "direct wasm MVP subset");
   snprintf(diag->actual, sizeof(diag->actual), "%s", ir && ir->mir_actual[0] ? ir->mir_actual : "unsupported construct");
   snprintf(diag->help, sizeof(diag->help), "%s", ir && ir->mir_help[0] ? ir->mir_help : "restrict this program to direct-wasm-supported features");
+  if (ir) z_diag_set_backend_blocker(diag, &ir->backend_blocker);
   return false;
 }
 

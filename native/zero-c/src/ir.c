@@ -521,6 +521,22 @@ static bool ir_parse_fixed_array_type(const char *type, unsigned *out_len, IrTyp
   return ir_parse_fixed_array_type_for_program(NULL, type, out_len, out_element);
 }
 
+void z_backend_blocker_set(ZBackendBlocker *blocker, const char *target, const char *object_format, const char *backend, const char *stage, const char *unsupported_feature) {
+  if (!blocker) return;
+  memset(blocker, 0, sizeof(*blocker));
+  blocker->present = true;
+  snprintf(blocker->target, sizeof(blocker->target), "%s", target ? target : "");
+  snprintf(blocker->object_format, sizeof(blocker->object_format), "%s", object_format ? object_format : "");
+  snprintf(blocker->backend, sizeof(blocker->backend), "%s", backend ? backend : "");
+  snprintf(blocker->stage, sizeof(blocker->stage), "%s", stage ? stage : "");
+  snprintf(blocker->unsupported_feature, sizeof(blocker->unsupported_feature), "%s", unsupported_feature ? unsupported_feature : "");
+}
+
+void z_diag_set_backend_blocker(ZDiag *diag, const ZBackendBlocker *blocker) {
+  if (!diag || !blocker || !blocker->present) return;
+  diag->backend_blocker = *blocker;
+}
+
 static void ir_mark_unsupported(IrProgram *ir, const char *message, int line, int column, const char *actual) {
   if (!ir || !ir->mir_valid) return;
   ir->mir_valid = false;
@@ -530,6 +546,7 @@ static void ir_mark_unsupported(IrProgram *ir, const char *message, int line, in
   snprintf(ir->mir_expected, sizeof(ir->mir_expected), "direct wasm MVP subset");
   snprintf(ir->mir_actual, sizeof(ir->mir_actual), "%s", actual ? actual : "unsupported construct");
   snprintf(ir->mir_help, sizeof(ir->mir_help), "restrict this program to exported primitive arithmetic functions or choose another supported direct target");
+  z_backend_blocker_set(&ir->backend_blocker, NULL, NULL, NULL, "lower", ir->mir_actual);
 }
 
 static bool ir_parse_integer_literal(const char *text, unsigned long long *out) {

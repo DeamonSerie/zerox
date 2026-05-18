@@ -1596,7 +1596,11 @@ static void macho_append_rodata(ZBuf *rodata, const IrProgram *program, unsigned
 
 bool z_emit_macho64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {
   if (!program || !out) return macho_diag(diag, "direct Mach-O backend received no program");
-  if (!program->mir_valid) return macho_diag_at(diag, program->mir_message[0] ? program->mir_message : "direct backend lowering failed", program->mir_line, program->mir_column, program->mir_actual);
+  if (!program->mir_valid) {
+    bool ok = macho_diag_at(diag, program->mir_message[0] ? program->mir_message : "direct backend lowering failed", program->mir_line, program->mir_column, program->mir_actual);
+    z_diag_set_backend_blocker(diag, &program->backend_blocker);
+    return ok;
+  }
   if (program->function_len == 0) return macho_diag_at(diag, "direct AArch64 Mach-O object backend requires at least one exported function", 1, 1, "empty program");
   bool has_export = false;
   for (size_t i = 0; i < program->function_len; i++) {
@@ -2119,7 +2123,11 @@ static size_t macho_emit_exe_world_write(ZBuf *text) {
 
 bool z_emit_macho64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {
   if (!program || !out) return macho_diag(diag, "direct Mach-O executable backend received no program");
-  if (!program->mir_valid) return macho_diag_at(diag, program->mir_message[0] ? program->mir_message : "direct backend lowering failed", program->mir_line, program->mir_column, program->mir_actual);
+  if (!program->mir_valid) {
+    bool ok = macho_diag_at(diag, program->mir_message[0] ? program->mir_message : "direct backend lowering failed", program->mir_line, program->mir_column, program->mir_actual);
+    z_diag_set_backend_blocker(diag, &program->backend_blocker);
+    return ok;
+  }
   unsigned main_index = 0;
   if (!macho_find_executable_main(program, diag, &main_index)) return false;
   for (size_t i = 0; i < program->function_len; i++) {

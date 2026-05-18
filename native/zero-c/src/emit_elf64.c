@@ -64,6 +64,7 @@ static bool elf_ir_diag(ZDiag *diag, const IrProgram *ir) {
   snprintf(diag->expected, sizeof(diag->expected), "direct ELF64 object MVP subset");
   snprintf(diag->actual, sizeof(diag->actual), "%s", ir && ir->mir_actual[0] ? ir->mir_actual : "unsupported construct");
   snprintf(diag->help, sizeof(diag->help), "choose a supported direct target or restrict this program to exported primitive integer arithmetic functions");
+  if (ir) z_diag_set_backend_blocker(diag, &ir->backend_blocker);
   return false;
 }
 

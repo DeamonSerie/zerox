@@ -23,6 +23,15 @@ typedef struct {
 } ZBorrowTrace;
 
 typedef struct {
+  bool present;
+  char target[64];
+  char object_format[32];
+  char backend[64];
+  char stage[32];
+  char unsupported_feature[128];
+} ZBackendBlocker;
+
+typedef struct {
   int code;
   char code_text[16];
   char message[256];
@@ -33,6 +42,7 @@ typedef struct {
   size_t borrow_trace_count;
   bool borrow_trace_truncated;
   char borrow_repair[256];
+  ZBackendBlocker backend_blocker;
   const char *path;
   int line;
   int column;
@@ -597,6 +607,7 @@ typedef struct {
   char mir_actual[128];
   char mir_message[256];
   char mir_help[256];
+  ZBackendBlocker backend_blocker;
   int mir_line;
   int mir_column;
   size_t mir_bytes;
@@ -783,6 +794,8 @@ void z_free_program(Program *program);
 bool z_check_program(const Program *program, ZDiag *diag);
 void z_set_check_target(const ZTargetInfo *target);
 ZMetaCacheStats z_meta_cache_stats(void);
+void z_backend_blocker_set(ZBackendBlocker *blocker, const char *target, const char *object_format, const char *backend, const char *stage, const char *unsupported_feature);
+void z_diag_set_backend_blocker(ZDiag *diag, const ZBackendBlocker *blocker);
 IrProgram z_lower_program(const Program *program);
 IrProgram z_lower_program_with_source(const Program *program, const SourceInput *input);
 void z_free_ir_program(IrProgram *program);

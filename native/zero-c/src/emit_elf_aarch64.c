@@ -135,7 +135,11 @@ static void a64_append_section_header(ZBuf *out, uint32_t name, uint32_t type, u
 
 bool z_emit_elf_aarch64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
   if (!ir) return a64_diag(diag, "direct AArch64 ELF object backend requires MIR", 1, 1, "missing MIR");
-  if (!ir->mir_valid) return a64_diag(diag, ir->mir_message[0] ? ir->mir_message : "direct backend lowering failed", ir->mir_line, ir->mir_column, ir->mir_actual);
+  if (!ir->mir_valid) {
+    bool ok = a64_diag(diag, ir->mir_message[0] ? ir->mir_message : "direct backend lowering failed", ir->mir_line, ir->mir_column, ir->mir_actual);
+    z_diag_set_backend_blocker(diag, &ir->backend_blocker);
+    return ok;
+  }
 
   ZBuf text;
   ZBuf strtab;
@@ -266,7 +270,11 @@ bool z_emit_elf_aarch64_object_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *di
 
 bool z_emit_elf_aarch64_exe_from_ir(const IrProgram *ir, ZBuf *out, ZDiag *diag) {
   if (!ir) return a64_diag(diag, "direct AArch64 ELF executable backend requires MIR", 1, 1, "missing MIR");
-  if (!ir->mir_valid) return a64_diag(diag, ir->mir_message[0] ? ir->mir_message : "direct backend lowering failed", ir->mir_line, ir->mir_column, ir->mir_actual);
+  if (!ir->mir_valid) {
+    bool ok = a64_diag(diag, ir->mir_message[0] ? ir->mir_message : "direct backend lowering failed", ir->mir_line, ir->mir_column, ir->mir_actual);
+    z_diag_set_backend_blocker(diag, &ir->backend_blocker);
+    return ok;
+  }
   unsigned main_index = 0;
   if (!a64_find_main(ir, &main_index, diag)) return false;
 

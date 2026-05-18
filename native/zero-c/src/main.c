@@ -2901,6 +2901,20 @@ static int explain_command(const Command *command) {
   return 0;
 }
 
+static void append_backend_blocker_json(ZBuf *buf, const ZBackendBlocker *blocker) {
+  zbuf_append(buf, "{\"target\":");
+  append_json_string(buf, blocker && blocker->target[0] ? blocker->target : "unknown");
+  zbuf_append(buf, ",\"objectFormat\":");
+  append_json_string(buf, blocker && blocker->object_format[0] ? blocker->object_format : "unknown");
+  zbuf_append(buf, ",\"backend\":");
+  append_json_string(buf, blocker && blocker->backend[0] ? blocker->backend : "unknown");
+  zbuf_append(buf, ",\"stage\":");
+  append_json_string(buf, blocker && blocker->stage[0] ? blocker->stage : "unknown");
+  zbuf_append(buf, ",\"unsupportedFeature\":");
+  append_json_string(buf, blocker && blocker->unsupported_feature[0] ? blocker->unsupported_feature : "unsupported construct");
+  zbuf_append(buf, "}");
+}
+
 static void print_diag_json(const char *path, const ZDiag *diag) {
   ZBuf buf;
   zbuf_init(&buf);
@@ -2925,6 +2939,10 @@ static void print_diag_json(const char *path, const ZDiag *diag) {
   zbuf_append(&buf, ", \"summary\": ");
   append_json_string(&buf, diag_repair_summary(diag->code));
   zbuf_append(&buf, "}");
+  if (diag->backend_blocker.present) {
+    zbuf_append(&buf, ",\n      \"backendBlocker\": ");
+    append_backend_blocker_json(&buf, &diag->backend_blocker);
+  }
   if (diag_has_borrow_trace(diag)) {
     zbuf_append(&buf, ",\n      \"borrowTrace\": ");
     append_diag_borrow_trace_json(&buf, path, diag);
@@ -2967,6 +2985,10 @@ static void append_fix_plan_diagnostic(ZBuf *buf, const char *path, const ZDiag 
   zbuf_append(buf, ", \"summary\": ");
   append_json_string(buf, diag_repair_summary(diag->code));
   zbuf_append(buf, "}");
+  if (diag->backend_blocker.present) {
+    zbuf_append(buf, ", \"backendBlocker\": ");
+    append_backend_blocker_json(buf, &diag->backend_blocker);
+  }
   if (diag_has_borrow_trace(diag)) {
     zbuf_append(buf, ", \"borrowTrace\": ");
     append_diag_borrow_trace_json(buf, path, diag);
@@ -3482,7 +3504,28 @@ static char *apply_direct_wasm_suffix(const char *path) {
   return buf.data;
 }
 
-static void init_direct_backend_diag(ZDiag *diag, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind, const char *reason) {
+static const char *backend_blocker_backend_name(const ZTargetInfo *target, const Command *command, const char *emit_kind) {
+  if (command && command->backend && command->backend[0]) return command->backend;
+  if (emit_kind && (strcmp(emit_kind, "obj") == 0 || strcmp(emit_kind, "wasm") == 0)) return z_direct_object_emitter(target);
+  if (emit_kind && strcmp(emit_kind, "exe") == 0) return z_direct_exe_emitter(target);
+  return "none";
+}
+
+static void complete_backend_blocker_diag(ZDiag *diag, const ZTargetInfo *target, const Command *command, const char *emit_kind, const char *stage) {
+  if (!diag || diag->code != 4004) return;
+  const char *blocker_stage = diag->backend_blocker.present && diag->backend_blocker.stage[0] ? diag->backend_blocker.stage : stage;
+  const char *unsupported_feature = diag->backend_blocker.present && diag->backend_blocker.unsupported_feature[0] ? diag->backend_blocker.unsupported_feature : diag->actual;
+  ZBackendBlocker blocker;
+  z_backend_blocker_set(&blocker,
+                        target && target->name ? target->name : "unknown",
+                        target && target->object_format ? target->object_format : "unknown",
+                        backend_blocker_backend_name(target, command, emit_kind),
+                        blocker_stage && blocker_stage[0] ? blocker_stage : "emit",
+                        unsupported_feature && unsupported_feature[0] ? unsupported_feature : "unsupported construct");
+  z_diag_set_backend_blocker(diag, &blocker);
+}
+
+static void init_direct_backend_diag(ZDiag *diag, const Command *command, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind, const char *reason) {
   memset(diag, 0, sizeof(*diag));
   diag->code = 4004;
   diag->path = input ? input->source_file : NULL;
@@ -3500,11 +3543,12 @@ static void init_direct_backend_diag(ZDiag *diag, const SourceInput *input, cons
            target && target->abi ? target->abi : "",
            z_direct_backend_status(target));
   snprintf(diag->help, sizeof(diag->help), "%s", reason ? reason : z_direct_backend_reason(target));
+  complete_backend_blocker_diag(diag, target, command, emit_kind, "select");
 }
 
 static int return_direct_backend_error(const Command *command, const SourceInput *input, const ZTargetInfo *target, const char *emit_kind, const char *reason, IrProgram *ir, Program *program) {
   ZDiag diag;
-  init_direct_backend_diag(&diag, input, target, emit_kind, reason);
+  init_direct_backend_diag(&diag, command, input, target, emit_kind, reason);
   if (command && command->json) print_diag_json(input ? input->source_file : NULL, &diag);
   else print_diag(input ? input->source_file : NULL, &diag);
   if (ir) z_free_ir_program(ir);
@@ -9180,6 +9224,7 @@ int main(int argc, char **argv) {
     if (!emitted_wasm) {
       z_map_source_diag(&input, &diag);
       if (!diag.path) diag.path = input.source_file;
+      complete_backend_blocker_diag(&diag, target, &command, "wasm", "emit");
       if (command.json) print_diag_json(input.source_file, &diag);
       else print_diag(input.source_file, &diag);
       z_free_ir_program(&ir);
@@ -9242,6 +9287,7 @@ int main(int argc, char **argv) {
     if (!emitted_object) {
       z_map_source_diag(&input, &diag);
       if (!diag.path) diag.path = input.source_file;
+      complete_backend_blocker_diag(&diag, target, &command, "obj", "emit");
       if (command.json) print_diag_json(input.source_file, &diag);
       else print_diag(input.source_file, &diag);
       z_free_ir_program(&ir);
@@ -9315,6 +9361,7 @@ int main(int argc, char **argv) {
     if (!emitted_object) {
       z_map_source_diag(&input, &diag);
       if (!diag.path) diag.path = input.source_file;
+      complete_backend_blocker_diag(&diag, target, &command, "exe", "emit");
       if (command.json) print_diag_json(input.source_file, &diag);
       else print_diag(input.source_file, &diag);
       zbuf_free(&object);
@@ -9436,6 +9483,7 @@ int main(int argc, char **argv) {
     if (!emitted_exe) {
       z_map_source_diag(&input, &diag);
       if (!diag.path) diag.path = input.source_file;
+      complete_backend_blocker_diag(&diag, target, &command, "exe", "emit");
       if (command.json) print_diag_json(input.source_file, &diag);
       else print_diag(input.source_file, &diag);
       z_free_ir_program(&ir);

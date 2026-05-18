@@ -940,7 +940,11 @@ static void coff_append_rodata(ZBuf *rodata, const IrProgram *program, unsigned 
 
 bool z_emit_coff_x64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {
   if (!program || !out) return coff_diag(diag, "direct COFF backend received no program");
-  if (!program->mir_valid) return coff_diag_at(diag, program->mir_message[0] ? program->mir_message : "direct backend lowering failed", program->mir_line, program->mir_column, program->mir_actual);
+  if (!program->mir_valid) {
+    bool ok = coff_diag_at(diag, program->mir_message[0] ? program->mir_message : "direct backend lowering failed", program->mir_line, program->mir_column, program->mir_actual);
+    z_diag_set_backend_blocker(diag, &program->backend_blocker);
+    return ok;
+  }
   if (program->function_len == 0) return coff_diag_at(diag, "direct COFF object backend requires at least one exported function", 1, 1, "empty program");
   bool has_export = false;
   for (size_t i = 0; i < program->function_len; i++) {
@@ -1288,7 +1292,11 @@ static void coff_append_import_table(ZBuf *rdata, uint32_t rdata_rva, CoffImport
 
 bool z_emit_coff_x64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag) {
   if (!program || !out) return coff_diag(diag, "direct COFF executable backend received no program");
-  if (!program->mir_valid) return coff_diag_at(diag, program->mir_message[0] ? program->mir_message : "direct backend lowering failed", program->mir_line, program->mir_column, program->mir_actual);
+  if (!program->mir_valid) {
+    bool ok = coff_diag_at(diag, program->mir_message[0] ? program->mir_message : "direct backend lowering failed", program->mir_line, program->mir_column, program->mir_actual);
+    z_diag_set_backend_blocker(diag, &program->backend_blocker);
+    return ok;
+  }
   unsigned main_index = 0;
   if (!coff_find_executable_main(program, diag, &main_index)) return false;
   for (size_t i = 0; i < program->function_len; i++) {
