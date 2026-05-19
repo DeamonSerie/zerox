@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const root = process.cwd();
 const zero = join(root, "bin", "zero");
+const nativeZero = join(root, ".zero", "bin", "zero");
 const supportedTargets = [
   "darwin-arm64",
   "darwin-x64",
@@ -36,6 +37,10 @@ function runZero(args: string[], options: { cwd?: string; env?: NodeJS.ProcessEn
   return execFileAsync(zero, args, { cwd: options.cwd ?? root, env: options.env ?? process.env });
 }
 
+function runNativeZero(args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}) {
+  return execFileAsync(nativeZero, args, { cwd: options.cwd ?? root, env: options.env ?? process.env });
+}
+
 async function collectSkillMdFiles(dir: string): Promise<string[]> {
   const ignoredDirs = new Set([".git", ".next", ".zero", "node_modules"]);
   let entries;
@@ -58,6 +63,11 @@ async function collectSkillMdFiles(dir: string): Promise<string[]> {
 }
 
 describe("native zero CLI", () => {
+  it("prints a terse plain version", async () => {
+    assert.equal((await runZero(["--version"])).stdout, "zero 0.1.2\n");
+    assert.equal((await runNativeZero(["--version"])).stdout, "zero 0.1.2\n");
+  });
+
   it("checks directly and rejects removed legacy build flags", async () => {
     const check = await runZero(["check", "examples/hello.0"]);
     assert.match(check.stdout, /ok/);
@@ -209,6 +219,14 @@ describe("native zero CLI", () => {
     const missing = await runZero(["skills", "get", "missing", "--json"]).catch((error) => error);
     assert.notEqual(missing.code, 0);
     assert.equal(JSON.parse(missing.stdout).success, false);
+
+    const nativeList = JSON.parse((await runNativeZero(["skills", "list", "--json"])).stdout);
+    assert.equal(nativeList.success, true);
+    assert.equal(nativeList.data.some((skill: { name: string }) => skill.name === "zero-language"), true);
+
+    const nativeLanguageSkill = JSON.parse((await runNativeZero(["skills", "get", "zero-language", "--json"])).stdout);
+    assert.equal(nativeLanguageSkill.success, true);
+    assert.match(nativeLanguageSkill.data[0].content, /# Zero Language/);
   });
 
   it("handles target-specific executable names", async () => {

@@ -209,6 +209,8 @@ function assertReleaseTargetContract(report, expected) {
 
 const generatedCBytesBeforeReadOnlyCommands = json(["size", "--json", "examples/memory-package"]).body.generatedCBytes;
 
+assert.equal(zero(["--version"]).stdout, "zero 0.1.2\n");
+
 const version = json(["--version", "--json"]).body;
 assert.equal(version.schemaVersion, 1);
 assert.equal(version.version, "0.1.2");
