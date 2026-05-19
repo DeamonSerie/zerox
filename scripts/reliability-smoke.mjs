@@ -107,7 +107,7 @@ const report = {
     fuzzCorpus: [validFuzz, invalidFuzz, "conformance/parse/compiler-smoke.0", "examples/std-data-formats.0"],
     goldenOutputs: ["zero test --json conformance/packages/test-app", "zero fmt conformance/native/pass/test-blocks.0"],
     crasherRepros: [crasher],
-    sanitizerGate: "npm run native:sanitize",
+    sanitizerGate: "pnpm run native:sanitize",
   },
 };
 

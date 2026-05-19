@@ -13,8 +13,8 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log(`Run native test commands inside Vercel Sandbox.
 
 Usage:
-  npm run native:test:sandbox
-  node scripts/native-test-sandbox.mjs -- npm run conformance
+  pnpm run native:test:sandbox
+  node scripts/native-test-sandbox.mjs -- pnpm run conformance
 
 Environment:
   ZERO_NATIVE_TEST_SANDBOX_SNAPSHOT_ID       Reuse a prepared native-test snapshot
@@ -234,7 +234,9 @@ async function createPreparedSnapshot(Sandbox) {
             `mkdir -p ${projectDir}`,
             `tar -xzf /tmp/zero-lang-source.tar.gz -C ${projectDir}`,
             `cd ${projectDir}`,
-            "npm ci",
+            "corepack enable",
+            "corepack prepare pnpm@10.11.0 --activate",
+            "pnpm install --frozen-lockfile",
             "make -C native/zero-c",
             "node --version",
           ].join("\n"),
@@ -272,7 +274,9 @@ async function runSandboxTask(Sandbox, snapshot, command) {
             `cd ${snapshot.projectDir}`,
             "find . -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} +",
             `tar -xzf /tmp/zero-lang-source-current.tar.gz -C ${snapshot.projectDir}`,
-            "npm ci",
+            "corepack enable",
+            "corepack prepare pnpm@10.11.0 --activate",
+            "pnpm install --frozen-lockfile",
             "make -C native/zero-c",
             command,
           ].join("\n"),
@@ -290,7 +294,7 @@ async function runSandboxTask(Sandbox, snapshot, command) {
 async function main() {
   ensureVercelAuthEnv();
   const { Sandbox } = await import("@vercel/sandbox").catch((error) => {
-    throw new Error(`native:test:sandbox requires @vercel/sandbox. Run npm install first.\n${error.message}`);
+    throw new Error(`native:test:sandbox requires @vercel/sandbox. Run pnpm install first.\n${error.message}`);
   });
 
   const reusableSnapshot = snapshotFromEnv();

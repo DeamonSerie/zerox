@@ -3,7 +3,7 @@
 Use this path when you want to try Zero from a checkout or work on the compiler.
 
 ```sh
-npm install
+pnpm install
 make -C native/zero-c
 bin/zero --version
 ```
@@ -108,16 +108,16 @@ The compiler supports the command-line language subset used by the examples:
 ## Validate A Checkout
 
 ```sh
-npm run docs:test
-npm run conformance
-npm run native:test
-npm run command-contracts
+pnpm run docs:test
+pnpm run conformance
+pnpm run native:test
+pnpm run command-contracts
 ```
 
 Run local benchmark smoke coverage:
 
 ```sh
-npm run bench
+pnpm run bench
 ```
 
 The TypeScript code in this repository is support tooling for docs, tests,

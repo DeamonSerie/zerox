@@ -94,7 +94,7 @@ describe("docs registry", () => {
       assert.match(testing, new RegExp(testingTerm));
     }
     const optimization = await readDoc("optimization");
-    for (const optimizationTerm of ["profileSemantics", "profileBudget", "sizeBreakdown", "retentionReasons", "optimizationHints", "memoryBudgets", "allocatorFacts", "allocationInstrumentation", "collectionFacts", "trend summary", "ZERO_BENCH_RUNS=1 npm run bench", "debug", "fast", "small", "tiny"]) {
+    for (const optimizationTerm of ["profileSemantics", "profileBudget", "sizeBreakdown", "retentionReasons", "optimizationHints", "memoryBudgets", "allocatorFacts", "allocationInstrumentation", "collectionFacts", "trend summary", "ZERO_BENCH_RUNS=1 pnpm run bench", "debug", "fast", "small", "tiny"]) {
       assert.match(optimization, new RegExp(optimizationTerm));
     }
     const install = await readDoc("install");

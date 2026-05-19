@@ -60,14 +60,14 @@ zero doctor --json
 ## Validation
 
 ```bash
-npm run docs:test
-npm run conformance
-npm run native:test
-npm run command-contracts
+pnpm run docs:test
+pnpm run conformance
+pnpm run native:test
+pnpm run command-contracts
 ```
 
 Benchmarks run locally by default:
 
 ```bash
-npm run bench
+pnpm run bench
 ```

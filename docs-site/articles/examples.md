@@ -116,7 +116,7 @@ bin/zero build --emit wasm --target wasm32-wasi examples/zero-hash --out .zero/o
 Run command:
 
 ```sh
-npm run native:test
+pnpm run native:test
 ```
 
 Expected output:
@@ -145,7 +145,7 @@ registries, reflection, or heap allocation.
 Benchmark case:
 
 ```sh
-ZERO_BENCH_RUNS=1 npm run bench
+ZERO_BENCH_RUNS=1 pnpm run bench
 ```
 
 The benchmark report includes the Zero-only `zero-hash` case with expected output checking.
@@ -181,4 +181,4 @@ path:
 - `frameworkTaxBytes: 0`
 - `providerSpecificDeployment: false`
 
-Use `npm run wasm:runtime:smoke` to run the local WASI/browser import harness.
+Use `pnpm run wasm:runtime:smoke` to run the local WASI/browser import harness.

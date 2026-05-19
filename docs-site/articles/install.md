@@ -46,7 +46,7 @@ zero build --emit exe --target linux-musl-x64 examples/hello.0 --out .zero/out/h
 To build the compiler from a local checkout instead, use the repository wrapper:
 
 ```sh
-npm install
+pnpm install
 make -C native/zero-c
 bin/zero --version
 ```
@@ -54,8 +54,8 @@ bin/zero --version
 The repository validation commands are:
 
 ```sh
-npm run conformance
-npm run native:test
-npm run docs:test
-ZERO_BENCH_RUNS=1 npm run bench
+pnpm run conformance
+pnpm run native:test
+pnpm run docs:test
+ZERO_BENCH_RUNS=1 pnpm run bench
 ```

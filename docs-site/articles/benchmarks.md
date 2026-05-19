@@ -6,7 +6,7 @@ fast builds, predictable output, and low overhead.
 Run it locally:
 
 ```sh
-npm run bench
+pnpm run bench
 ```
 
 The report is written to:
@@ -70,13 +70,13 @@ host load, and cache state all affect results.
 Change the repeat count:
 
 ```sh
-ZERO_BENCH_RUNS=<n> npm run bench
+ZERO_BENCH_RUNS=<n> pnpm run bench
 ```
 
 Run the sandbox backend explicitly:
 
 ```sh
-ZERO_BENCH_MODE=sandbox npm run bench
+ZERO_BENCH_MODE=sandbox pnpm run bench
 ```
 
 Sandbox mode prepares an isolated environment and is useful for CI. Local mode is

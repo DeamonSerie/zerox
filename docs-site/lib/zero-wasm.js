@@ -41,7 +41,7 @@ async function runZeroCommand(command, source, target) {
       },
       diagnostics: [{
         code: "AGT002",
-        message: `Playground compiler is not built yet. Run npm run docs:wasm and refresh. (${error instanceof Error ? error.message : "unknown error"})`,
+        message: `Playground compiler is not built yet. Run pnpm run docs:wasm and refresh. (${error instanceof Error ? error.message : "unknown error"})`,
       }],
       message: "Playground compiler is unavailable.",
     };

@@ -62,7 +62,7 @@ The benchmark gate writes both a full one-run report and a compact trend
 artifact:
 
 ```sh
-ZERO_BENCH_RUNS=1 npm run bench
+ZERO_BENCH_RUNS=1 pnpm run bench
 ```
 
 The benchmark outputs are:

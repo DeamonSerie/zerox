@@ -863,7 +863,9 @@ async function createPreparedSnapshot(Sandbox) {
             `mkdir -p ${projectDir}`,
             `tar -xzf /tmp/zero-lang-source.tar.gz -C ${projectDir}`,
             `cd ${projectDir}`,
-            "npm ci",
+            "corepack enable",
+            "corepack prepare pnpm@10.11.0 --activate",
+            "pnpm install --frozen-lockfile",
             "make -C native/zero-c",
             "node --version",
           ].join("\n"),
@@ -910,7 +912,7 @@ async function runSandboxLanguageGroup(Sandbox, snapshot, group, index) {
 
 async function runSandboxBench() {
   const { Sandbox } = await import("@vercel/sandbox").catch((error) => {
-    throw new Error(`sandbox benchmark mode requires @vercel/sandbox. Run npm install before benchmarking.\n${error.message}`);
+    throw new Error(`sandbox benchmark mode requires @vercel/sandbox. Run pnpm install before benchmarking.\n${error.message}`);
   });
 
   const jobs = executableJobs();

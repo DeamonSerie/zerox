@@ -10,8 +10,8 @@ Common commands:
 zero test conformance/native/pass/test-blocks.0
 zero test --json --filter addition conformance/native/pass/test-blocks.0
 zero test --json conformance/packages/test-app
-npm run reliability:smoke
-npm run native:sanitize
+pnpm run reliability:smoke
+pnpm run native:sanitize
 ```
 
 Package tests discover test blocks across the package entry file and local
@@ -89,6 +89,6 @@ When a compiler crash is found, reduce it to a single fixture under conformance
 or a documented smoke repro. Keep the minimized input in the reliability report
 until a focused regression test owns it.
 
-`npm run native:sanitize` remains the native hardening gate. Keep sanitizer
+`pnpm run native:sanitize` remains the native hardening gate. Keep sanitizer
 failures, fuzz failures, and crasher repros visible in CI rather than hiding
 them behind best-effort local scripts.

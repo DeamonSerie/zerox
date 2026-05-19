@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { jsonByteTokenCount } from "../scripts/json-byte-token-count.mjs";
 
 if (process.env.ZERO_NATIVE_TEST_SANDBOX !== "1" && process.env.ZERO_NATIVE_TEST_ALLOW_LOCAL !== "1") {
-  console.error("conformance emits native test artifacts; run `npm run conformance` for Vercel Sandbox execution or set ZERO_NATIVE_TEST_ALLOW_LOCAL=1 to opt into local artifacts.");
+  console.error("conformance emits native test artifacts; run `pnpm run conformance` for Vercel Sandbox execution or set ZERO_NATIVE_TEST_ALLOW_LOCAL=1 to opt into local artifacts.");
   process.exit(1);
 }
 

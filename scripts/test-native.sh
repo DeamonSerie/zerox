@@ -10,7 +10,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
 if [[ "${ZERO_NATIVE_TEST_SANDBOX:-}" != "1" && "${ZERO_NATIVE_TEST_ALLOW_LOCAL:-}" != "1" ]]; then
-  echo "native tests emit native artifacts; run 'npm run native:test' for Vercel Sandbox execution or set ZERO_NATIVE_TEST_ALLOW_LOCAL=1 to opt into local artifacts." >&2
+  echo "native tests emit native artifacts; run 'pnpm run native:test' for Vercel Sandbox execution or set ZERO_NATIVE_TEST_ALLOW_LOCAL=1 to opt into local artifacts." >&2
   exit 1
 fi
 

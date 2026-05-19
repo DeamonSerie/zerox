@@ -2232,7 +2232,7 @@ static void append_local_runtime_plan_json(ZBuf *buf, const CapabilitySummary *c
   zbuf_append(buf, wasm_target ? "true" : "false");
   zbuf_append(buf, ",\"providerSpecificDeployment\":false,\"hostedDeployment\":\"out-of-scope\",\"command\":");
   if (target_name_is(target, "wasm32-web")) append_json_string(buf, "zero dev --target wasm32-web");
-  else if (target_name_is(target, "wasm32-wasi")) append_json_string(buf, "npm run wasm:runtime:smoke");
+  else if (target_name_is(target, "wasm32-wasi")) append_json_string(buf, "pnpm run wasm:runtime:smoke");
   else append_json_string(buf, "zero dev");
   zbuf_append(buf, ",\"imports\":{\"explicit\":");
   zbuf_append(buf, wasm_target ? "true" : "false");
@@ -4309,7 +4309,7 @@ static void append_portable_runtime_json(ZBuf *buf, const IrProgram *ir, const S
   zbuf_append(buf, "},\"localRunner\":{\"covered\":");
   zbuf_append(buf, wasm_target ? "true" : "false");
   zbuf_append(buf, ",\"command\":");
-  if (wasm_target) append_json_string(buf, "npm run wasm:runtime:smoke");
+  if (wasm_target) append_json_string(buf, "pnpm run wasm:runtime:smoke");
   else append_json_string(buf, "zero dev");
   zbuf_append(buf, ",\"productionLikeImports\":");
   zbuf_append(buf, wasm_target ? "true" : "false");

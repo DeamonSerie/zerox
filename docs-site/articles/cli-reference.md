@@ -127,7 +127,7 @@ alternate skill directory.
 Run the editor smoke path with:
 
 ```sh
-npm run zls -- --self-test
+pnpm run zls -- --self-test
 ```
 
 The smoke covers diagnostics, hover docs, completions, go-to definition,

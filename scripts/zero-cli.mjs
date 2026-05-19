@@ -474,7 +474,7 @@ function trySelfHostedDriver(argv) {
   if (!loaded) return false;
   if (!existsSync(publicCompiler)) {
     console.error("zero: browser compiler artifact is missing");
-    console.error("run: npm run docs:compiler");
+    console.error("run: pnpm run docs:compiler");
     process.exit(127);
   }
 
@@ -1171,7 +1171,7 @@ function selfHostPortableRuntime(target, requiresCapabilities) {
     },
     localRunner: {
       covered: wasmTarget,
-      command: wasmTarget ? "npm run wasm:runtime:smoke" : "zero dev",
+      command: wasmTarget ? "pnpm run wasm:runtime:smoke" : "zero dev",
       productionLikeImports: wasmTarget,
     },
     capabilityRestrictions: selfHostPortableCapabilityRestrictions(target),

@@ -42,10 +42,10 @@ where they will run.
 ## Useful Checks
 
 ```sh
-npm run docs:test
-npm run conformance
-npm run native:test
-npm run command-contracts
+pnpm run docs:test
+pnpm run conformance
+pnpm run native:test
+pnpm run command-contracts
 ```
 
 For focused compiler work:
@@ -81,9 +81,8 @@ changelog voice and format.
 To prepare a release:
 
 1. Create a release branch, such as `ctate/v0.1.1`.
-2. Bump the release version in `package.json`, `package-lock.json`,
-   `docs-site/package.json`, `extensions/vscode/package.json`, and
-   `native/zero-c/src/main.c`.
+2. Bump the release version in `package.json`, `docs-site/package.json`,
+   `extensions/vscode/package.json`, and `native/zero-c/src/main.c`.
 3. Update command-contract expectations that assert the compiler version.
 4. Write the `CHANGELOG.md` entry for the new version, wrapped in
    `<!-- release:start -->` and `<!-- release:end -->` markers.
@@ -97,9 +96,9 @@ To prepare a release:
 ```sh
 make -C native/zero-c
 bin/zero --version --json
-npm run test:zero
-npm run command-contracts:local
-npm run docs:test
+pnpm run test:zero
+pnpm run command-contracts:local
+pnpm run docs:test
 ```
 
 The release workflow reads the version from `package.json`, builds release
