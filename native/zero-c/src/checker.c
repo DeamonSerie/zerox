@@ -105,6 +105,18 @@ typedef struct {
   char enum_case[64];
 } StaticValue;
 
+typedef struct {
+  const char *name;
+  char *type;
+} GenericBinding;
+
+typedef struct {
+  const Function *function;
+  int allow_fallible_call;
+  GenericBinding *return_provenance_expr_bindings;
+  size_t return_provenance_expr_binding_len;
+} CheckContext;
+
 typedef struct MetaCacheEntry {
   char *key;
   MetaValue value;
@@ -1545,13 +1557,13 @@ static bool expr_is_addressable(const Expr *expr) {
 }
 
 static bool type_is_named_generic(const char *type, const char *name);
-static bool expr_reference_provenance(const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins);
-static bool check_expr_expected(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected);
-static const char *expr_type(const Program *program, const Expr *expr, Scope *scope);
+static bool expr_reference_provenance(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins);
+static bool check_expr_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected);
+static const char *expr_type(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope);
 static bool is_int_type(const char *type);
 static void set_expr_resolved_type(const Expr *expr, const char *type);
-static bool place_storage_value_provenance_under_path(const Program *program, Scope *scope, const Place *place, const char *relative_path, ValueProvenance *out);
-static bool actual_storage_value_provenance_under_path(const Program *program, const Expr *actual, Scope *scope, const char *relative_path, ValueProvenance *out);
+static bool place_storage_value_provenance_under_path(CheckContext *ctx, const Program *program, Scope *scope, const Place *place, const char *relative_path, ValueProvenance *out);
+static bool actual_storage_value_provenance_under_path(CheckContext *ctx, const Program *program, const Expr *actual, Scope *scope, const char *relative_path, ValueProvenance *out);
 
 static bool borrow_expr_source_is_local_storage(const Expr *borrowed, Scope *scope, const char *root) {
   if (!scope_is_param(scope, root)) return true;
@@ -1598,9 +1610,9 @@ static bool expr_value_provenance(const Expr *expr, Scope *scope, ValueProvenanc
   return false;
 }
 
-static bool expr_reference_provenance_as(const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins, bool mut_borrow) {
+static bool expr_reference_provenance_as(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins, bool mut_borrow) {
   ValueProvenance collected = {0};
-  bool ok = expr_reference_provenance(program, expr, scope, &collected);
+  bool ok = expr_reference_provenance(ctx, program, expr, scope, &collected);
   if (ok) ok = value_provenance_add_all_as_with_prefix(origins, &collected, mut_borrow, NULL);
   value_provenance_free(&collected);
   return ok;
@@ -1666,25 +1678,25 @@ static bool check_read_not_mutably_borrowed(const Expr *expr, Scope *scope, ZDia
   return false;
 }
 
-static bool check_place_index_exprs(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
+static bool check_place_index_exprs(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
   if (!expr) return true;
   if (expr->kind == EXPR_IDENT) {
-    if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(program, expr, scope));
+    if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(ctx, program, expr, scope));
     return true;
   }
   if (expr->kind == EXPR_MEMBER) {
-    if (!check_place_index_exprs(program, expr->left, scope, diag)) return false;
-    if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(program, expr, scope));
+    if (!check_place_index_exprs(ctx, program, expr->left, scope, diag)) return false;
+    if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(ctx, program, expr, scope));
     return true;
   }
   if (expr->kind == EXPR_INDEX) {
-    if (!check_place_index_exprs(program, expr->left, scope, diag)) return false;
-    if (!check_expr_expected(program, expr->right, scope, diag, "usize")) return false;
-    const char *index_type = expr_type(program, expr->right, scope);
+    if (!check_place_index_exprs(ctx, program, expr->left, scope, diag)) return false;
+    if (!check_expr_expected(ctx, program, expr->right, scope, diag, "usize")) return false;
+    const char *index_type = expr_type(ctx, program, expr->right, scope);
     if (!is_int_type(index_type)) {
       return set_diag_detail(diag, 3028, "index expression must be an integer", expr->right ? expr->right->line : expr->line, expr->right ? expr->right->column : expr->column, "integer index", index_type, "use an integer expression such as usize or a checked integer literal");
     }
-    if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(program, expr, scope));
+    if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(ctx, program, expr, scope));
   }
   return true;
 }
@@ -1777,12 +1789,12 @@ static const char *resolve_alias_type(const char *type) {
   return type;
 }
 
-static bool check_expr(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag);
-static bool check_expr_expected(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected);
-static bool check_stmt_vec_with_loop(const Program *program, const Function *fun, const StmtVec *body, Scope *scope, ZDiag *diag, int loop_depth);
+static bool check_expr(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag);
+static bool check_expr_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected);
+static bool check_stmt_vec_with_loop(CheckContext *ctx, const Program *program, const Function *fun, const StmtVec *body, Scope *scope, ZDiag *diag, int loop_depth);
 static bool stmt_vec_guarantees_exit(const StmtVec *body, bool function_raises);
-static bool check_lvalue_target(const Program *program, const Expr *target, Scope *scope, ZDiag *diag, char *out_type, size_t out_type_len);
-static const char *expr_type(const Program *program, const Expr *expr, Scope *scope);
+static bool check_lvalue_target(CheckContext *ctx, const Program *program, const Expr *target, Scope *scope, ZDiag *diag, char *out_type, size_t out_type_len);
+static const char *expr_type(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope);
 static bool types_compatible(const char *expected, const char *actual);
 static bool validate_type_names(const Program *program, const char *type, const ParamVec *primary, const ParamVec *secondary, bool allow_self, ZDiag *diag, int line, int column);
 static const Shape *find_shape_for_type(const Program *program, const char *type);
@@ -1792,13 +1804,11 @@ static const Function *find_shape_method_decl(const Shape *shape, const char *na
 static void set_expr_resolved_type(const Expr *expr, const char *type);
 static const Function *find_namespace_shape_method(const Program *program, const Expr *callee, const Shape **out_shape);
 static const Function *find_constrained_interface_method_in_function(const Program *program, const Function *fun, const Expr *callee, const InterfaceDecl **out_interface);
-static const Function *find_constrained_interface_method(const Program *program, const Expr *callee, const InterfaceDecl **out_interface);
+static const Function *find_constrained_interface_method(CheckContext *ctx, const Program *program, const Expr *callee, const InterfaceDecl **out_interface);
 static void strip_ref_like_type(const char *type, char *out, size_t out_len);
 static bool interface_constraint_parts(const Program *program, const char *constraint, const InterfaceDecl **out_interface, char ***out_args, size_t *out_arg_len);
 static void mark_owned_move_if_needed(const Expr *expr, Scope *scope, const char *destination_type);
 static void mark_owned_target_live_if_needed(const Expr *target, Scope *scope, const char *target_type);
-static int allow_fallible_call;
-static const Function *checking_function;
 
 static bool function_exists(const Program *program, const char *name) {
   if (strcmp(name, "expect") == 0) return true;
@@ -1814,11 +1824,6 @@ static const Function *find_function(const Program *program, const char *name) {
   }
   return NULL;
 }
-
-typedef struct {
-  const char *name;
-  char *type;
-} GenericBinding;
 
 typedef enum {
   PROVENANCE_CALL_FUNCTION,
@@ -1842,6 +1847,7 @@ typedef struct {
 } ResolvedProvenanceCall;
 
 static bool apply_expr_call_storage_effects(
+  CheckContext *ctx,
   const Program *program,
   const Expr *expr,
   Scope *scope,
@@ -1849,6 +1855,7 @@ static bool apply_expr_call_storage_effects(
 );
 
 static bool apply_checked_call_storage_effects(
+  CheckContext *ctx,
   const Program *program,
   const Expr *expr,
   Scope *scope,
@@ -1961,12 +1968,12 @@ static char *recursive_generic_context_type_text(const char *type, GenericBindin
   return type_substitute_generic(type ? type : "Unknown", context_bindings, context_binding_len);
 }
 
-static char *recursive_generic_expr_type_text(const Program *program, const Expr *expr, Scope *scope, GenericBinding *context_bindings, size_t context_binding_len) {
+static char *recursive_generic_expr_type_text(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, GenericBinding *context_bindings, size_t context_binding_len) {
   if (expr && expr->kind == EXPR_IDENT) {
     const char *scoped_type = scope_type(scope, expr->text);
     if (scoped_type) return z_strdup(scoped_type);
   }
-  return recursive_generic_context_type_text(expr_type(program, expr, scope), context_bindings, context_binding_len);
+  return recursive_generic_context_type_text(expr_type(ctx, program, expr, scope), context_bindings, context_binding_len);
 }
 
 static void recursive_generic_scope_add_function_bindings(const Function *fun, GenericBinding *context_bindings, size_t context_binding_len, Scope *scope) {
@@ -1983,16 +1990,16 @@ static void recursive_generic_scope_add_function_bindings(const Function *fun, G
   }
 }
 
-static void recursive_generic_scope_add_stmt_binding(const Program *program, const Stmt *stmt, Scope *scope, GenericBinding *context_bindings, size_t context_binding_len) {
+static void recursive_generic_scope_add_stmt_binding(CheckContext *ctx, const Program *program, const Stmt *stmt, Scope *scope, GenericBinding *context_bindings, size_t context_binding_len) {
   if (!stmt || stmt->kind != STMT_LET || !stmt->name || !scope) return;
   const char *raw_type = stmt->resolved_type ? stmt->resolved_type : stmt->type;
-  if (!raw_type && stmt->expr) raw_type = expr_type(program, stmt->expr, scope);
+  if (!raw_type && stmt->expr) raw_type = expr_type(ctx, program, stmt->expr, scope);
   char *binding_type = recursive_generic_context_type_text(raw_type, context_bindings, context_binding_len);
   scope_add(scope, stmt->name, binding_type, stmt->mutable_binding);
   free(binding_type);
 }
 
-static bool recursive_generic_call_bindings_for_context(const Program *program, const Function *callee, const Expr *call, Scope *scope, GenericBinding *context_bindings, size_t context_binding_len, GenericBinding **out_bindings, size_t *out_len) {
+static bool recursive_generic_call_bindings_for_context(CheckContext *ctx, const Program *program, const Function *callee, const Expr *call, Scope *scope, GenericBinding *context_bindings, size_t context_binding_len, GenericBinding **out_bindings, size_t *out_len) {
   if (!callee || !call || !out_bindings || !out_len) return false;
   const TypeArgVec *type_args = call_type_args(call);
   GenericBinding *bindings = z_checked_calloc(callee->type_params.len ? callee->type_params.len : 1, sizeof(GenericBinding));
@@ -2009,7 +2016,7 @@ static bool recursive_generic_call_bindings_for_context(const Program *program, 
     }
   } else {
     for (size_t i = 0; i < callee->params.len && i < call->args.len; i++) {
-      char *actual = recursive_generic_expr_type_text(program, call->args.items[i], scope, context_bindings, context_binding_len);
+      char *actual = recursive_generic_expr_type_text(ctx, program, call->args.items[i], scope, context_bindings, context_binding_len);
       bool ok = infer_generic_type_from_pattern(callee, callee->params.items[i].type, actual, bindings, callee->type_params.len);
       free(actual);
       if (!ok) {
@@ -2032,50 +2039,50 @@ static bool recursive_generic_call_bindings_for_context(const Program *program, 
   return true;
 }
 
-static bool validate_recursive_generic_cycle_in_function(const Program *program, const Function *origin, const Function *callee, GenericBinding *context_bindings, size_t context_binding_len, ZDiag *diag, size_t depth, size_t depth_limit);
-static bool validate_recursive_generic_cycle_in_expr(const Program *program, const Function *origin, const Expr *expr, Scope *scope, GenericBinding *context_bindings, size_t context_binding_len, ZDiag *diag, size_t depth, size_t depth_limit);
+static bool validate_recursive_generic_cycle_in_function(CheckContext *ctx, const Program *program, const Function *origin, const Function *callee, GenericBinding *context_bindings, size_t context_binding_len, ZDiag *diag, size_t depth, size_t depth_limit);
+static bool validate_recursive_generic_cycle_in_expr(CheckContext *ctx, const Program *program, const Function *origin, const Expr *expr, Scope *scope, GenericBinding *context_bindings, size_t context_binding_len, ZDiag *diag, size_t depth, size_t depth_limit);
 
-static bool validate_recursive_generic_cycle_in_stmt_vec(const Program *program, const Function *origin, const StmtVec *body, Scope *scope, GenericBinding *context_bindings, size_t context_binding_len, ZDiag *diag, size_t depth, size_t depth_limit) {
+static bool validate_recursive_generic_cycle_in_stmt_vec(CheckContext *ctx, const Program *program, const Function *origin, const StmtVec *body, Scope *scope, GenericBinding *context_bindings, size_t context_binding_len, ZDiag *diag, size_t depth, size_t depth_limit) {
   if (!body || depth > depth_limit) return true;
   for (size_t i = 0; i < body->len; i++) {
     const Stmt *stmt = body->items[i];
     if (!stmt) continue;
-    if (!validate_recursive_generic_cycle_in_expr(program, origin, stmt->target, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
-    if (!validate_recursive_generic_cycle_in_expr(program, origin, stmt->expr, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
-    if (!validate_recursive_generic_cycle_in_expr(program, origin, stmt->range_end, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
-    if (stmt->kind == STMT_LET) recursive_generic_scope_add_stmt_binding(program, stmt, scope, context_bindings, context_binding_len);
+    if (!validate_recursive_generic_cycle_in_expr(ctx, program, origin, stmt->target, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
+    if (!validate_recursive_generic_cycle_in_expr(ctx, program, origin, stmt->expr, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
+    if (!validate_recursive_generic_cycle_in_expr(ctx, program, origin, stmt->range_end, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
+    if (stmt->kind == STMT_LET) recursive_generic_scope_add_stmt_binding(ctx, program, stmt, scope, context_bindings, context_binding_len);
     if (stmt->kind == STMT_FOR) {
       Scope body_scope = {.parent = scope};
-      const char *iter_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(program, stmt->expr, scope) : "Unknown");
+      const char *iter_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(ctx, program, stmt->expr, scope) : "Unknown");
       char *context_iter_type = recursive_generic_context_type_text(iter_type, context_bindings, context_binding_len);
       if (stmt->name) scope_add(&body_scope, stmt->name, context_iter_type ? context_iter_type : "Unknown", false);
       free(context_iter_type);
-      bool body_ok = validate_recursive_generic_cycle_in_stmt_vec(program, origin, &stmt->then_body, &body_scope, context_bindings, context_binding_len, diag, depth, depth_limit);
+      bool body_ok = validate_recursive_generic_cycle_in_stmt_vec(ctx, program, origin, &stmt->then_body, &body_scope, context_bindings, context_binding_len, diag, depth, depth_limit);
       scope_free(&body_scope);
       if (!body_ok) return false;
-      if (!validate_recursive_generic_cycle_in_stmt_vec(program, origin, &stmt->else_body, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
+      if (!validate_recursive_generic_cycle_in_stmt_vec(ctx, program, origin, &stmt->else_body, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
     } else {
       Scope then_scope = {.parent = scope};
       Scope else_scope = {.parent = scope};
-      bool nested_ok = validate_recursive_generic_cycle_in_stmt_vec(program, origin, &stmt->then_body, &then_scope, context_bindings, context_binding_len, diag, depth, depth_limit) &&
-                       validate_recursive_generic_cycle_in_stmt_vec(program, origin, &stmt->else_body, &else_scope, context_bindings, context_binding_len, diag, depth, depth_limit);
+      bool nested_ok = validate_recursive_generic_cycle_in_stmt_vec(ctx, program, origin, &stmt->then_body, &then_scope, context_bindings, context_binding_len, diag, depth, depth_limit) &&
+                       validate_recursive_generic_cycle_in_stmt_vec(ctx, program, origin, &stmt->else_body, &else_scope, context_bindings, context_binding_len, diag, depth, depth_limit);
       scope_free(&then_scope);
       scope_free(&else_scope);
       if (!nested_ok) return false;
     }
     for (size_t arm_index = 0; arm_index < stmt->match_arms.len; arm_index++) {
       const MatchArm *arm = &stmt->match_arms.items[arm_index];
-      if (!validate_recursive_generic_cycle_in_expr(program, origin, arm->guard, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
+      if (!validate_recursive_generic_cycle_in_expr(ctx, program, origin, arm->guard, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
       Scope arm_scope = {.parent = scope};
       if (stmt->kind == STMT_MATCH && arm->payload_name && stmt->expr) {
-        const char *match_type = stmt->resolved_type ? stmt->resolved_type : expr_type(program, stmt->expr, scope);
+        const char *match_type = stmt->resolved_type ? stmt->resolved_type : expr_type(ctx, program, stmt->expr, scope);
         char *context_match_type = recursive_generic_context_type_text(match_type, context_bindings, context_binding_len);
         const Choice *item_choice = find_choice(program, context_match_type);
         const Param *item_case = item_choice ? find_case(&item_choice->cases, arm->case_name) : NULL;
         if (item_case && item_case->type) scope_add(&arm_scope, arm->payload_name, item_case->type, false);
         free(context_match_type);
       }
-      bool arm_ok = validate_recursive_generic_cycle_in_stmt_vec(program, origin, &arm->body, &arm_scope, context_bindings, context_binding_len, diag, depth, depth_limit);
+      bool arm_ok = validate_recursive_generic_cycle_in_stmt_vec(ctx, program, origin, &arm->body, &arm_scope, context_bindings, context_binding_len, diag, depth, depth_limit);
       scope_free(&arm_scope);
       if (!arm_ok) return false;
     }
@@ -2083,19 +2090,19 @@ static bool validate_recursive_generic_cycle_in_stmt_vec(const Program *program,
   return true;
 }
 
-static bool validate_recursive_generic_cycle_in_expr(const Program *program, const Function *origin, const Expr *expr, Scope *scope, GenericBinding *context_bindings, size_t context_binding_len, ZDiag *diag, size_t depth, size_t depth_limit) {
+static bool validate_recursive_generic_cycle_in_expr(CheckContext *ctx, const Program *program, const Function *origin, const Expr *expr, Scope *scope, GenericBinding *context_bindings, size_t context_binding_len, ZDiag *diag, size_t depth, size_t depth_limit) {
   if (!expr || !program || !origin || depth > depth_limit) return true;
   if (expr->kind == EXPR_CALL && expr->left && expr->left->kind == EXPR_IDENT) {
     const Function *callee = find_function(program, expr->left->text);
     if (function_is_generic(callee)) {
       GenericBinding *next_bindings = NULL;
       size_t next_binding_len = 0;
-      if (recursive_generic_call_bindings_for_context(program, callee, expr, scope, context_bindings, context_binding_len, &next_bindings, &next_binding_len)) {
+      if (recursive_generic_call_bindings_for_context(ctx, program, callee, expr, scope, context_bindings, context_binding_len, &next_bindings, &next_binding_len)) {
         bool ok = true;
         if (function_names_match(callee, origin)) {
           ok = recursive_generic_bindings_keep_origin_stable(origin, expr, diag, next_bindings, next_binding_len);
         } else if (recursive_generic_bindings_reference_origin(origin, next_bindings, next_binding_len)) {
-          ok = validate_recursive_generic_cycle_in_function(program, origin, callee, next_bindings, next_binding_len, diag, depth + 1, depth_limit);
+          ok = validate_recursive_generic_cycle_in_function(ctx, program, origin, callee, next_bindings, next_binding_len, diag, depth + 1, depth_limit);
         }
         generic_bindings_free(next_bindings, next_binding_len);
         free(next_bindings);
@@ -2103,33 +2110,34 @@ static bool validate_recursive_generic_cycle_in_expr(const Program *program, con
       }
     }
   }
-  if (!validate_recursive_generic_cycle_in_expr(program, origin, expr->left, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
-  if (!validate_recursive_generic_cycle_in_expr(program, origin, expr->right, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
+  if (!validate_recursive_generic_cycle_in_expr(ctx, program, origin, expr->left, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
+  if (!validate_recursive_generic_cycle_in_expr(ctx, program, origin, expr->right, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
   for (size_t i = 0; i < expr->args.len; i++) {
-    if (!validate_recursive_generic_cycle_in_expr(program, origin, expr->args.items[i], scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
+    if (!validate_recursive_generic_cycle_in_expr(ctx, program, origin, expr->args.items[i], scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
   }
   for (size_t i = 0; i < expr->fields.len; i++) {
-    if (!validate_recursive_generic_cycle_in_expr(program, origin, expr->fields.items[i].value, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
+    if (!validate_recursive_generic_cycle_in_expr(ctx, program, origin, expr->fields.items[i].value, scope, context_bindings, context_binding_len, diag, depth, depth_limit)) return false;
   }
   return true;
 }
 
-static bool validate_recursive_generic_cycle_in_function(const Program *program, const Function *origin, const Function *callee, GenericBinding *context_bindings, size_t context_binding_len, ZDiag *diag, size_t depth, size_t depth_limit) {
+static bool validate_recursive_generic_cycle_in_function(CheckContext *ctx, const Program *program, const Function *origin, const Function *callee, GenericBinding *context_bindings, size_t context_binding_len, ZDiag *diag, size_t depth, size_t depth_limit) {
   Scope scope = {0};
   recursive_generic_scope_add_function_bindings(callee, context_bindings, context_binding_len, &scope);
-  bool ok = validate_recursive_generic_cycle_in_stmt_vec(program, origin, &callee->body, &scope, context_bindings, context_binding_len, diag, depth, depth_limit);
+  bool ok = validate_recursive_generic_cycle_in_stmt_vec(ctx, program, origin, &callee->body, &scope, context_bindings, context_binding_len, diag, depth, depth_limit);
   scope_free(&scope);
   return ok;
 }
 
-static bool validate_recursive_generic_call_bindings(const Program *program, const Function *fun, const Expr *call, ZDiag *diag, GenericBinding *bindings, size_t binding_len) {
+static bool validate_recursive_generic_call_bindings(CheckContext *ctx, const Program *program, const Function *fun, const Expr *call, ZDiag *diag, GenericBinding *bindings, size_t binding_len) {
+  const Function *checking_function = ctx ? ctx->function : NULL;
   if (!checking_function || !function_is_generic(checking_function) || !function_is_generic(fun) || !call) return true;
   if (function_names_match(checking_function, fun)) {
     return recursive_generic_bindings_keep_origin_stable(checking_function, call, diag, bindings, binding_len);
   }
   if (!program || !recursive_generic_bindings_reference_origin(checking_function, bindings, binding_len)) return true;
   size_t depth_limit = program->functions.len + 1;
-  return validate_recursive_generic_cycle_in_function(program, checking_function, fun, bindings, binding_len, diag, 1, depth_limit);
+  return validate_recursive_generic_cycle_in_function(ctx, program, checking_function, fun, bindings, binding_len, diag, 1, depth_limit);
 }
 
 static bool is_static_int_param_type(const char *type) {
@@ -2393,14 +2401,11 @@ static char *type_substitute_generic(const char *type, GenericBinding *bindings,
   return z_strdup(type);
 }
 
-static GenericBinding *return_provenance_expr_bindings = NULL;
-static size_t return_provenance_expr_binding_len = 0;
-
-static const char *expr_resolved_type_for_current_context(const Expr *expr) {
+static const char *expr_resolved_type_for_current_context(const CheckContext *ctx, const Expr *expr) {
   if (!expr || !expr->resolved_type) return NULL;
-  if (return_provenance_expr_bindings && return_provenance_expr_binding_len > 0) {
+  if (ctx && ctx->return_provenance_expr_bindings && ctx->return_provenance_expr_binding_len > 0) {
     static char substituted_type[256];
-    char *substituted = type_substitute_generic(expr->resolved_type, return_provenance_expr_bindings, return_provenance_expr_binding_len);
+    char *substituted = type_substitute_generic(expr->resolved_type, ctx->return_provenance_expr_bindings, ctx->return_provenance_expr_binding_len);
     snprintf(substituted_type, sizeof(substituted_type), "%s", substituted ? substituted : "Unknown");
     free(substituted);
     return substituted_type;
@@ -2408,21 +2413,21 @@ static const char *expr_resolved_type_for_current_context(const Expr *expr) {
   return expr->resolved_type;
 }
 
-static char *provenance_context_type_text(const char *type, GenericBinding *bindings, size_t binding_len) {
+static char *provenance_context_type_text(const CheckContext *ctx, const char *type, GenericBinding *bindings, size_t binding_len) {
   if (bindings && binding_len > 0) return type_substitute_generic(type, bindings, binding_len);
-  if (return_provenance_expr_bindings && return_provenance_expr_binding_len > 0) {
-    return type_substitute_generic(type, return_provenance_expr_bindings, return_provenance_expr_binding_len);
+  if (ctx && ctx->return_provenance_expr_bindings && ctx->return_provenance_expr_binding_len > 0) {
+    return type_substitute_generic(type, ctx->return_provenance_expr_bindings, ctx->return_provenance_expr_binding_len);
   }
   return z_strdup(type ? type : "Unknown");
 }
 
-static void provenance_context_substitute_bindings(GenericBinding *bindings, size_t binding_len, GenericBinding *context_bindings, size_t context_binding_len) {
+static void provenance_context_substitute_bindings(const CheckContext *ctx, GenericBinding *bindings, size_t binding_len, GenericBinding *context_bindings, size_t context_binding_len) {
   if (!bindings || binding_len == 0) return;
   GenericBinding *source_bindings = context_bindings;
   size_t source_len = context_binding_len;
-  if ((!source_bindings || source_len == 0) && return_provenance_expr_bindings && return_provenance_expr_binding_len > 0) {
-    source_bindings = return_provenance_expr_bindings;
-    source_len = return_provenance_expr_binding_len;
+  if ((!source_bindings || source_len == 0) && ctx && ctx->return_provenance_expr_bindings && ctx->return_provenance_expr_binding_len > 0) {
+    source_bindings = ctx->return_provenance_expr_bindings;
+    source_len = ctx->return_provenance_expr_binding_len;
   }
   if (!source_bindings || source_len == 0) return;
   for (size_t i = 0; i < binding_len; i++) {
@@ -2479,7 +2484,7 @@ static bool infer_generic_type_from_pattern(const Function *fun, const char *pat
   return true;
 }
 
-static bool build_generic_bindings(const Program *program, const Function *fun, const Expr *call, Scope *scope, ZDiag *diag, GenericBinding *bindings, size_t binding_len, const char *expected_return) {
+static bool build_generic_bindings(CheckContext *ctx, const Program *program, const Function *fun, const Expr *call, Scope *scope, ZDiag *diag, GenericBinding *bindings, size_t binding_len, const char *expected_return) {
   (void)program;
   if (!function_is_generic(fun)) return true;
   const TypeArgVec *type_args = call_type_args(call);
@@ -2491,7 +2496,7 @@ static bool build_generic_bindings(const Program *program, const Function *fun, 
     return normalize_static_bindings(program, fun, call, diag, bindings, binding_len);
   }
   for (size_t i = 0; i < fun->params.len && i < call->args.len; i++) {
-    const char *actual = expr_type(program, call->args.items[i], scope);
+    const char *actual = expr_type(ctx, program, call->args.items[i], scope);
     if (!infer_generic_type_from_pattern(fun, fun->params.items[i].type, actual, bindings, binding_len)) {
       return set_diag_detail(diag, 3033, "generic inference found conflicting argument types", call->args.items[i]->line, call->args.items[i]->column, "one concrete type for each generic parameter", actual, "pass explicit type arguments or make argument types match");
     }
@@ -2604,37 +2609,37 @@ static bool function_error_contains(const Function *fun, const char *name) {
   return false;
 }
 
-static const Function *fallible_callee(const Program *program, const Expr *expr);
-static const Function *fallible_callee_in_context(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr);
+static const Function *fallible_callee(CheckContext *ctx, const Program *program, const Expr *expr);
+static const Function *fallible_callee_in_context(CheckContext *ctx, const Program *program, const Function *context_fun, Scope *scope, const Expr *expr);
 static bool is_builtin_fallible_call(const Expr *expr);
 static bool function_error_sets_include_builtin(const Function *caller, ZDiag *diag, const Expr *call);
-static bool function_error_sets_compatible_inner(const Function *caller, const Function *callee, ZDiag *diag, const Expr *call, size_t depth);
-static bool stmt_vec_raise_errors_covered(const Program *program, const StmtVec *body, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth);
+static bool function_error_sets_compatible_inner(CheckContext *ctx, const Function *caller, const Function *callee, ZDiag *diag, const Expr *call, size_t depth);
+static bool stmt_vec_raise_errors_covered(CheckContext *ctx, const Program *program, const StmtVec *body, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth);
 
-static bool expr_raise_errors_covered(const Program *program, const Expr *expr, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth) {
+static bool expr_raise_errors_covered(CheckContext *ctx, const Program *program, const Expr *expr, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth) {
   if (!expr || depth > 64) return true;
   if (expr->kind == EXPR_CHECK) {
     if (is_builtin_fallible_call(expr->left) && !function_error_sets_include_builtin(caller, diag, call)) return false;
-    const Function *callee = fallible_callee_in_context(program, context_fun, scope, expr->left);
-    if (callee && !function_error_sets_compatible_inner(caller, callee, diag, call, depth + 1)) return false;
-    return expr_raise_errors_covered(program, expr->left, caller, context_fun, scope, call, diag, depth);
+    const Function *callee = fallible_callee_in_context(ctx, program, context_fun, scope, expr->left);
+    if (callee && !function_error_sets_compatible_inner(ctx, caller, callee, diag, call, depth + 1)) return false;
+    return expr_raise_errors_covered(ctx, program, expr->left, caller, context_fun, scope, call, diag, depth);
   }
-  if (expr->kind == EXPR_RESCUE) return expr_raise_errors_covered(program, expr->right, caller, context_fun, scope, call, diag, depth);
-  if (!expr_raise_errors_covered(program, expr->left, caller, context_fun, scope, call, diag, depth) ||
-      !expr_raise_errors_covered(program, expr->right, caller, context_fun, scope, call, diag, depth)) return false;
+  if (expr->kind == EXPR_RESCUE) return expr_raise_errors_covered(ctx, program, expr->right, caller, context_fun, scope, call, diag, depth);
+  if (!expr_raise_errors_covered(ctx, program, expr->left, caller, context_fun, scope, call, diag, depth) ||
+      !expr_raise_errors_covered(ctx, program, expr->right, caller, context_fun, scope, call, diag, depth)) return false;
   for (size_t i = 0; i < expr->args.len; i++) {
-    if (!expr_raise_errors_covered(program, expr->args.items[i], caller, context_fun, scope, call, diag, depth)) return false;
+    if (!expr_raise_errors_covered(ctx, program, expr->args.items[i], caller, context_fun, scope, call, diag, depth)) return false;
   }
   for (size_t i = 0; i < expr->fields.len; i++) {
-    if (!expr_raise_errors_covered(program, expr->fields.items[i].value, caller, context_fun, scope, call, diag, depth)) return false;
+    if (!expr_raise_errors_covered(ctx, program, expr->fields.items[i].value, caller, context_fun, scope, call, diag, depth)) return false;
   }
   return true;
 }
 
-static void flow_scope_add_stmt_binding(const Program *program, const Stmt *stmt, Scope *scope) {
+static void flow_scope_add_stmt_binding(CheckContext *ctx, const Program *program, const Stmt *stmt, Scope *scope) {
   if (!stmt || stmt->kind != STMT_LET || !stmt->name || !scope) return;
   const char *binding_type = stmt->resolved_type ? stmt->resolved_type : stmt->type;
-  if (!binding_type && stmt->expr) binding_type = expr_type(program, stmt->expr, scope);
+  if (!binding_type && stmt->expr) binding_type = expr_type(ctx, program, stmt->expr, scope);
   scope_add(scope, stmt->name, binding_type ? binding_type : "Unknown", stmt->mutable_binding);
 }
 
@@ -2650,7 +2655,7 @@ static void flow_scope_add_function_bindings(const Function *fun, Scope *scope) 
   }
 }
 
-static bool stmt_raise_errors_covered(const Program *program, const Stmt *stmt, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth) {
+static bool stmt_raise_errors_covered(CheckContext *ctx, const Program *program, const Stmt *stmt, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth) {
   if (!stmt) return true;
   if (depth > 64) return true;
   if (stmt->kind == STMT_RAISE && stmt->name && !function_error_contains(caller, stmt->name)) {
@@ -2660,17 +2665,17 @@ static bool stmt_raise_errors_covered(const Program *program, const Stmt *stmt, 
   }
   if (stmt->kind == STMT_CHECK) {
     if (is_builtin_fallible_call(stmt->expr) && !function_error_sets_include_builtin(caller, diag, call)) return false;
-    const Function *callee = fallible_callee_in_context(program, context_fun, scope, stmt->expr);
-    if (callee && !function_error_sets_compatible_inner(caller, callee, diag, call, depth + 1)) return false;
+    const Function *callee = fallible_callee_in_context(ctx, program, context_fun, scope, stmt->expr);
+    if (callee && !function_error_sets_compatible_inner(ctx, caller, callee, diag, call, depth + 1)) return false;
   }
-  if (!expr_raise_errors_covered(program, stmt->target, caller, context_fun, scope, call, diag, depth) ||
-      !expr_raise_errors_covered(program, stmt->expr, caller, context_fun, scope, call, diag, depth) ||
-      !expr_raise_errors_covered(program, stmt->range_end, caller, context_fun, scope, call, diag, depth)) return false;
+  if (!expr_raise_errors_covered(ctx, program, stmt->target, caller, context_fun, scope, call, diag, depth) ||
+      !expr_raise_errors_covered(ctx, program, stmt->expr, caller, context_fun, scope, call, diag, depth) ||
+      !expr_raise_errors_covered(ctx, program, stmt->range_end, caller, context_fun, scope, call, diag, depth)) return false;
   if (stmt->kind == STMT_IF) {
     Scope then_scope = {.parent = scope};
     Scope else_scope = {.parent = scope};
-    bool ok = stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, context_fun, &then_scope, call, diag, depth) &&
-              stmt_vec_raise_errors_covered(program, &stmt->else_body, caller, context_fun, &else_scope, call, diag, depth);
+    bool ok = stmt_vec_raise_errors_covered(ctx, program, &stmt->then_body, caller, context_fun, &then_scope, call, diag, depth) &&
+              stmt_vec_raise_errors_covered(ctx, program, &stmt->else_body, caller, context_fun, &else_scope, call, diag, depth);
     scope_free(&then_scope);
     scope_free(&else_scope);
     if (!ok) return false;
@@ -2678,48 +2683,48 @@ static bool stmt_raise_errors_covered(const Program *program, const Stmt *stmt, 
   }
   if (stmt->kind == STMT_WHILE) {
     Scope then_scope = {.parent = scope};
-    bool ok = stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, context_fun, &then_scope, call, diag, depth);
+    bool ok = stmt_vec_raise_errors_covered(ctx, program, &stmt->then_body, caller, context_fun, &then_scope, call, diag, depth);
     scope_free(&then_scope);
     if (!ok) return false;
   } else if (stmt->kind == STMT_FOR) {
     Scope body_scope = {.parent = scope};
-    const char *iter_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(program, stmt->expr, scope) : "Unknown");
+    const char *iter_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(ctx, program, stmt->expr, scope) : "Unknown");
     if (stmt->name) scope_add(&body_scope, stmt->name, iter_type ? iter_type : "Unknown", false);
-    bool ok = stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, context_fun, &body_scope, call, diag, depth);
+    bool ok = stmt_vec_raise_errors_covered(ctx, program, &stmt->then_body, caller, context_fun, &body_scope, call, diag, depth);
     scope_free(&body_scope);
     if (!ok) return false;
-  } else if (!stmt_vec_raise_errors_covered(program, &stmt->then_body, caller, context_fun, scope, call, diag, depth)) {
+  } else if (!stmt_vec_raise_errors_covered(ctx, program, &stmt->then_body, caller, context_fun, scope, call, diag, depth)) {
     return false;
   }
-  if (!stmt_vec_raise_errors_covered(program, &stmt->else_body, caller, context_fun, scope, call, diag, depth)) return false;
+  if (!stmt_vec_raise_errors_covered(ctx, program, &stmt->else_body, caller, context_fun, scope, call, diag, depth)) return false;
   for (size_t i = 0; i < stmt->match_arms.len; i++) {
     const MatchArm *arm = &stmt->match_arms.items[i];
-    if (!expr_raise_errors_covered(program, arm->guard, caller, context_fun, scope, call, diag, depth)) return false;
+    if (!expr_raise_errors_covered(ctx, program, arm->guard, caller, context_fun, scope, call, diag, depth)) return false;
     Scope arm_scope = {.parent = scope};
     if (stmt->kind == STMT_MATCH && arm->payload_name && stmt->expr) {
-      const char *match_type = stmt->resolved_type ? stmt->resolved_type : expr_type(program, stmt->expr, scope);
+      const char *match_type = stmt->resolved_type ? stmt->resolved_type : expr_type(ctx, program, stmt->expr, scope);
       const Choice *item_choice = find_choice(program, match_type);
       const Param *item_case = item_choice ? find_case(&item_choice->cases, arm->case_name) : NULL;
       if (item_case && item_case->type) scope_add(&arm_scope, arm->payload_name, item_case->type, false);
     }
-    bool ok = stmt_vec_raise_errors_covered(program, &arm->body, caller, context_fun, &arm_scope, call, diag, depth);
+    bool ok = stmt_vec_raise_errors_covered(ctx, program, &arm->body, caller, context_fun, &arm_scope, call, diag, depth);
     scope_free(&arm_scope);
     if (!ok) return false;
   }
   return true;
 }
 
-static bool stmt_vec_raise_errors_covered(const Program *program, const StmtVec *body, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth) {
+static bool stmt_vec_raise_errors_covered(CheckContext *ctx, const Program *program, const StmtVec *body, const Function *caller, const Function *context_fun, Scope *scope, const Expr *call, ZDiag *diag, size_t depth) {
   if (!body) return true;
   for (size_t i = 0; i < body->len; i++) {
     const Stmt *stmt = body->items[i];
-    if (!stmt_raise_errors_covered(program, stmt, caller, context_fun, scope, call, diag, depth)) return false;
-    flow_scope_add_stmt_binding(program, stmt, scope);
+    if (!stmt_raise_errors_covered(ctx, program, stmt, caller, context_fun, scope, call, diag, depth)) return false;
+    flow_scope_add_stmt_binding(ctx, program, stmt, scope);
   }
   return true;
 }
 
-static bool function_error_sets_compatible_inner(const Function *caller, const Function *callee, ZDiag *diag, const Expr *call, size_t depth) {
+static bool function_error_sets_compatible_inner(CheckContext *ctx, const Function *caller, const Function *callee, ZDiag *diag, const Expr *call, size_t depth) {
   if (!caller || !callee || !callee->raises) return true;
   if (depth > 64) return true;
   if (!caller->raises) {
@@ -2729,7 +2734,9 @@ static bool function_error_sets_compatible_inner(const Function *caller, const F
   if (!callee->has_error_set) {
     Scope flow_scope = {0};
     flow_scope_add_function_bindings(callee, &flow_scope);
-    bool ok = stmt_vec_raise_errors_covered(current_type_program, &callee->body, caller, callee, &flow_scope, call, diag, depth + 1);
+    CheckContext callee_ctx = ctx ? *ctx : (CheckContext){0};
+    callee_ctx.function = callee;
+    bool ok = stmt_vec_raise_errors_covered(&callee_ctx, current_type_program, &callee->body, caller, callee, &flow_scope, call, diag, depth + 1);
     scope_free(&flow_scope);
     return ok;
   }
@@ -2744,11 +2751,11 @@ static bool function_error_sets_compatible_inner(const Function *caller, const F
   return true;
 }
 
-static bool function_error_sets_compatible(const Function *caller, const Function *callee, ZDiag *diag, const Expr *call) {
-  return function_error_sets_compatible_inner(caller, callee, diag, call, 0);
+static bool function_error_sets_compatible(CheckContext *ctx, const Function *caller, const Function *callee, ZDiag *diag, const Expr *call) {
+  return function_error_sets_compatible_inner(ctx, caller, callee, diag, call, 0);
 }
 
-static bool function_has_error_flow_inner(const Program *program, const Function *fun, size_t depth);
+static bool function_has_error_flow_inner(CheckContext *ctx, const Program *program, const Function *fun, size_t depth);
 
 static bool expr_is_world_stream_write_shape(const Expr *expr) {
   if (!expr || expr->kind != EXPR_CALL || !expr->left || expr->left->kind != EXPR_MEMBER) return false;
@@ -2759,7 +2766,7 @@ static bool expr_is_world_stream_write_shape(const Expr *expr) {
          (strcmp(stream->text, "out") == 0 || strcmp(stream->text, "err") == 0);
 }
 
-static const Function *resolve_call_function_in_context(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr) {
+static const Function *resolve_call_function_in_context(CheckContext *ctx, const Program *program, const Function *context_fun, Scope *scope, const Expr *expr) {
   if (!expr || expr->kind != EXPR_CALL || !expr->left) return NULL;
   const Function *fun = NULL;
   if (expr->left->kind == EXPR_IDENT) {
@@ -2769,7 +2776,7 @@ static const Function *resolve_call_function_in_context(const Program *program, 
     if (!fun) fun = find_constrained_interface_method_in_function(program, context_fun, expr->left, NULL);
     if (!fun && expr->left->left) {
       const char *receiver_type = expr->left->left->resolved_type;
-      if ((!receiver_type || strcmp(receiver_type, "Unknown") == 0) && scope) receiver_type = expr_type(program, expr->left->left, scope);
+      if ((!receiver_type || strcmp(receiver_type, "Unknown") == 0) && scope) receiver_type = expr_type(ctx, program, expr->left->left, scope);
       char owner_type[192];
       strip_ref_like_type(receiver_type, owner_type, sizeof(owner_type));
       const Shape *shape = find_shape_for_type(program, owner_type);
@@ -2779,110 +2786,112 @@ static const Function *resolve_call_function_in_context(const Program *program, 
   return fun;
 }
 
-static bool expr_call_has_error_flow(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr, size_t depth) {
+static bool expr_call_has_error_flow(CheckContext *ctx, const Program *program, const Function *context_fun, Scope *scope, const Expr *expr, size_t depth) {
   if (!expr || expr->kind != EXPR_CALL || !expr->left) return false;
   if (is_builtin_fallible_call(expr) || expr_is_world_stream_write_shape(expr)) return true;
-  const Function *fun = resolve_call_function_in_context(program, context_fun, scope, expr);
-  return function_has_error_flow_inner(program, fun, depth + 1);
+  const Function *fun = resolve_call_function_in_context(ctx, program, context_fun, scope, expr);
+  return function_has_error_flow_inner(ctx, program, fun, depth + 1);
 }
 
-static bool expr_has_checked_error_flow(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr, size_t depth) {
+static bool expr_has_checked_error_flow(CheckContext *ctx, const Program *program, const Function *context_fun, Scope *scope, const Expr *expr, size_t depth) {
   if (!expr) return false;
-  if (expr->kind == EXPR_CHECK && expr_call_has_error_flow(program, context_fun, scope, expr->left, depth)) return true;
-  if (expr->kind == EXPR_RESCUE) return expr_has_checked_error_flow(program, context_fun, scope, expr->right, depth);
-  if (expr_has_checked_error_flow(program, context_fun, scope, expr->left, depth) || expr_has_checked_error_flow(program, context_fun, scope, expr->right, depth)) return true;
+  if (expr->kind == EXPR_CHECK && expr_call_has_error_flow(ctx, program, context_fun, scope, expr->left, depth)) return true;
+  if (expr->kind == EXPR_RESCUE) return expr_has_checked_error_flow(ctx, program, context_fun, scope, expr->right, depth);
+  if (expr_has_checked_error_flow(ctx, program, context_fun, scope, expr->left, depth) || expr_has_checked_error_flow(ctx, program, context_fun, scope, expr->right, depth)) return true;
   for (size_t i = 0; i < expr->args.len; i++) {
-    if (expr_has_checked_error_flow(program, context_fun, scope, expr->args.items[i], depth)) return true;
+    if (expr_has_checked_error_flow(ctx, program, context_fun, scope, expr->args.items[i], depth)) return true;
   }
   for (size_t i = 0; i < expr->fields.len; i++) {
-    if (expr_has_checked_error_flow(program, context_fun, scope, expr->fields.items[i].value, depth)) return true;
+    if (expr_has_checked_error_flow(ctx, program, context_fun, scope, expr->fields.items[i].value, depth)) return true;
   }
   return false;
 }
 
-static bool stmt_vec_has_checked_error_flow(const Program *program, const Function *context_fun, const StmtVec *body, Scope *scope, size_t depth) {
+static bool stmt_vec_has_checked_error_flow(CheckContext *ctx, const Program *program, const Function *context_fun, const StmtVec *body, Scope *scope, size_t depth) {
   if (!body || depth > 64) return false;
   for (size_t i = 0; i < body->len; i++) {
     const Stmt *stmt = body->items[i];
     if (!stmt) continue;
     if (stmt->kind == STMT_RAISE) return true;
-    if (stmt->kind == STMT_CHECK && expr_call_has_error_flow(program, context_fun, scope, stmt->expr, depth)) return true;
-    if (expr_has_checked_error_flow(program, context_fun, scope, stmt->target, depth) ||
-        expr_has_checked_error_flow(program, context_fun, scope, stmt->expr, depth) ||
-        expr_has_checked_error_flow(program, context_fun, scope, stmt->range_end, depth)) return true;
+    if (stmt->kind == STMT_CHECK && expr_call_has_error_flow(ctx, program, context_fun, scope, stmt->expr, depth)) return true;
+    if (expr_has_checked_error_flow(ctx, program, context_fun, scope, stmt->target, depth) ||
+        expr_has_checked_error_flow(ctx, program, context_fun, scope, stmt->expr, depth) ||
+        expr_has_checked_error_flow(ctx, program, context_fun, scope, stmt->range_end, depth)) return true;
     if (stmt->kind == STMT_IF) {
       Scope then_scope = {.parent = scope};
       Scope else_scope = {.parent = scope};
-      bool found = stmt_vec_has_checked_error_flow(program, context_fun, &stmt->then_body, &then_scope, depth);
+      bool found = stmt_vec_has_checked_error_flow(ctx, program, context_fun, &stmt->then_body, &then_scope, depth);
       scope_free(&then_scope);
       if (found) return true;
-      found = stmt_vec_has_checked_error_flow(program, context_fun, &stmt->else_body, &else_scope, depth);
+      found = stmt_vec_has_checked_error_flow(ctx, program, context_fun, &stmt->else_body, &else_scope, depth);
       scope_free(&else_scope);
       if (found) return true;
     } else if (stmt->kind == STMT_WHILE) {
       Scope then_scope = {.parent = scope};
-      bool found = stmt_vec_has_checked_error_flow(program, context_fun, &stmt->then_body, &then_scope, depth);
+      bool found = stmt_vec_has_checked_error_flow(ctx, program, context_fun, &stmt->then_body, &then_scope, depth);
       scope_free(&then_scope);
       if (found) return true;
     } else if (stmt->kind == STMT_FOR) {
       Scope body_scope = {.parent = scope};
-      const char *iter_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(program, stmt->expr, scope) : "Unknown");
+      const char *iter_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(ctx, program, stmt->expr, scope) : "Unknown");
       if (stmt->name) scope_add(&body_scope, stmt->name, iter_type ? iter_type : "Unknown", false);
-      bool found = stmt_vec_has_checked_error_flow(program, context_fun, &stmt->then_body, &body_scope, depth);
+      bool found = stmt_vec_has_checked_error_flow(ctx, program, context_fun, &stmt->then_body, &body_scope, depth);
       scope_free(&body_scope);
       if (found) return true;
-    } else if (stmt_vec_has_checked_error_flow(program, context_fun, &stmt->then_body, scope, depth)) {
+    } else if (stmt_vec_has_checked_error_flow(ctx, program, context_fun, &stmt->then_body, scope, depth)) {
       return true;
     }
-    if (stmt->kind != STMT_IF && stmt_vec_has_checked_error_flow(program, context_fun, &stmt->else_body, scope, depth)) return true;
+    if (stmt->kind != STMT_IF && stmt_vec_has_checked_error_flow(ctx, program, context_fun, &stmt->else_body, scope, depth)) return true;
     for (size_t arm_index = 0; arm_index < stmt->match_arms.len; arm_index++) {
       const MatchArm *arm = &stmt->match_arms.items[arm_index];
-      if (expr_has_checked_error_flow(program, context_fun, scope, arm->guard, depth)) return true;
+      if (expr_has_checked_error_flow(ctx, program, context_fun, scope, arm->guard, depth)) return true;
       Scope arm_scope = {.parent = scope};
       if (stmt->kind == STMT_MATCH && arm->payload_name && stmt->expr) {
-        const char *match_type = stmt->resolved_type ? stmt->resolved_type : expr_type(program, stmt->expr, scope);
+        const char *match_type = stmt->resolved_type ? stmt->resolved_type : expr_type(ctx, program, stmt->expr, scope);
         const Choice *item_choice = find_choice(program, match_type);
         const Param *item_case = item_choice ? find_case(&item_choice->cases, arm->case_name) : NULL;
         if (item_case && item_case->type) scope_add(&arm_scope, arm->payload_name, item_case->type, false);
       }
-      bool found = stmt_vec_has_checked_error_flow(program, context_fun, &arm->body, &arm_scope, depth);
+      bool found = stmt_vec_has_checked_error_flow(ctx, program, context_fun, &arm->body, &arm_scope, depth);
       scope_free(&arm_scope);
       if (found) return true;
     }
-    flow_scope_add_stmt_binding(program, stmt, scope);
+    flow_scope_add_stmt_binding(ctx, program, stmt, scope);
   }
   return false;
 }
 
-static bool function_has_error_flow_inner(const Program *program, const Function *fun, size_t depth) {
+static bool function_has_error_flow_inner(CheckContext *ctx, const Program *program, const Function *fun, size_t depth) {
   if (!fun || !fun->raises) return false;
   if (fun->has_error_set) return true;
   Scope flow_scope = {0};
   flow_scope_add_function_bindings(fun, &flow_scope);
-  bool result = stmt_vec_has_checked_error_flow(program, fun, &fun->body, &flow_scope, depth);
+  CheckContext fun_ctx = ctx ? *ctx : (CheckContext){0};
+  fun_ctx.function = fun;
+  bool result = stmt_vec_has_checked_error_flow(&fun_ctx, program, fun, &fun->body, &flow_scope, depth);
   scope_free(&flow_scope);
   return result;
 }
 
-static bool function_has_error_flow(const Program *program, const Function *fun) {
-  return function_has_error_flow_inner(program, fun, 0);
+static bool function_has_error_flow(CheckContext *ctx, const Program *program, const Function *fun) {
+  return function_has_error_flow_inner(ctx, program, fun, 0);
 }
 
-static bool check_fallible_call_is_checked(const Program *program, const Function *callee, const Expr *call, ZDiag *diag, const char *message, const char *expected, const char *actual, const char *help) {
-  if (!function_has_error_flow(program, callee)) return true;
-  if (allow_fallible_call == 0) {
+static bool check_fallible_call_is_checked(CheckContext *ctx, const Program *program, const Function *callee, const Expr *call, ZDiag *diag, const char *message, const char *expected, const char *actual, const char *help) {
+  if (!function_has_error_flow(ctx, program, callee)) return true;
+  if (!ctx || ctx->allow_fallible_call == 0) {
     return set_diag_detail(diag, 1003, message, call->line, call->column, expected, actual, help);
   }
   return true;
 }
 
-static const Function *fallible_callee_in_context(const Program *program, const Function *context_fun, Scope *scope, const Expr *expr) {
-  const Function *fun = resolve_call_function_in_context(program, context_fun, scope, expr);
-  return function_has_error_flow(program, fun) ? fun : NULL;
+static const Function *fallible_callee_in_context(CheckContext *ctx, const Program *program, const Function *context_fun, Scope *scope, const Expr *expr) {
+  const Function *fun = resolve_call_function_in_context(ctx, program, context_fun, scope, expr);
+  return function_has_error_flow(ctx, program, fun) ? fun : NULL;
 }
 
-static const Function *fallible_callee(const Program *program, const Expr *expr) {
-  return fallible_callee_in_context(program, checking_function, NULL, expr);
+static const Function *fallible_callee(CheckContext *ctx, const Program *program, const Expr *expr) {
+  return fallible_callee_in_context(ctx, program, ctx ? ctx->function : NULL, NULL, expr);
 }
 
 static bool is_builtin_fallible_call(const Expr *expr) {
@@ -3445,7 +3454,7 @@ static char *receiver_self_arg_type(const char *receiver_type, bool requires_mut
   return buf.data;
 }
 
-static bool build_receiver_shape_method_bindings(const Program *program, const Shape *shape, const Function *method, const Expr *call, const char *self_arg_type, Scope *scope, ZDiag *diag, GenericBinding **out_bindings, size_t *out_len) {
+static bool build_receiver_shape_method_bindings(CheckContext *ctx, const Program *program, const Shape *shape, const Function *method, const Expr *call, const char *self_arg_type, Scope *scope, ZDiag *diag, GenericBinding **out_bindings, size_t *out_len) {
   size_t binding_len = 1 + (shape ? shape->type_params.len : 0);
   GenericBinding *bindings = z_checked_calloc(binding_len, sizeof(GenericBinding));
   bindings[0].name = "Self";
@@ -3478,7 +3487,7 @@ static bool build_receiver_shape_method_bindings(const Program *program, const S
   }
   for (size_t param_index = 1; method && param_index < method->params.len && param_index - 1 < call->args.len; param_index++) {
     if (!method->params.items[param_index].type || !strstr(method->params.items[param_index].type, "Self")) continue;
-    const char *actual = expr_type(program, call->args.items[param_index - 1], scope);
+    const char *actual = expr_type(ctx, program, call->args.items[param_index - 1], scope);
     if (!infer_shape_method_binding(method->params.items[param_index].type, actual, bindings, binding_len)) {
       generic_bindings_free(bindings, binding_len);
       free(bindings);
@@ -3536,7 +3545,7 @@ static bool bind_shape_method_from_expected_self(const Program *program, const S
   return true;
 }
 
-static bool build_shape_method_bindings(const Program *program, const Shape *shape, const Function *method, const Expr *call, Scope *scope, const char *expected, ZDiag *diag, GenericBinding **out_bindings, size_t *out_len) {
+static bool build_shape_method_bindings(CheckContext *ctx, const Program *program, const Shape *shape, const Function *method, const Expr *call, Scope *scope, const char *expected, ZDiag *diag, GenericBinding **out_bindings, size_t *out_len) {
   size_t binding_len = 1 + (shape ? shape->type_params.len : 0);
   GenericBinding *bindings = z_checked_calloc(binding_len, sizeof(GenericBinding));
   bindings[0].name = "Self";
@@ -3569,7 +3578,7 @@ static bool build_shape_method_bindings(const Program *program, const Shape *sha
   }
   for (size_t i = 0; method && i < method->params.len && i < call->args.len; i++) {
     if (!method->params.items[i].type || !strstr(method->params.items[i].type, "Self")) continue;
-    const char *actual = expr_type(program, call->args.items[i], scope);
+    const char *actual = expr_type(ctx, program, call->args.items[i], scope);
     if (!infer_shape_method_binding(method->params.items[i].type, actual, bindings, binding_len)) {
       generic_bindings_free(bindings, binding_len);
       free(bindings);
@@ -3679,11 +3688,11 @@ static const Function *find_constrained_interface_method_in_function(const Progr
   return method;
 }
 
-static const Function *find_constrained_interface_method(const Program *program, const Expr *callee, const InterfaceDecl **out_interface) {
-  return find_constrained_interface_method_in_function(program, checking_function, callee, out_interface);
+static const Function *find_constrained_interface_method(CheckContext *ctx, const Program *program, const Expr *callee, const InterfaceDecl **out_interface) {
+  return find_constrained_interface_method_in_function(program, ctx ? ctx->function : NULL, callee, out_interface);
 }
 
-static const Function *find_concrete_constrained_shape_method_in_context(const Program *program, const Function *context_fun, GenericBinding *bindings, size_t binding_len, const Expr *callee, const Shape **out_shape) {
+static const Function *find_concrete_constrained_shape_method_in_context(const CheckContext *ctx, const Program *program, const Function *context_fun, GenericBinding *bindings, size_t binding_len, const Expr *callee, const Shape **out_shape) {
   if (out_shape) *out_shape = NULL;
   if (!program || !callee || callee->kind != EXPR_MEMBER || !callee->left || callee->left->kind != EXPR_IDENT) return NULL;
   char **constraint_args = NULL;
@@ -3691,9 +3700,9 @@ static const Function *find_concrete_constrained_shape_method_in_context(const P
   const InterfaceDecl *interface = constrained_interface_for_type_param(program, context_fun, callee->left->text, &constraint_args, &constraint_arg_len);
   free_type_arg_list(constraint_args, constraint_arg_len);
   if (!interface) return NULL;
-  if ((!bindings || binding_len == 0) && return_provenance_expr_bindings && return_provenance_expr_binding_len > 0) {
-    bindings = return_provenance_expr_bindings;
-    binding_len = return_provenance_expr_binding_len;
+  if ((!bindings || binding_len == 0) && ctx && ctx->return_provenance_expr_bindings && ctx->return_provenance_expr_binding_len > 0) {
+    bindings = ctx->return_provenance_expr_bindings;
+    binding_len = ctx->return_provenance_expr_binding_len;
   }
   if (!bindings || binding_len == 0) return NULL;
   const char *bound_owner = generic_binding_lookup(bindings, binding_len, callee->left->text);
@@ -3963,9 +3972,9 @@ static bool index_element_type(const char *base_type, char *out, size_t out_len)
   return false;
 }
 
-static const char *expr_type(const Program *program, const Expr *expr, Scope *scope) {
+static const char *expr_type(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope) {
   if (!expr) return "Void";
-  const char *resolved_type = expr_resolved_type_for_current_context(expr);
+  const char *resolved_type = expr_resolved_type_for_current_context(ctx, expr);
   if (resolved_type) return resolved_type;
   switch (expr->kind) {
     case EXPR_STRING: return "String";
@@ -3994,7 +4003,7 @@ static const char *expr_type(const Program *program, const Expr *expr, Scope *sc
           GenericBinding *bindings = z_checked_calloc(fun->type_params.len, sizeof(GenericBinding));
           for (size_t i = 0; i < fun->type_params.len; i++) bindings[i].name = fun->type_params.items[i].name;
           ZDiag ignored = {0};
-          if (build_generic_bindings(program, fun, expr, scope, &ignored, bindings, fun->type_params.len, NULL)) {
+          if (build_generic_bindings(ctx, program, fun, expr, scope, &ignored, bindings, fun->type_params.len, NULL)) {
             static char generic_return_type[160];
             char *substituted = type_substitute_generic(fun->return_type, bindings, fun->type_params.len);
             snprintf(generic_return_type, sizeof(generic_return_type), "%s", substituted);
@@ -4016,7 +4025,7 @@ static const char *expr_type(const Program *program, const Expr *expr, Scope *sc
           GenericBinding *bindings = NULL;
           size_t binding_len = 0;
           ZDiag ignored = {0};
-          if (build_shape_method_bindings(program, shape, method, expr, scope, NULL, &ignored, &bindings, &binding_len)) {
+          if (build_shape_method_bindings(ctx, program, shape, method, expr, scope, NULL, &ignored, &bindings, &binding_len)) {
             static char method_return_type[160];
             char *substituted = type_substitute_generic(method->return_type, bindings, binding_len);
             snprintf(method_return_type, sizeof(method_return_type), "%s", substituted);
@@ -4030,11 +4039,11 @@ static const char *expr_type(const Program *program, const Expr *expr, Scope *sc
           return method->return_type ? method->return_type : "Void";
         }
         const InterfaceDecl *interface = NULL;
-        const Function *required = find_constrained_interface_method(program, expr->left, &interface);
+        const Function *required = find_constrained_interface_method(ctx, program, expr->left, &interface);
         if (required && interface) {
           char **constraint_args = NULL;
           size_t constraint_arg_len = 0;
-          constrained_interface_for_type_param(program, checking_function, expr->left->left->text, &constraint_args, &constraint_arg_len);
+          constrained_interface_for_type_param(program, ctx ? ctx->function : NULL, expr->left->left->text, &constraint_args, &constraint_arg_len);
           GenericBinding *interface_bindings = z_checked_calloc(interface->type_params.len, sizeof(GenericBinding));
           for (size_t i = 0; i < interface->type_params.len; i++) {
             interface_bindings[i].name = interface->type_params.items[i].name;
@@ -4056,13 +4065,13 @@ static const char *expr_type(const Program *program, const Expr *expr, Scope *sc
     }
     case EXPR_INDEX: {
       static char element_type[128];
-      if (index_element_type(expr_type(program, expr->left, scope), element_type, sizeof(element_type))) return element_type;
+      if (index_element_type(expr_type(ctx, program, expr->left, scope), element_type, sizeof(element_type))) return element_type;
       return "Unknown";
     }
     case EXPR_SLICE: {
       static char slice_type[128];
       char element_type[96];
-      if (index_element_type(expr_type(program, expr->left, scope), element_type, sizeof(element_type))) {
+      if (index_element_type(expr_type(ctx, program, expr->left, scope), element_type, sizeof(element_type))) {
         snprintf(slice_type, sizeof(slice_type), "Span<%s>", element_type);
         return slice_type;
       }
@@ -4072,18 +4081,18 @@ static const char *expr_type(const Program *program, const Expr *expr, Scope *sc
       return expr->text ? expr->text : "Unknown";
     case EXPR_BORROW: {
       static char borrow_type[160];
-      const char *inner_type = expr_type(program, expr->left, scope);
+      const char *inner_type = expr_type(ctx, program, expr->left, scope);
       char owned_inner[128];
       if (owned_inner_text(inner_type, owned_inner, sizeof(owned_inner))) inner_type = owned_inner;
       snprintf(borrow_type, sizeof(borrow_type), "%s<%s>", expr->mutable_borrow ? "mutref" : "ref", inner_type ? inner_type : "Unknown");
       return borrow_type;
     }
     case EXPR_CHECK: {
-      const Function *fun = fallible_callee(program, expr->left);
+      const Function *fun = fallible_callee(ctx, program, expr->left);
       if (fun) return fun->return_type;
       const char *builtin_type = builtin_fallible_return_type(expr->left);
       if (builtin_type) return builtin_type;
-      const char *checked_type = expr_type(program, expr->left, scope);
+      const char *checked_type = expr_type(ctx, program, expr->left, scope);
       const char *inner = NULL;
       size_t inner_len = 0;
       if (type_has_generic_arg(checked_type, "Maybe", &inner, &inner_len)) {
@@ -4094,14 +4103,14 @@ static const char *expr_type(const Program *program, const Expr *expr, Scope *sc
       return checked_type;
     }
     case EXPR_RESCUE:
-      return expr_type(program, expr->right, scope);
+      return expr_type(ctx, program, expr->right, scope);
     case EXPR_META:
       return expr->resolved_type ? expr->resolved_type : "Unknown";
     case EXPR_SHAPE_LITERAL:
       return find_shape(program, expr->text) ? expr->text : "Unknown";
     case EXPR_ARRAY_LITERAL: {
       static char array_type[128];
-      const char *element_type = expr->args.len > 0 ? expr_type(program, expr->args.items[0], scope) : "Unknown";
+      const char *element_type = expr->args.len > 0 ? expr_type(ctx, program, expr->args.items[0], scope) : "Unknown";
       snprintf(array_type, sizeof(array_type), "[%zu]%s", expr->args.len, element_type);
       return array_type;
     }
@@ -4114,7 +4123,7 @@ static const char *expr_type(const Program *program, const Expr *expr, Scope *sc
       if (expr->left) {
         if (expr->left->kind == EXPR_IDENT && find_enum(program, expr->left->text)) return expr->left->text;
         if (expr->left->kind == EXPR_IDENT && find_choice(program, expr->left->text)) return expr->left->text;
-        const char *left_type = expr_type(program, expr->left, scope);
+        const char *left_type = expr_type(ctx, program, expr->left, scope);
         char owned_shape_type[128];
         char ref_shape_type[128];
         if (owned_inner_text(left_type, owned_shape_type, sizeof(owned_shape_type))) left_type = owned_shape_type;
@@ -4133,7 +4142,7 @@ static const char *expr_type(const Program *program, const Expr *expr, Scope *sc
           return "Unknown";
         }
         {
-          const char *left_type = expr_type(program, expr->left, scope);
+          const char *left_type = expr_type(ctx, program, expr->left, scope);
           const char *inner = NULL;
           size_t inner_len = 0;
           if (type_has_generic_arg(left_type, "Maybe", &inner, &inner_len)) {
@@ -4345,18 +4354,18 @@ static bool type_static_value_mismatch(const Program *program, const char *expec
   return mismatch;
 }
 
-static bool check_call_callee(const Program *program, const Expr *callee, Scope *scope, ZDiag *diag) {
+static bool check_call_callee(CheckContext *ctx, const Program *program, const Expr *callee, Scope *scope, ZDiag *diag) {
   if (callee->kind == EXPR_IDENT) {
     if (scope_has(scope, callee->text)) {
-      const char *actual = expr_type(program, callee, scope);
+      const char *actual = expr_type(ctx, program, callee, scope);
       return set_diag_detail(diag, 3005, "call target is not a function", callee->line, callee->column, "function name", actual, "call a declared function instead of a local value");
     }
     const Function *fun = find_function(program, callee->text);
     if (fun) return true;
-    return check_expr(program, callee, scope, diag);
+    return check_expr(ctx, program, callee, scope, diag);
   }
   if (callee->kind == EXPR_MEMBER && find_namespace_shape_method(program, callee, NULL)) return true;
-  if (callee->kind == EXPR_MEMBER && find_constrained_interface_method(program, callee, NULL)) return true;
+  if (callee->kind == EXPR_MEMBER && find_constrained_interface_method(ctx, program, callee, NULL)) return true;
   if (callee->kind == EXPR_MEMBER) {
     ZBuf name;
     zbuf_init(&name);
@@ -4365,12 +4374,12 @@ static bool check_call_callee(const Program *program, const Expr *callee, Scope 
     bool std_namespace = strncmp(name.data, "std.", strlen("std.")) == 0;
     zbuf_free(&name);
     if (known_builtin_call || std_namespace || is_world_stream_write_callee(callee, scope)) return true;
-    return check_expr(program, callee, scope, diag);
+    return check_expr(ctx, program, callee, scope, diag);
   }
-  return check_expr(program, callee, scope, diag);
+  return check_expr(ctx, program, callee, scope, diag);
 }
 
-static bool check_expr_expected(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected) {
+static bool check_expr_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected) {
   if (!expr) return true;
   if (expr->kind == EXPR_NUMBER) {
     if (is_float_literal_text(expr->text)) return validate_float_literal_for_type(expr, expected, diag);
@@ -4415,7 +4424,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
         if (!check_read_not_mutably_borrowed(expr, scope, diag)) return false;
       }
       if (expected && type_is_named_generic(expected, "MutSpan")) {
-        const char *actual = expr_type(program, expr, scope);
+        const char *actual = expr_type(ctx, program, expr, scope);
         char expected_element[128];
         char actual_element[128];
         if (mutspan_element_text(expected, expected_element, sizeof(expected_element)) &&
@@ -4430,7 +4439,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           return true;
         }
       }
-      if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(program, expr, scope));
+      if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(ctx, program, expr, scope));
       return true;
     case EXPR_MEMBER:
       if (expr->left && expr->left->kind == EXPR_IDENT) {
@@ -4450,10 +4459,10 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       bool local_place = expr_binding_path(expr, root, sizeof(root), path, sizeof(path)) && scope_has(scope, root);
       if (local_place) {
         if (!check_place_root_available(expr, scope, root, diag)) return false;
-        if (!check_place_index_exprs(program, expr, scope, diag)) return false;
-      } else if (!check_expr(program, expr->left, scope, diag)) return false;
+        if (!check_place_index_exprs(ctx, program, expr, scope, diag)) return false;
+      } else if (!check_expr(ctx, program, expr->left, scope, diag)) return false;
       {
-        const char *left_type = expr_type(program, expr->left, scope);
+        const char *left_type = expr_type(ctx, program, expr->left, scope);
         char owned_shape_type[128];
         char ref_shape_type[128];
         if (owned_inner_text(left_type, owned_shape_type, sizeof(owned_shape_type))) left_type = owned_shape_type;
@@ -4468,7 +4477,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             snprintf(message, sizeof(message), "shape '%s' has no field '%s'", shape->name, expr->text);
             return set_diag_detail(diag, 3101, message, expr->line, expr->column, "declared shape field", expr->text, "rename the field or update the shape");
           }
-          if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(program, expr, scope));
+          if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(ctx, program, expr, scope));
           if (!check_read_not_mutably_borrowed(expr, scope, diag)) return false;
           return true;
         }
@@ -4477,7 +4486,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           size_t inner_len = 0;
           if (type_has_generic_arg(left_type, "Maybe", &inner, &inner_len)) {
             if (strcmp(expr->text, "has") == 0 || strcmp(expr->text, "value") == 0) {
-              if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(program, expr, scope));
+              if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(ctx, program, expr, scope));
               if (!check_read_not_mutably_borrowed(expr, scope, diag)) return false;
               return true;
             }
@@ -4492,16 +4501,16 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       bool local_place = expr_binding_path(expr, root, sizeof(root), path, sizeof(path)) && scope_has(scope, root);
       if (local_place) {
         if (!check_place_root_available(expr, scope, root, diag)) return false;
-        if (!check_place_index_exprs(program, expr, scope, diag)) return false;
-      } else if (!check_expr(program, expr->left, scope, diag)) return false;
-      const char *base_type = expr_type(program, expr->left, scope);
+        if (!check_place_index_exprs(ctx, program, expr, scope, diag)) return false;
+      } else if (!check_expr(ctx, program, expr->left, scope, diag)) return false;
+      const char *base_type = expr_type(ctx, program, expr->left, scope);
       char element_type[128];
       if (!index_element_type(base_type, element_type, sizeof(element_type))) {
         return set_diag_detail(diag, 3027, "value does not support indexing", expr->line, expr->column, "[N]T, Span<T>, or String", base_type, "index fixed arrays, Span<T>, or byte-oriented String values supported by this compiler");
       }
       if (!local_place) {
-        if (!check_expr_expected(program, expr->right, scope, diag, "usize")) return false;
-        const char *index_type = expr_type(program, expr->right, scope);
+        if (!check_expr_expected(ctx, program, expr->right, scope, diag, "usize")) return false;
+        const char *index_type = expr_type(ctx, program, expr->right, scope);
         if (!is_int_type(index_type)) {
           return set_diag_detail(diag, 3028, "index expression must be an integer", expr->right ? expr->right->line : expr->line, expr->right ? expr->right->column : expr->column, "integer index", index_type, "use an integer expression such as usize or a checked integer literal");
         }
@@ -4521,12 +4530,12 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       }
       if (expr->mutable_borrow) {
         char target_type[128];
-        if (!check_lvalue_target(program, expr->left, scope, diag, target_type, sizeof(target_type))) return false;
+        if (!check_lvalue_target(ctx, program, expr->left, scope, diag, target_type, sizeof(target_type))) return false;
       } else {
-        if (!check_expr(program, expr->left, scope, diag)) return false;
+        if (!check_expr(ctx, program, expr->left, scope, diag)) return false;
       }
       if (!check_borrow_conflict_at(scope, root, path, expr->mutable_borrow, diag, expr)) return false;
-      const char *inner_type = expr_type(program, expr->left, scope);
+      const char *inner_type = expr_type(ctx, program, expr->left, scope);
       char owned_inner[128];
       if (owned_inner_text(inner_type, owned_inner, sizeof(owned_inner))) inner_type = owned_inner;
       char borrow_type[160];
@@ -4535,17 +4544,17 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       return true;
     }
     case EXPR_CHECK: {
-      if (!checking_function || !checking_function->raises) {
+      if (!ctx || !ctx->function || !ctx->function->raises) {
         return set_diag_detail(diag, 1001, "`check` requires function to be marked raises", expr->line, expr->column, "function signature marked raises", "function is not marked raises", "add raises to the function signature");
       }
-      allow_fallible_call++;
-      bool checked_ok = check_expr(program, expr->left, scope, diag);
-      allow_fallible_call--;
+      ctx->allow_fallible_call++;
+      bool checked_ok = check_expr(ctx, program, expr->left, scope, diag);
+      ctx->allow_fallible_call--;
       if (!checked_ok) return false;
-      const Function *callee = fallible_callee(program, expr->left);
-      if (callee && !function_error_sets_compatible(checking_function, callee, diag, expr->left)) return false;
-      if (is_builtin_fallible_call(expr->left) && !function_error_sets_include_builtin(checking_function, diag, expr->left)) return false;
-      const char *checked_type = expr_type(program, expr->left, scope);
+      const Function *callee = fallible_callee(ctx, program, expr->left);
+      if (callee && !function_error_sets_compatible(ctx, ctx ? ctx->function : NULL, callee, diag, expr->left)) return false;
+      if (is_builtin_fallible_call(expr->left) && !function_error_sets_include_builtin(ctx ? ctx->function : NULL, diag, expr->left)) return false;
+      const char *checked_type = expr_type(ctx, program, expr->left, scope);
       if (callee) {
         set_expr_resolved_type(expr, callee->return_type);
         return true;
@@ -4570,14 +4579,14 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       return true;
     }
     case EXPR_RESCUE: {
-      allow_fallible_call++;
-      bool left_ok = check_expr(program, expr->left, scope, diag);
-      allow_fallible_call--;
+      ctx->allow_fallible_call++;
+      bool left_ok = check_expr(ctx, program, expr->left, scope, diag);
+      ctx->allow_fallible_call--;
       if (!left_ok) return false;
-      const Function *callee = fallible_callee(program, expr->left);
+      const Function *callee = fallible_callee(ctx, program, expr->left);
       const char *left_type = callee ? callee->return_type : builtin_fallible_return_type(expr->left);
       if (!left_type) {
-        const char *maybe_type = expr_type(program, expr->left, scope);
+        const char *maybe_type = expr_type(ctx, program, expr->left, scope);
         const char *inner = NULL;
         size_t inner_len = 0;
         if (!type_has_generic_arg(maybe_type, "Maybe", &inner, &inner_len)) {
@@ -4587,7 +4596,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
         snprintf(inner_type, sizeof(inner_type), "%.*s", (int)inner_len, inner);
         left_type = inner_type;
         ProvenanceScopeSnapshot *before_right = provenance_scope_snapshot_capture(scope);
-        if (!check_expr_expected(program, expr->right, scope, diag, left_type)) {
+        if (!check_expr_expected(ctx, program, expr->right, scope, diag, left_type)) {
           provenance_scope_snapshot_restore(before_right);
           provenance_scope_snapshot_free(before_right);
           return false;
@@ -4600,7 +4609,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
         return true;
       }
       ProvenanceScopeSnapshot *before_right = provenance_scope_snapshot_capture(scope);
-      if (!check_expr_expected(program, expr->right, scope, diag, left_type)) {
+      if (!check_expr_expected(ctx, program, expr->right, scope, diag, left_type)) {
         provenance_scope_snapshot_restore(before_right);
         provenance_scope_snapshot_free(before_right);
         return false;
@@ -4609,7 +4618,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       provenance_scope_snapshot_restore_optional_branch(before_right, right_after, true, true);
       provenance_scope_snapshot_free(right_after);
       provenance_scope_snapshot_free(before_right);
-      const char *fallback_type = expr_type(program, expr->right, scope);
+      const char *fallback_type = expr_type(ctx, program, expr->right, scope);
       if (!types_compatible(left_type, fallback_type)) {
         return set_diag_detail(diag, 3006, "rescue fallback type does not match recovered value", expr->line, expr->column, left_type, fallback_type, "return a fallback value with the same type as the fallible expression");
       }
@@ -4619,8 +4628,8 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
     case EXPR_META:
       return check_meta_expr(program, expr, diag);
     case EXPR_SLICE: {
-      if (!check_expr(program, expr->left, scope, diag)) return false;
-      const char *base_type = expr_type(program, expr->left, scope);
+      if (!check_expr(ctx, program, expr->left, scope, diag)) return false;
+      const char *base_type = expr_type(ctx, program, expr->left, scope);
       char element_type[128];
       if (!index_element_type(base_type, element_type, sizeof(element_type))) {
         return set_diag_detail(diag, 3027, "value does not support slicing", expr->line, expr->column, "[N]T, Span<T>, or String", base_type, "slice fixed arrays, Span<T>, or byte-oriented String values supported by this compiler");
@@ -4629,8 +4638,8 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       for (size_t i = 0; i < expr->args.len; i++) {
         Expr *bound = expr->args.items[i];
         if (!bound) continue;
-        if (!check_expr_expected(program, bound, scope, diag, "usize")) return false;
-        const char *bound_type = expr_type(program, bound, scope);
+        if (!check_expr_expected(ctx, program, bound, scope, diag, "usize")) return false;
+        const char *bound_type = expr_type(ctx, program, bound, scope);
         if (!is_int_type(bound_type)) {
           return set_diag_detail(diag, 3028, "slice bounds must be integers", bound->line, bound->column, "integer slice bound", bound_type, "use integer expressions for slice start and end");
         }
@@ -4643,8 +4652,8 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
     case EXPR_CALL:
       if (expr->left && expr->left->kind == EXPR_IDENT && strcmp(expr->left->text, "expect") == 0) {
         if (expr->args.len != 1) return set_diag_detail(diag, 3004, "expect requires one Bool argument", expr->line, expr->column, "expect(condition)", "wrong argument count", "pass exactly one Bool condition");
-        if (!check_expr_expected(program, expr->args.items[0], scope, diag, "Bool")) return false;
-        const char *actual = expr_type(program, expr->args.items[0], scope);
+        if (!check_expr_expected(ctx, program, expr->args.items[0], scope, diag, "Bool")) return false;
+        const char *actual = expr_type(ctx, program, expr->args.items[0], scope);
         if (!is_bool_type(actual)) return set_diag_detail(diag, 3005, "expect argument must be Bool", expr->args.items[0]->line, expr->args.items[0]->column, "Bool", actual, "compare explicitly before calling expect");
         set_expr_resolved_type(expr, "Void");
         return true;
@@ -4660,11 +4669,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           size_t expected_count = item_case->type ? 1 : 0;
           if (expr->args.len != expected_count) return set_diag_detail(diag, 3108, "choice payload arity mismatch", expr->line, expr->column, expected_count ? "one payload argument" : "no payload arguments", "wrong payload argument count", "add or remove the payload argument");
           for (size_t i = 0; i < expr->args.len; i++) {
-            if (!check_expr_expected(program, expr->args.items[i], scope, diag, item_case->type)) return false;
+            if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, item_case->type)) return false;
             mark_owned_move_if_needed(expr->args.items[i], scope, item_case->type);
           }
           if (item_case->type && expr->args.len == 1) {
-            const char *actual = expr_type(program, expr->args.items[0], scope);
+            const char *actual = expr_type(ctx, program, expr->args.items[0], scope);
             if (!types_compatible(item_case->type, actual)) return set_diag_detail(diag, 3109, "choice payload type mismatch", expr->args.items[0]->line, expr->args.items[0]->column, item_case->type, actual, "pass a payload value of the declared case type");
           }
           return true;
@@ -4681,16 +4690,16 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           }
           GenericBinding *method_bindings = NULL;
           size_t method_binding_len = 0;
-          if (!build_shape_method_bindings(program, shape, method, expr, scope, expected, diag, &method_bindings, &method_binding_len)) return false;
+          if (!build_shape_method_bindings(ctx, program, shape, method, expr, scope, expected, diag, &method_bindings, &method_binding_len)) return false;
           for (size_t i = 0; i < expr->args.len; i++) {
             char *expected_type = type_substitute_generic(method->params.items[i].type, method_bindings, method_binding_len);
-            if (!check_expr_expected(program, expr->args.items[i], scope, diag, expected_type)) {
+            if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, expected_type)) {
               free(expected_type);
               generic_bindings_free(method_bindings, method_binding_len);
               free(method_bindings);
               return false;
             }
-            const char *actual = expr_type(program, expr->args.items[i], scope);
+            const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
             if (!types_compatible(expected_type, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument %zu to method '%s.%s' has incompatible type", i + 1, shape->name, method->name);
@@ -4705,10 +4714,10 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             mark_owned_move_if_needed(expr->args.items[i], scope, expected_type);
             free(expected_type);
           }
-          if (function_has_error_flow(program, method)) {
+          if (function_has_error_flow(ctx, program, method)) {
             char actual[160];
             snprintf(actual, sizeof(actual), "call to '%s.%s'", shape->name, method->name);
-            if (!check_fallible_call_is_checked(program, method, expr, diag, "fallible static method call must be checked", "check Shape.method(...)", actual, "prefix the call with check in a function marked raises")) {
+            if (!check_fallible_call_is_checked(ctx, program, method, expr, diag, "fallible static method call must be checked", "check Shape.method(...)", actual, "prefix the call with check in a function marked raises")) {
               generic_bindings_free(method_bindings, method_binding_len);
               free(method_bindings);
               return false;
@@ -4716,7 +4725,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           }
           char *return_type = type_substitute_generic(method->return_type, method_bindings, method_binding_len);
           set_expr_resolved_type(expr, return_type);
-          if (!apply_checked_call_storage_effects(program, expr, scope, diag)) {
+          if (!apply_checked_call_storage_effects(ctx, program, expr, scope, diag)) {
             free(return_type);
             generic_bindings_free(method_bindings, method_binding_len);
             free(method_bindings);
@@ -4739,11 +4748,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
         char **receiver_constraint_args = NULL;
         size_t receiver_constraint_arg_len = 0;
         bool constrained_owner = receiver && receiver->kind == EXPR_IDENT &&
-          constrained_interface_for_type_param(program, checking_function, receiver->text, &receiver_constraint_args, &receiver_constraint_arg_len);
+          constrained_interface_for_type_param(program, ctx ? ctx->function : NULL, receiver->text, &receiver_constraint_args, &receiver_constraint_arg_len);
         free_type_arg_list(receiver_constraint_args, receiver_constraint_arg_len);
         if (receiver && !namespace_owner && !constrained_owner && !builtin_member_callee) {
-          if (!check_expr(program, receiver, scope, diag)) return false;
-          const char *receiver_type_raw = expr_type(program, receiver, scope);
+          if (!check_expr(ctx, program, receiver, scope, diag)) return false;
+          const char *receiver_type_raw = expr_type(ctx, program, receiver, scope);
           char receiver_type_buf[192];
           snprintf(receiver_type_buf, sizeof(receiver_type_buf), "%s", receiver_type_raw ? receiver_type_raw : "Unknown");
           const char *receiver_type = receiver_type_buf;
@@ -4784,7 +4793,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
                   return set_diag_detail(diag, 3049, "receiver method requires a mutable receiver", receiver->line, receiver->column, "let mut receiver binding", "immutable receiver binding", "declare the receiver with let mut before calling a mutating method");
                 }
                 char lvalue_type[192];
-                if (!check_lvalue_target(program, receiver, scope, diag, lvalue_type, sizeof(lvalue_type))) return false;
+                if (!check_lvalue_target(ctx, program, receiver, scope, diag, lvalue_type, sizeof(lvalue_type))) return false;
               }
             } else if (!receiver_is_ref && !receiver_is_mutref && !expr_is_addressable(receiver)) {
               return set_diag_detail(diag, 3049, "receiver method requires an addressable receiver", receiver->line, receiver->column, "shape lvalue or ref<Self>", "temporary receiver", "store the value in a binding before calling the method");
@@ -4795,7 +4804,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             char *self_arg_type = receiver_self_arg_type(receiver_type, receiver_requires_mut);
             GenericBinding *receiver_bindings = NULL;
             size_t receiver_binding_len = 0;
-            if (!build_receiver_shape_method_bindings(program, receiver_shape, receiver_method, expr, self_arg_type, scope, diag, &receiver_bindings, &receiver_binding_len)) {
+            if (!build_receiver_shape_method_bindings(ctx, program, receiver_shape, receiver_method, expr, self_arg_type, scope, diag, &receiver_bindings, &receiver_binding_len)) {
               free(self_arg_type);
               return false;
             }
@@ -4812,13 +4821,13 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             free(self_arg_type);
             for (size_t i = 0; i < expr->args.len; i++) {
               char *expected_type = type_substitute_generic(receiver_method->params.items[i + 1].type, receiver_bindings, receiver_binding_len);
-              if (!check_expr_expected(program, expr->args.items[i], scope, diag, expected_type)) {
+              if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, expected_type)) {
                 free(expected_type);
                 generic_bindings_free(receiver_bindings, receiver_binding_len);
                 free(receiver_bindings);
                 return false;
               }
-              const char *actual = expr_type(program, expr->args.items[i], scope);
+              const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
               if (!types_compatible(expected_type, actual)) {
                 char message[256];
                 snprintf(message, sizeof(message), "argument %zu to receiver method '%s.%s' has incompatible type", i + 1, receiver_shape->name, receiver_method->name);
@@ -4833,13 +4842,13 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
               mark_owned_move_if_needed(expr->args.items[i], scope, expected_type);
               free(expected_type);
             }
-            if (function_has_error_flow(program, receiver_method)) {
-              if (allow_fallible_call == 0) {
+            if (function_has_error_flow(ctx, program, receiver_method)) {
+              if ((!ctx || ctx->allow_fallible_call == 0)) {
                 generic_bindings_free(receiver_bindings, receiver_binding_len);
                 free(receiver_bindings);
                 return set_diag_detail(diag, 1003, "fallible receiver method call must be checked", expr->line, expr->column, "check receiver.method(...)", "unchecked fallible receiver method", "prefix the call with check in a function marked raises");
               }
-              if (!function_error_sets_compatible(checking_function, receiver_method, diag, expr)) {
+              if (!function_error_sets_compatible(ctx, ctx ? ctx->function : NULL, receiver_method, diag, expr)) {
                 generic_bindings_free(receiver_bindings, receiver_binding_len);
                 free(receiver_bindings);
                 return false;
@@ -4847,7 +4856,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             }
             char *return_type = type_substitute_generic(receiver_method->return_type, receiver_bindings, receiver_binding_len);
             set_expr_resolved_type(expr, return_type);
-            if (!apply_checked_call_storage_effects(program, expr, scope, diag)) {
+            if (!apply_checked_call_storage_effects(ctx, program, expr, scope, diag)) {
               free(return_type);
               generic_bindings_free(receiver_bindings, receiver_binding_len);
               free(receiver_bindings);
@@ -4860,7 +4869,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           }
         }
         const InterfaceDecl *interface = NULL;
-        const Function *required = find_constrained_interface_method(program, expr->left, &interface);
+        const Function *required = find_constrained_interface_method(ctx, program, expr->left, &interface);
         if (required && interface) {
           if (required->params.len != expr->args.len) {
             char message[256];
@@ -4869,7 +4878,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           }
           char **constraint_args = NULL;
           size_t constraint_arg_len = 0;
-          constrained_interface_for_type_param(program, checking_function, expr->left->left->text, &constraint_args, &constraint_arg_len);
+          constrained_interface_for_type_param(program, ctx ? ctx->function : NULL, expr->left->left->text, &constraint_args, &constraint_arg_len);
           GenericBinding *interface_bindings = z_checked_calloc(interface->type_params.len, sizeof(GenericBinding));
           for (size_t i = 0; i < interface->type_params.len; i++) {
             interface_bindings[i].name = interface->type_params.items[i].name;
@@ -4877,14 +4886,14 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           }
           for (size_t i = 0; i < expr->args.len; i++) {
             char *expected_type = type_substitute_generic(required->params.items[i].type, interface_bindings, interface->type_params.len);
-            if (!check_expr_expected(program, expr->args.items[i], scope, diag, expected_type)) {
+            if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, expected_type)) {
               free(expected_type);
               generic_bindings_free(interface_bindings, interface->type_params.len);
               free(interface_bindings);
               free_type_arg_list(constraint_args, constraint_arg_len);
               return false;
             }
-            const char *actual = expr_type(program, expr->args.items[i], scope);
+            const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
             if (!types_compatible(expected_type, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument %zu to constrained method '%s.%s' has incompatible type", i + 1, interface->name, required->name);
@@ -4898,10 +4907,10 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             mark_owned_move_if_needed(expr->args.items[i], scope, expected_type);
             free(expected_type);
           }
-          if (function_has_error_flow(program, required)) {
+          if (function_has_error_flow(ctx, program, required)) {
             char actual[160];
             snprintf(actual, sizeof(actual), "call to '%s.%s'", interface->name, required->name);
-            if (!check_fallible_call_is_checked(program, required, expr, diag, "fallible constrained interface method call must be checked", "check Interface.method(...)", actual, "prefix the call with check in a function marked raises")) {
+            if (!check_fallible_call_is_checked(ctx, program, required, expr, diag, "fallible constrained interface method call must be checked", "check Interface.method(...)", actual, "prefix the call with check in a function marked raises")) {
               generic_bindings_free(interface_bindings, interface->type_params.len);
               free(interface_bindings);
               free_type_arg_list(constraint_args, constraint_arg_len);
@@ -4910,7 +4919,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           }
           char *return_type = type_substitute_generic(required->return_type, interface_bindings, interface->type_params.len);
           set_expr_resolved_type(expr, return_type);
-          if (!apply_checked_call_storage_effects(program, expr, scope, diag)) {
+          if (!apply_checked_call_storage_effects(ctx, program, expr, scope, diag)) {
             free(return_type);
             generic_bindings_free(interface_bindings, interface->type_params.len);
             free(interface_bindings);
@@ -4924,7 +4933,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           return true;
         }
       }
-      if (!check_call_callee(program, expr->left, scope, diag)) return false;
+      if (!check_call_callee(ctx, program, expr->left, scope, diag)) return false;
       if (expr->left && expr->left->kind == EXPR_IDENT) {
         const Function *fun = find_function(program, expr->left->text);
         if (fun && fun->params.len != expr->args.len) {
@@ -4939,12 +4948,12 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
         if (fun && function_is_generic(fun)) {
           GenericBinding *bindings = z_checked_calloc(fun->type_params.len, sizeof(GenericBinding));
           for (size_t binding_index = 0; binding_index < fun->type_params.len; binding_index++) bindings[binding_index].name = fun->type_params.items[binding_index].name;
-          if (!build_generic_bindings(program, fun, expr, scope, diag, bindings, fun->type_params.len, expected)) {
+          if (!build_generic_bindings(ctx, program, fun, expr, scope, diag, bindings, fun->type_params.len, expected)) {
             generic_bindings_free(bindings, fun->type_params.len);
             free(bindings);
             return false;
           }
-          if (!validate_recursive_generic_call_bindings(program, fun, expr, diag, bindings, fun->type_params.len)) {
+          if (!validate_recursive_generic_call_bindings(ctx, program, fun, expr, diag, bindings, fun->type_params.len)) {
             generic_bindings_free(bindings, fun->type_params.len);
             free(bindings);
             return false;
@@ -4956,13 +4965,13 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           }
           for (size_t i = 0; i < expr->args.len; i++) {
             char *expected_type = i < fun->params.len ? type_substitute_generic(fun->params.items[i].type, bindings, fun->type_params.len) : z_strdup("Unknown");
-            if (!check_expr_expected(program, expr->args.items[i], scope, diag, expected_type)) {
+            if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, expected_type)) {
               free(expected_type);
               generic_bindings_free(bindings, fun->type_params.len);
               free(bindings);
               return false;
             }
-            const char *actual = expr_type(program, expr->args.items[i], scope);
+            const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
             if (!types_compatible(expected_type, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument %zu to generic '%s' has incompatible type", i + 1, fun->name);
@@ -4977,10 +4986,10 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             mark_owned_move_if_needed(expr->args.items[i], scope, expected_type);
             free(expected_type);
           }
-          if (function_has_error_flow(program, fun)) {
+          if (function_has_error_flow(ctx, program, fun)) {
             char actual[160];
             snprintf(actual, sizeof(actual), "call to '%s'", fun->name);
-            if (!check_fallible_call_is_checked(program, fun, expr, diag, "fallible generic function call must be checked", "check fallible_call(...)", actual, "prefix the call with check in a function marked raises")) {
+            if (!check_fallible_call_is_checked(ctx, program, fun, expr, diag, "fallible generic function call must be checked", "check fallible_call(...)", actual, "prefix the call with check in a function marked raises")) {
               generic_bindings_free(bindings, fun->type_params.len);
               free(bindings);
               return false;
@@ -4988,7 +4997,7 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           }
           char *return_type = type_substitute_generic(fun->return_type, bindings, fun->type_params.len);
           set_expr_resolved_type(expr, return_type);
-          if (!apply_checked_call_storage_effects(program, expr, scope, diag)) {
+          if (!apply_checked_call_storage_effects(ctx, program, expr, scope, diag)) {
             free(return_type);
             generic_bindings_free(bindings, fun->type_params.len);
             free(bindings);
@@ -5003,37 +5012,37 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       for (size_t i = 0; i < expr->args.len; i++) {
         if (expr->left && expr->left->kind == EXPR_IDENT) {
           const Function *fun = find_function(program, expr->left->text);
-          if (fun && i < fun->params.len && !check_expr_expected(program, expr->args.items[i], scope, diag, fun->params.items[i].type)) return false;
-          if (fun && i < fun->params.len && !types_compatible(fun->params.items[i].type, expr_type(program, expr->args.items[i], scope))) {
+          if (fun && i < fun->params.len && !check_expr_expected(ctx, program, expr->args.items[i], scope, diag, fun->params.items[i].type)) return false;
+          if (fun && i < fun->params.len && !types_compatible(fun->params.items[i].type, expr_type(ctx, program, expr->args.items[i], scope))) {
             char message[256];
             snprintf(message, sizeof(message), "argument %zu to '%s' has incompatible type", i + 1, fun->name);
-            return set_diag_detail(diag, 3005, message, expr->args.items[i]->line, expr->args.items[i]->column, fun->params.items[i].type, expr_type(program, expr->args.items[i], scope), "pass a compatible value");
+            return set_diag_detail(diag, 3005, message, expr->args.items[i]->line, expr->args.items[i]->column, fun->params.items[i].type, expr_type(ctx, program, expr->args.items[i], scope), "pass a compatible value");
           }
           if (fun && i < fun->params.len) mark_owned_move_if_needed(expr->args.items[i], scope, fun->params.items[i].type);
         } else {
-          if (!check_expr(program, expr->args.items[i], scope, diag)) return false;
+          if (!check_expr(ctx, program, expr->args.items[i], scope, diag)) return false;
         }
       }
       if (expr->left && expr->left->kind == EXPR_IDENT) {
         const Function *fun = find_function(program, expr->left->text);
-        if (fun && !function_is_generic(fun) && !apply_checked_call_storage_effects(program, expr, scope, diag)) return false;
+        if (fun && !function_is_generic(fun) && !apply_checked_call_storage_effects(ctx, program, expr, scope, diag)) return false;
       }
       if (is_world_stream_write_call(expr, scope)) {
         if (expr->args.len != 1) return set_diag_detail(diag, 3004, "World stream write expects one argument", expr->line, expr->column, "world.out.write(text)", "wrong argument count", "pass exactly one String or byte span argument");
-        if (!check_expr_expected(program, expr->args.items[0], scope, diag, "String")) return false;
-        const char *actual = expr_type(program, expr->args.items[0], scope);
+        if (!check_expr_expected(ctx, program, expr->args.items[0], scope, diag, "String")) return false;
+        const char *actual = expr_type(ctx, program, expr->args.items[0], scope);
         if (!types_compatible("String", actual) && !types_compatible("Span<u8>", actual)) {
           return set_diag_detail(diag, 3005, "World stream write argument has incompatible type", expr->args.items[0]->line, expr->args.items[0]->column, "String or Span<u8>", actual, "pass text or a byte span to the stream writer");
         }
-        if (allow_fallible_call == 0) {
+        if ((!ctx || ctx->allow_fallible_call == 0)) {
           return set_diag_detail(diag, 1003, "fallible World stream write must be checked", expr->line, expr->column, "check world.out.write(...)", "unchecked World stream write", "prefix the write with check in a function marked raises");
         }
         set_expr_resolved_type(expr, "Void");
         return true;
       }
       {
-        const Function *fun = fallible_callee(program, expr);
-        if ((fun || is_builtin_fallible_call(expr)) && allow_fallible_call == 0) {
+        const Function *fun = fallible_callee(ctx, program, expr);
+        if ((fun || is_builtin_fallible_call(expr)) && (!ctx || ctx->allow_fallible_call == 0)) {
           char actual[160];
           snprintf(actual, sizeof(actual), "call to '%s'", fun ? fun->name : "std fs fallible helper");
           return set_diag_detail(diag, 1003, "fallible function call must be checked", expr->line, expr->column, "check fallible_call(...)", actual, "prefix the call with check in a function marked raises");
@@ -5052,11 +5061,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             return set_diag_detail(diag, 3011, message, expr->line, expr->column, "matching std helper signature", "wrong argument count", "update the std helper call");
           }
           if (strcmp(std_name.data, "std.mem.len") == 0) {
-            if (!check_expr(program, expr->args.items[0], scope, diag)) {
+            if (!check_expr(ctx, program, expr->args.items[0], scope, diag)) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *actual = expr_type(program, expr->args.items[0], scope);
+            const char *actual = expr_type(ctx, program, expr->args.items[0], scope);
             char element_type[128];
             if (strcmp(actual, "String") != 0 &&
                 !span_element_text(actual, element_type, sizeof(element_type)) &&
@@ -5069,21 +5078,21 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             return true;
           }
           if (strcmp(std_name.data, "std.mem.get") == 0) {
-            if (!check_expr(program, expr->args.items[0], scope, diag)) {
+            if (!check_expr(ctx, program, expr->args.items[0], scope, diag)) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *actual = expr_type(program, expr->args.items[0], scope);
+            const char *actual = expr_type(ctx, program, expr->args.items[0], scope);
             char element_type[128];
             if (!index_element_type(actual, element_type, sizeof(element_type))) {
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.mem.get expects an indexable value", expr->args.items[0]->line, expr->args.items[0]->column, "[N]T, Span<T>, MutSpan<T>, or String", actual, "pass an indexable value and handle the Maybe<T> result");
             }
-            if (!check_expr_expected(program, expr->args.items[1], scope, diag, "usize")) {
+            if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, "usize")) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *index_type = expr_type(program, expr->args.items[1], scope);
+            const char *index_type = expr_type(ctx, program, expr->args.items[1], scope);
             if (!is_int_type(index_type)) {
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3028, "std.mem.get index must be an integer", expr->args.items[1]->line, expr->args.items[1]->column, "integer index", index_type, "use an integer expression such as usize or a checked integer literal");
@@ -5095,12 +5104,12 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             return true;
           }
           if (strcmp(std_name.data, "std.mem.eqlBytes") == 0) {
-            if (!check_expr(program, expr->args.items[0], scope, diag) || !check_expr(program, expr->args.items[1], scope, diag)) {
+            if (!check_expr(ctx, program, expr->args.items[0], scope, diag) || !check_expr(ctx, program, expr->args.items[1], scope, diag)) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *left_type = expr_type(program, expr->args.items[0], scope);
-            const char *right_type = expr_type(program, expr->args.items[1], scope);
+            const char *left_type = expr_type(ctx, program, expr->args.items[0], scope);
+            const char *right_type = expr_type(ctx, program, expr->args.items[1], scope);
             char left_element[128];
             char right_element[128];
             if (!span_element_text(left_type, left_element, sizeof(left_element)) || !span_element_text(right_type, right_element, sizeof(right_element))) {
@@ -5116,11 +5125,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             return true;
           }
           if (strcmp(std_name.data, "std.mem.allocBytes") == 0) {
-            if (!check_expr(program, expr->args.items[0], scope, diag)) {
+            if (!check_expr(ctx, program, expr->args.items[0], scope, diag)) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *alloc_type = expr_type(program, expr->args.items[0], scope);
+            const char *alloc_type = expr_type(ctx, program, expr->args.items[0], scope);
             if (!is_allocator_type(alloc_type)) {
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.mem.allocBytes expects an allocator primitive", expr->args.items[0]->line, expr->args.items[0]->column, "NullAlloc or mutable FixedBufAlloc", alloc_type, "use std.mem.nullAlloc() or a let mut FixedBufAlloc from std.mem.fixedBufAlloc(buffer)");
@@ -5130,11 +5139,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.mem.allocBytes requires a mutable FixedBufAlloc binding", expr->args.items[0]->line, expr->args.items[0]->column, "let mut allocator: FixedBufAlloc", "immutable or temporary FixedBufAlloc", "store the fixed buffer allocator in a let mut binding before allocating");
             }
-            if (!check_expr_expected(program, expr->args.items[1], scope, diag, "usize")) {
+            if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, "usize")) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *len_type = expr_type(program, expr->args.items[1], scope);
+            const char *len_type = expr_type(ctx, program, expr->args.items[1], scope);
             if (!is_int_type(len_type)) {
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3028, "allocation length must be an integer", expr->args.items[1]->line, expr->args.items[1]->column, "usize length", len_type, "pass an integer byte count");
@@ -5144,11 +5153,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             return true;
           }
           if (strcmp(std_name.data, "std.mem.byteBuf") == 0) {
-            if (!check_expr(program, expr->args.items[0], scope, diag)) {
+            if (!check_expr(ctx, program, expr->args.items[0], scope, diag)) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *alloc_type = expr_type(program, expr->args.items[0], scope);
+            const char *alloc_type = expr_type(ctx, program, expr->args.items[0], scope);
             if (!is_allocator_type(alloc_type)) {
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.mem.byteBuf expects an allocator primitive", expr->args.items[0]->line, expr->args.items[0]->column, "NullAlloc or mutable FixedBufAlloc", alloc_type, "use std.mem.nullAlloc() or a let mut FixedBufAlloc from std.mem.fixedBufAlloc(buffer)");
@@ -5158,11 +5167,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.mem.byteBuf requires a mutable FixedBufAlloc binding", expr->args.items[0]->line, expr->args.items[0]->column, "let mut allocator: FixedBufAlloc", "immutable or temporary FixedBufAlloc", "store the fixed buffer allocator in a let mut binding before allocating a ByteBuf");
             }
-            if (!check_expr_expected(program, expr->args.items[1], scope, diag, "usize")) {
+            if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, "usize")) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *len_type = expr_type(program, expr->args.items[1], scope);
+            const char *len_type = expr_type(ctx, program, expr->args.items[1], scope);
             if (!is_int_type(len_type)) {
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3028, "ByteBuf length must be an integer", expr->args.items[1]->line, expr->args.items[1]->column, "usize length", len_type, "pass an integer byte count");
@@ -5172,11 +5181,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             return true;
           }
           if (strcmp(std_name.data, "std.fs.read") == 0) {
-            if (!check_expr(program, expr->args.items[0], scope, diag)) {
+            if (!check_expr(ctx, program, expr->args.items[0], scope, diag)) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *file_or_path_type = expr_type(program, expr->args.items[0], scope);
+            const char *file_or_path_type = expr_type(ctx, program, expr->args.items[0], scope);
             const char *first_expected = "String";
             const char *return_type = "usize";
             if (type_is_named_generic(file_or_path_type, "ref") || type_is_named_generic(file_or_path_type, "mutref")) {
@@ -5187,11 +5196,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.fs.read expects a path or mutable File reference", expr->args.items[0]->line, expr->args.items[0]->column, "String path or mutref<File>", file_or_path_type, "use std.fs.readBytes(path, buffer) for paths or std.fs.read(&mut file, buffer) for file resources");
             }
-            if (!check_expr_expected(program, expr->args.items[1], scope, diag, "MutSpan<u8>")) {
+            if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, "MutSpan<u8>")) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *buf_type = expr_type(program, expr->args.items[1], scope);
+            const char *buf_type = expr_type(ctx, program, expr->args.items[1], scope);
             if (!types_compatible("MutSpan<u8>", buf_type)) {
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.fs.read expects a mutable byte buffer", expr->args.items[1]->line, expr->args.items[1]->column, "MutSpan<u8>", buf_type, "pass a mutable byte array or MutSpan<u8>");
@@ -5201,11 +5210,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             return true;
           }
           if (strcmp(std_name.data, "std.fs.readAll") == 0 || strcmp(std_name.data, "std.fs.readAllOrRaise") == 0) {
-            if (!check_expr(program, expr->args.items[0], scope, diag)) {
+            if (!check_expr(ctx, program, expr->args.items[0], scope, diag)) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *alloc_type = expr_type(program, expr->args.items[0], scope);
+            const char *alloc_type = expr_type(ctx, program, expr->args.items[0], scope);
             if (!is_allocator_type(alloc_type)) {
               zbuf_free(&std_name);
               return set_diag_detail(diag, 3012, "std.fs.readAll expects an allocator primitive", expr->args.items[0]->line, expr->args.items[0]->column, "NullAlloc or mutable FixedBufAlloc", alloc_type, "pass an explicit allocator; no global filesystem allocator is available");
@@ -5217,11 +5226,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             }
             for (size_t i = 1; i < expr->args.len; i++) {
               const char *expected = std_call_arg_type(std_name.data, i);
-              if (!check_expr_expected(program, expr->args.items[i], scope, diag, expected)) {
+              if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, expected)) {
                 zbuf_free(&std_name);
                 return false;
               }
-              const char *actual = expr_type(program, expr->args.items[i], scope);
+              const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
               if (expected && !types_compatible(expected, actual)) {
                 char message[256];
                 snprintf(message, sizeof(message), "argument %zu to '%s' has incompatible type", i + 1, std_name.data);
@@ -5234,11 +5243,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             return true;
           }
           if (strcmp(std_name.data, "std.json.parse") == 0 || strcmp(std_name.data, "std.json.parseBytes") == 0) {
-            if (!check_expr(program, expr->args.items[0], scope, diag)) {
+            if (!check_expr(ctx, program, expr->args.items[0], scope, diag)) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *alloc_type = expr_type(program, expr->args.items[0], scope);
+            const char *alloc_type = expr_type(ctx, program, expr->args.items[0], scope);
             if (!is_allocator_type(alloc_type)) {
               char message[256];
               snprintf(message, sizeof(message), "%s expects an allocator primitive", std_name.data);
@@ -5253,11 +5262,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
               return set_diag_detail(diag, 3012, message, expr->args.items[0]->line, expr->args.items[0]->column, "let mut allocator: FixedBufAlloc", "immutable or temporary FixedBufAlloc", "store the fixed buffer allocator in a let mut binding before parsing JSON");
             }
             const char *expected = strcmp(std_name.data, "std.json.parseBytes") == 0 ? "Span<u8>" : "String";
-            if (!check_expr_expected(program, expr->args.items[1], scope, diag, expected)) {
+            if (!check_expr_expected(ctx, program, expr->args.items[1], scope, diag, expected)) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *actual = expr_type(program, expr->args.items[1], scope);
+            const char *actual = expr_type(ctx, program, expr->args.items[1], scope);
             if (!types_compatible(expected, actual)) {
               char message[256];
               snprintf(message, sizeof(message), "argument 2 to '%s' has incompatible type", std_name.data);
@@ -5270,11 +5279,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           }
           for (size_t i = 0; i < expr->args.len; i++) {
             const char *expected = std_call_arg_type(std_name.data, i);
-            if (!check_expr_expected(program, expr->args.items[i], scope, diag, expected)) {
+            if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, expected)) {
               zbuf_free(&std_name);
               return false;
             }
-            const char *actual = expr_type(program, expr->args.items[i], scope);
+            const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
             if (expr->args.items[i]->kind == EXPR_IDENT) {
               const char *scope_actual = scope_type(scope, expr->args.items[i]->text);
               if (scope_actual) actual = scope_actual;
@@ -5307,12 +5316,12 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
         }
         zbuf_free(&std_name);
       }
-      if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(program, expr, scope));
+      if (!expr->resolved_type) set_expr_resolved_type(expr, expr_type(ctx, program, expr, scope));
       return true;
     case EXPR_CAST: {
       if (!validate_type_form(expr->text, diag, expr->line, expr->column)) return false;
-      if (!check_expr(program, expr->left, scope, diag)) return false;
-      const char *source_type = expr_type(program, expr->left, scope);
+      if (!check_expr(ctx, program, expr->left, scope, diag)) return false;
+      const char *source_type = expr_type(ctx, program, expr->left, scope);
       if (!is_primitive_cast_type(source_type) || !is_primitive_cast_type(expr->text)) {
         char actual[128];
         snprintf(actual, sizeof(actual), "%s as %s", source_type, expr->text ? expr->text : "Unknown");
@@ -5325,11 +5334,11 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       bool comparison = strcmp(expr->text, "==") == 0 || strcmp(expr->text, "!=") == 0 || strcmp(expr->text, "<") == 0 ||
         strcmp(expr->text, "<=") == 0 || strcmp(expr->text, ">") == 0 || strcmp(expr->text, ">=") == 0;
       bool logical = strcmp(expr->text, "&&") == 0 || strcmp(expr->text, "||") == 0;
-      if (!check_expr_expected(program, expr->left, scope, diag, expected && (is_int_type(expected) || is_float_type(expected)) ? expected : NULL)) return false;
-      const char *left_type = expr_type(program, expr->left, scope);
+      if (!check_expr_expected(ctx, program, expr->left, scope, diag, expected && (is_int_type(expected) || is_float_type(expected)) ? expected : NULL)) return false;
+      const char *left_type = expr_type(ctx, program, expr->left, scope);
       if (logical) {
         ProvenanceScopeSnapshot *before_right = provenance_scope_snapshot_capture(scope);
-        if (!check_expr_expected(program, expr->right, scope, diag, "Bool")) {
+        if (!check_expr_expected(ctx, program, expr->right, scope, diag, "Bool")) {
           provenance_scope_snapshot_restore(before_right);
           provenance_scope_snapshot_free(before_right);
           return false;
@@ -5349,14 +5358,14 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
         provenance_scope_snapshot_restore_optional_branch(before_right, right_after, include_before, include_after);
         provenance_scope_snapshot_free(right_after);
         provenance_scope_snapshot_free(before_right);
-        const char *right_type = expr_type(program, expr->right, scope);
+        const char *right_type = expr_type(ctx, program, expr->right, scope);
         if (!is_bool_type(left_type) || !is_bool_type(right_type)) return set_diag_detail(diag, 3006, "logical operators require Bool operands", expr->line, expr->column, "Bool operands", "non-Bool operand", "compare values explicitly before using && or ||");
         set_expr_resolved_type(expr, "Bool");
         return true;
       }
       const char *right_expected = (is_int_type(left_type) || is_float_type(left_type)) ? left_type : NULL;
-      if (!check_expr_expected(program, expr->right, scope, diag, right_expected)) return false;
-      const char *right_type = expr_type(program, expr->right, scope);
+      if (!check_expr_expected(ctx, program, expr->right, scope, diag, right_expected)) return false;
+      const char *right_type = expr_type(ctx, program, expr->right, scope);
       if (comparison) {
         if (!types_compatible(left_type, right_type)) {
           return set_diag_detail(diag, 3006, "comparison operands must have matching types", expr->line, expr->column, left_type, right_type, "compare values with the same type");
@@ -5443,13 +5452,13 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
           return set_diag_detail(diag, 3101, message, field->line, field->column, "declared shape field", field->name, "rename the field or update the shape");
         }
         char *field_type = shape_bindings ? type_substitute_generic(shape_field->type, shape_bindings, shape_binding_len) : z_strdup(shape_field->type);
-        if (!check_expr_expected(program, field->value, scope, diag, field_type)) {
+        if (!check_expr_expected(ctx, program, field->value, scope, diag, field_type)) {
           free(field_type);
           generic_bindings_free(shape_bindings, shape_binding_len);
           free(shape_bindings);
           return false;
         }
-        const char *actual = expr_type(program, field->value, scope);
+        const char *actual = expr_type(ctx, program, field->value, scope);
         if (!types_compatible(field_type, actual)) {
           char message[256];
           snprintf(message, sizeof(message), "field '%s' has incompatible type", field->name);
@@ -5472,13 +5481,13 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
             return set_diag_detail(diag, 3102, "shape literal is missing a field", expr->line, expr->column, shape_field->name, "field not initialized", "initialize the field or add a field default");
           }
           char *field_type = shape_bindings ? type_substitute_generic(shape_field->type, shape_bindings, shape_binding_len) : z_strdup(shape_field->type);
-          if (!check_expr_expected(program, shape_field->default_value, scope, diag, field_type)) {
+          if (!check_expr_expected(ctx, program, shape_field->default_value, scope, diag, field_type)) {
             free(field_type);
             generic_bindings_free(shape_bindings, shape_binding_len);
             free(shape_bindings);
             return false;
           }
-          const char *actual = expr_type(program, shape_field->default_value, scope);
+          const char *actual = expr_type(ctx, program, shape_field->default_value, scope);
           if (!types_compatible(field_type, actual)) {
             char message[256];
             snprintf(message, sizeof(message), "default for field '%s' has incompatible type", shape_field->name);
@@ -5558,16 +5567,16 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       }
       size_t element_count = expr->array_repeat ? 1 : expr->args.len;
       for (size_t i = 0; i < element_count; i++) {
-        if (!check_expr_expected(program, expr->args.items[i], scope, diag, element_expected)) return false;
+        if (!check_expr_expected(ctx, program, expr->args.items[i], scope, diag, element_expected)) return false;
         if (element_expected) {
-          const char *actual = expr_type(program, expr->args.items[i], scope);
+          const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
           if (!types_compatible(element_expected, actual)) {
             char message[256];
             snprintf(message, sizeof(message), "array literal element %zu has incompatible type", i + 1);
             return set_diag_detail(diag, 3006, message, expr->args.items[i]->line, expr->args.items[i]->column, element_expected, actual, "use elements whose types match the fixed-array element type");
           }
         } else {
-          const char *actual = expr_type(program, expr->args.items[i], scope);
+          const char *actual = expr_type(ctx, program, expr->args.items[i], scope);
           if (i == 0) {
             snprintf(inferred_element_type, sizeof(inferred_element_type), "%s", actual ? actual : "Unknown");
           } else if (!types_compatible(inferred_element_type, actual)) {
@@ -5580,10 +5589,10 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
       if (expected && expected[0] == '[') {
         set_expr_resolved_type(expr, expected);
       } else if (expr->array_repeat && expr->args.len == 2) {
-        snprintf(inferred_type, sizeof(inferred_type), "[%s]%s", actual_len_text, expr_type(program, expr->args.items[0], scope));
+        snprintf(inferred_type, sizeof(inferred_type), "[%s]%s", actual_len_text, expr_type(ctx, program, expr->args.items[0], scope));
         set_expr_resolved_type(expr, inferred_type);
       } else if (expr->args.len > 0) {
-        snprintf(inferred_type, sizeof(inferred_type), "[%zu]%s", expr->args.len, expr_type(program, expr->args.items[0], scope));
+        snprintf(inferred_type, sizeof(inferred_type), "[%zu]%s", expr->args.len, expr_type(ctx, program, expr->args.items[0], scope));
         set_expr_resolved_type(expr, inferred_type);
       } else {
         set_expr_resolved_type(expr, "[0]Unknown");
@@ -5600,8 +5609,8 @@ static bool check_expr_expected(const Program *program, const Expr *expr, Scope 
   return true;
 }
 
-static bool check_expr(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
-  return check_expr_expected(program, expr, scope, diag, NULL);
+static bool check_expr(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
+  return check_expr_expected(ctx, program, expr, scope, diag, NULL);
 }
 
 static void mark_owned_move_if_needed(const Expr *expr, Scope *scope, const char *destination_type) {
@@ -5618,7 +5627,7 @@ static void mark_owned_target_live_if_needed(const Expr *target, Scope *scope, c
   scope_set_moved(scope, target->text, false);
 }
 
-static bool check_lvalue_target(const Program *program, const Expr *target, Scope *scope, ZDiag *diag, char *out_type, size_t out_type_len) {
+static bool check_lvalue_target(CheckContext *ctx, const Program *program, const Expr *target, Scope *scope, ZDiag *diag, char *out_type, size_t out_type_len) {
   if (!target || !out_type || out_type_len == 0) {
     return set_diag_detail(diag, 3027, "unsupported assignment target", target ? target->line : 0, target ? target->column : 0, "mutable identifier, shape field, or fixed-array index", "unsupported assignment target", "assign through a mutable local lvalue");
   }
@@ -5646,9 +5655,9 @@ static bool check_lvalue_target(const Program *program, const Expr *target, Scop
       bool local_place = expr_binding_path(target->left, root, sizeof(root), path, sizeof(path)) && scope_has(scope, root);
       if (local_place) {
         if (!check_place_root_available(target->left, scope, root, diag)) return false;
-        if (!check_place_index_exprs(program, target->left, scope, diag)) return false;
-      } else if (!check_expr(program, target->left, scope, diag)) return false;
-      const char *read_base_type = expr_type(program, target->left, scope);
+        if (!check_place_index_exprs(ctx, program, target->left, scope, diag)) return false;
+      } else if (!check_expr(ctx, program, target->left, scope, diag)) return false;
+      const char *read_base_type = expr_type(ctx, program, target->left, scope);
       char base_type[128];
       snprintf(base_type, sizeof(base_type), "%s", read_base_type ? read_base_type : "Unknown");
       const char *shape_type = base_type;
@@ -5658,7 +5667,7 @@ static bool check_lvalue_target(const Program *program, const Expr *target, Scop
       }
       if (named_ref_inner_text(shape_type, "mutref", ref_shape_type, sizeof(ref_shape_type))) {
         shape_type = ref_shape_type;
-      } else if (!check_lvalue_target(program, target->left, scope, diag, base_type, sizeof(base_type))) {
+      } else if (!check_lvalue_target(ctx, program, target->left, scope, diag, base_type, sizeof(base_type))) {
         return false;
       }
       const Shape *shape = find_shape_for_type(program, shape_type);
@@ -5686,9 +5695,9 @@ static bool check_lvalue_target(const Program *program, const Expr *target, Scop
       bool local_place = expr_binding_path(target->left, root, sizeof(root), path, sizeof(path)) && scope_has(scope, root);
       if (local_place) {
         if (!check_place_root_available(target->left, scope, root, diag)) return false;
-        if (!check_place_index_exprs(program, target->left, scope, diag)) return false;
-      } else if (!check_expr(program, target->left, scope, diag)) return false;
-      const char *read_base_type = expr_type(program, target->left, scope);
+        if (!check_place_index_exprs(ctx, program, target->left, scope, diag)) return false;
+      } else if (!check_expr(ctx, program, target->left, scope, diag)) return false;
+      const char *read_base_type = expr_type(ctx, program, target->left, scope);
       char element_type[128];
       char mutref_inner[128];
       bool is_mutref_base = named_ref_inner_text(read_base_type, "mutref", mutref_inner, sizeof(mutref_inner));
@@ -5699,7 +5708,7 @@ static bool check_lvalue_target(const Program *program, const Expr *target, Scop
       }
       if (!mutspan_element_text(mutable_base_type, element_type, sizeof(element_type))) {
         char base_type[128];
-        if (!check_lvalue_target(program, target->left, scope, diag, base_type, sizeof(base_type))) return false;
+        if (!check_lvalue_target(ctx, program, target->left, scope, diag, base_type, sizeof(base_type))) return false;
         const char *array_base_type = base_type;
         char array_ref_inner[128];
         if (named_ref_inner_text(array_base_type, "mutref", array_ref_inner, sizeof(array_ref_inner))) array_base_type = array_ref_inner;
@@ -5710,8 +5719,8 @@ static bool check_lvalue_target(const Program *program, const Expr *target, Scop
       if (type_is_const(element_type)) {
         return set_diag_detail(diag, 3010, "cannot assign to const indexed element", target->line, target->column, "mutable non-const element", element_type, "use a mutable element type when indexed mutation is required");
       }
-      if (!check_expr_expected(program, target->right, scope, diag, "usize")) return false;
-      const char *index_type = expr_type(program, target->right, scope);
+      if (!check_expr_expected(ctx, program, target->right, scope, diag, "usize")) return false;
+      const char *index_type = expr_type(ctx, program, target->right, scope);
       if (!is_int_type(index_type)) {
         return set_diag_detail(diag, 3028, "index expression must be an integer", target->right ? target->right->line : target->line, target->right ? target->right->column : target->column, "integer index", index_type, "use an integer expression such as usize or a checked integer literal");
       }
@@ -5724,7 +5733,7 @@ static bool check_lvalue_target(const Program *program, const Expr *target, Scop
   }
 }
 
-static bool generic_call_bindings_from_checked_call(const Program *program, const Function *callee, const Expr *call, Scope *scope, const char *return_type, GenericBinding **out_bindings, size_t *out_len) {
+static bool generic_call_bindings_from_checked_call(CheckContext *ctx, const Program *program, const Function *callee, const Expr *call, Scope *scope, const char *return_type, GenericBinding **out_bindings, size_t *out_len) {
   if (out_bindings) *out_bindings = NULL;
   if (out_len) *out_len = 0;
   if (!callee || !function_is_generic(callee) || !call || !out_bindings || !out_len) return false;
@@ -5740,7 +5749,7 @@ static bool generic_call_bindings_from_checked_call(const Program *program, cons
       return false;
     }
     for (size_t i = 0; i < binding_len; i++) {
-      bindings[i].type = provenance_context_type_text(type_args->items[i].type, NULL, 0);
+      bindings[i].type = provenance_context_type_text(ctx, type_args->items[i].type, NULL, 0);
     }
     *out_bindings = bindings;
     *out_len = binding_len;
@@ -5752,7 +5761,7 @@ static bool generic_call_bindings_from_checked_call(const Program *program, cons
     ok = infer_generic_type_from_pattern(callee, callee->return_type, return_type, bindings, binding_len);
   }
   for (size_t i = 0; ok && i < callee->params.len && i < call->args.len; i++) {
-    ok = infer_generic_type_from_pattern(callee, callee->params.items[i].type, expr_type(program, call->args.items[i], scope), bindings, binding_len);
+    ok = infer_generic_type_from_pattern(callee, callee->params.items[i].type, expr_type(ctx, program, call->args.items[i], scope), bindings, binding_len);
   }
   if (!ok) {
     generic_bindings_free(bindings, binding_len);
@@ -5771,7 +5780,7 @@ static char *call_param_type_text(const Function *callee, size_t param_index, Ge
   return z_strdup(param_type ? param_type : "Unknown");
 }
 
-static bool build_constrained_interface_bindings_for_provenance(const Program *program, const Function *context_fun, const Expr *callee, const InterfaceDecl *interface, GenericBinding *context_bindings, size_t context_binding_len, GenericBinding **out_bindings, size_t *out_len) {
+static bool build_constrained_interface_bindings_for_provenance(CheckContext *ctx, const Program *program, const Function *context_fun, const Expr *callee, const InterfaceDecl *interface, GenericBinding *context_bindings, size_t context_binding_len, GenericBinding **out_bindings, size_t *out_len) {
   if (out_bindings) *out_bindings = NULL;
   if (out_len) *out_len = 0;
   if (!program || !context_fun || !callee || !interface || !out_bindings || !out_len ||
@@ -5782,7 +5791,7 @@ static bool build_constrained_interface_bindings_for_provenance(const Program *p
   GenericBinding *bindings = z_checked_calloc(interface->type_params.len, sizeof(GenericBinding));
   for (size_t i = 0; i < interface->type_params.len; i++) {
     bindings[i].name = interface->type_params.items[i].name;
-    bindings[i].type = provenance_context_type_text(i < constraint_arg_len ? constraint_args[i] : "Unknown", context_bindings, context_binding_len);
+    bindings[i].type = provenance_context_type_text(ctx, i < constraint_arg_len ? constraint_args[i] : "Unknown", context_bindings, context_binding_len);
   }
   free_type_arg_list(constraint_args, constraint_arg_len);
   *out_bindings = bindings;
@@ -5790,12 +5799,12 @@ static bool build_constrained_interface_bindings_for_provenance(const Program *p
   return true;
 }
 
-static bool resolve_provenance_call(const Program *program, const Expr *call, Scope *scope, const char *expected_return, const Function *context_fun, GenericBinding *context_bindings, size_t context_binding_len, ResolvedProvenanceCall *out) {
+static bool resolve_provenance_call(CheckContext *ctx, const Program *program, const Expr *call, Scope *scope, const char *expected_return, const Function *context_fun, GenericBinding *context_bindings, size_t context_binding_len, ResolvedProvenanceCall *out) {
   if (!out) return false;
   *out = (ResolvedProvenanceCall){0};
   if (!program || !call || call->kind != EXPR_CALL || !call->left || !scope) return false;
-  context_fun = context_fun ? context_fun : checking_function;
-  const char *return_type = expected_return ? expected_return : expr_type(program, call, scope);
+  context_fun = context_fun ? context_fun : (ctx ? ctx->function : NULL);
+  const char *return_type = expected_return ? expected_return : expr_type(ctx, program, call, scope);
 
   if (call->left->kind == EXPR_IDENT) {
     const Function *callee = find_function(program, call->left->text);
@@ -5805,11 +5814,11 @@ static bool resolve_provenance_call(const Program *program, const Expr *call, Sc
     out->call = call;
     out->return_type = z_strdup(return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
     if (function_is_generic(callee)) {
-      if (!generic_call_bindings_from_checked_call(program, callee, call, scope, out->return_type, &out->bindings, &out->binding_len)) {
+      if (!generic_call_bindings_from_checked_call(ctx, program, callee, call, scope, out->return_type, &out->bindings, &out->binding_len)) {
         resolved_provenance_call_free(out);
         return false;
       }
-      provenance_context_substitute_bindings(out->bindings, out->binding_len, context_bindings, context_binding_len);
+      provenance_context_substitute_bindings(ctx, out->bindings, out->binding_len, context_bindings, context_binding_len);
     }
     return true;
   }
@@ -5825,16 +5834,16 @@ static bool resolve_provenance_call(const Program *program, const Expr *call, Sc
     out->shape = shape;
     out->return_type = z_strdup(return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
     ZDiag ignored = {0};
-    if (!build_shape_method_bindings(program, shape, callee, call, scope, out->return_type, &ignored, &out->bindings, &out->binding_len)) {
+    if (!build_shape_method_bindings(ctx, program, shape, callee, call, scope, out->return_type, &ignored, &out->bindings, &out->binding_len)) {
       resolved_provenance_call_free(out);
       return false;
     }
-    provenance_context_substitute_bindings(out->bindings, out->binding_len, context_bindings, context_binding_len);
+    provenance_context_substitute_bindings(ctx, out->bindings, out->binding_len, context_bindings, context_binding_len);
     return true;
   }
 
   shape = NULL;
-  callee = find_concrete_constrained_shape_method_in_context(program, context_fun, context_bindings, context_binding_len, call->left, &shape);
+  callee = find_concrete_constrained_shape_method_in_context(ctx, program, context_fun, context_bindings, context_binding_len, call->left, &shape);
   if (callee) {
     out->kind = PROVENANCE_CALL_CONCRETE_CONSTRAINED_SHAPE;
     out->callee = callee;
@@ -5842,11 +5851,11 @@ static bool resolve_provenance_call(const Program *program, const Expr *call, Sc
     out->shape = shape;
     out->return_type = z_strdup(return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
     ZDiag ignored = {0};
-    if (!build_shape_method_bindings(program, shape, callee, call, scope, out->return_type, &ignored, &out->bindings, &out->binding_len)) {
+    if (!build_shape_method_bindings(ctx, program, shape, callee, call, scope, out->return_type, &ignored, &out->bindings, &out->binding_len)) {
       resolved_provenance_call_free(out);
       return false;
     }
-    provenance_context_substitute_bindings(out->bindings, out->binding_len, context_bindings, context_binding_len);
+    provenance_context_substitute_bindings(ctx, out->bindings, out->binding_len, context_bindings, context_binding_len);
     return true;
   }
 
@@ -5857,7 +5866,7 @@ static bool resolve_provenance_call(const Program *program, const Expr *call, Sc
     out->callee = callee;
     out->call = call;
     out->interface = interface;
-    if (!build_constrained_interface_bindings_for_provenance(program, context_fun, call->left, interface, context_bindings, context_binding_len, &out->bindings, &out->binding_len)) {
+    if (!build_constrained_interface_bindings_for_provenance(ctx, program, context_fun, call->left, interface, context_bindings, context_binding_len, &out->bindings, &out->binding_len)) {
       resolved_provenance_call_free(out);
       return false;
     }
@@ -5869,7 +5878,7 @@ static bool resolve_provenance_call(const Program *program, const Expr *call, Sc
 
   const Expr *receiver = call->left->left;
   if (!receiver) return false;
-  const char *receiver_type_raw = expr_type(program, receiver, scope);
+  const char *receiver_type_raw = expr_type(ctx, program, receiver, scope);
   char receiver_type[192];
   strip_ref_like_type(receiver_type_raw, receiver_type, sizeof(receiver_type));
   const Shape *receiver_shape = find_shape_for_type(program, receiver_type);
@@ -5884,18 +5893,18 @@ static bool resolve_provenance_call(const Program *program, const Expr *call, Sc
   out->shape = receiver_shape;
   out->return_type = z_strdup(return_type ? return_type : (callee->return_type ? callee->return_type : "Void"));
   ZDiag ignored = {0};
-  char *self_arg_type = receiver_self_arg_type(expr_type(program, receiver, scope), receiver_requires_mut);
-  if (!build_receiver_shape_method_bindings(program, receiver_shape, callee, call, self_arg_type, scope, &ignored, &out->bindings, &out->binding_len)) {
+  char *self_arg_type = receiver_self_arg_type(expr_type(ctx, program, receiver, scope), receiver_requires_mut);
+  if (!build_receiver_shape_method_bindings(ctx, program, receiver_shape, callee, call, self_arg_type, scope, &ignored, &out->bindings, &out->binding_len)) {
     free(self_arg_type);
     resolved_provenance_call_free(out);
     return false;
   }
   free(self_arg_type);
-  provenance_context_substitute_bindings(out->bindings, out->binding_len, context_bindings, context_binding_len);
+  provenance_context_substitute_bindings(ctx, out->bindings, out->binding_len, context_bindings, context_binding_len);
   return true;
 }
 
-static bool function_return_value_provenance(const Program *program, const Function *fun, GenericBinding *bindings, size_t binding_len, ValueProvenance *origins, bool *may_return);
+static bool function_return_value_provenance(CheckContext *ctx, const Program *program, const Function *fun, GenericBinding *bindings, size_t binding_len, ValueProvenance *origins, bool *may_return);
 static bool function_param_index_by_name(const Function *fun, const char *name, size_t *out_index);
 
 static bool type_value_provenance_from_place(
@@ -5974,7 +5983,7 @@ static bool maybe_unwrapped_value_provenance(ValueProvenance *out, const ValuePr
   return value_provenance_add_all_under_path(out, source, "value");
 }
 
-static bool choice_constructor_value_provenance(const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {
+static bool choice_constructor_value_provenance(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {
   if (!program || !expr || expr->kind != EXPR_CALL || !expr->left || expr->left->kind != EXPR_MEMBER || !origins) return false;
   const Expr *owner = expr->left->left;
   if (!owner || owner->kind != EXPR_IDENT) return false;
@@ -5985,7 +5994,7 @@ static bool choice_constructor_value_provenance(const Program *program, const Ex
 
   ValueProvenance payload_origins = {0};
   bool added = false;
-  if (expr_reference_provenance(program, expr->args.items[0], scope, &payload_origins)) {
+  if (expr_reference_provenance(ctx, program, expr->args.items[0], scope, &payload_origins)) {
     added = value_provenance_add_all_with_prefix(origins, &payload_origins, item_case->name);
   }
   value_provenance_free(&payload_origins);
@@ -5993,6 +6002,7 @@ static bool choice_constructor_value_provenance(const Program *program, const Ex
 }
 
 static void register_match_payload_binding_provenance(
+  CheckContext *ctx,
   const Program *program,
   const Expr *match_expr,
   Scope *match_scope,
@@ -6002,7 +6012,7 @@ static void register_match_payload_binding_provenance(
 ) {
   if (!program || !match_expr || !match_scope || !payload_scope || !payload_name || !case_name) return;
   ValueProvenance match_origins = {0};
-  if (!expr_reference_provenance(program, match_expr, match_scope, &match_origins)) {
+  if (!expr_reference_provenance(ctx, program, match_expr, match_scope, &match_origins)) {
     value_provenance_free(&match_origins);
     return;
   }
@@ -6014,7 +6024,7 @@ static void register_match_payload_binding_provenance(
   value_provenance_free(&match_origins);
 }
 
-static bool std_mem_get_value_provenance(const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {
+static bool std_mem_get_value_provenance(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {
   if (!program || !expr || expr->kind != EXPR_CALL || !expr->left || expr->left->kind != EXPR_MEMBER || expr->args.len < 1) return false;
   ZBuf callee_name;
   zbuf_init(&callee_name);
@@ -6026,7 +6036,7 @@ static bool std_mem_get_value_provenance(const Program *program, const Expr *exp
   const Expr *collection = expr->args.items[0];
   bool added = false;
   ValueProvenance collection_provenance = {0};
-  if (expr_reference_provenance(program, collection, scope, &collection_provenance)) {
+  if (expr_reference_provenance(ctx, program, collection, scope, &collection_provenance)) {
     ValueProvenance element_provenance = {0};
     if (value_provenance_add_all_under_path(&element_provenance, &collection_provenance, "[*]")) {
       if (value_provenance_add_all_with_prefix(origins, &element_provenance, "value")) added = true;
@@ -6040,7 +6050,7 @@ static bool std_mem_get_value_provenance(const Program *program, const Expr *exp
   char path[256];
   if (!expr_binding_path(collection, root, sizeof(root), path, sizeof(path)) || !scope_has(scope, root)) return false;
   char element_type[160];
-  if (!index_element_type(expr_type(program, collection, scope), element_type, sizeof(element_type))) return false;
+  if (!index_element_type(expr_type(ctx, program, collection, scope), element_type, sizeof(element_type))) return false;
   char *element_path = origin_path_join(path, "[*]");
   added = type_value_provenance_from_place(program, element_type, scope, root, scope_binding_scope(scope, root), element_path, "value", origins, 0);
   free(element_path);
@@ -6067,23 +6077,23 @@ static bool value_provenance_add_actual_place(ValueProvenance *origins, const Ex
   return added;
 }
 
-static bool instantiate_call_provenance_entry(const Program *program, const Function *callee, const Expr *call, const Expr *receiver, size_t param_offset, Scope *scope, GenericBinding *bindings, size_t binding_len, const ProvenanceEntry *summary_entry, ValueProvenance *out);
+static bool instantiate_call_provenance_entry(CheckContext *ctx, const Program *program, const Function *callee, const Expr *call, const Expr *receiver, size_t param_offset, Scope *scope, GenericBinding *bindings, size_t binding_len, const ProvenanceEntry *summary_entry, ValueProvenance *out);
 
-static bool call_result_value_provenance(const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {
+static bool call_result_value_provenance(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {
   if (!program || !expr || expr->kind != EXPR_CALL || !expr->left || !origins) return false;
-  if (std_mem_get_value_provenance(program, expr, scope, origins)) return true;
-  const char *return_type = expr_type(program, expr, scope);
+  if (std_mem_get_value_provenance(ctx, program, expr, scope, origins)) return true;
+  const char *return_type = expr_type(ctx, program, expr, scope);
   bool return_mut = type_is_named_generic(return_type, "mutref");
 
   ResolvedProvenanceCall resolved = {0};
-  if (!resolve_provenance_call(program, expr, scope, return_type, checking_function, return_provenance_expr_bindings, return_provenance_expr_binding_len, &resolved)) return false;
+  if (!resolve_provenance_call(ctx, program, expr, scope, return_type, ctx ? ctx->function : NULL, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0, &resolved)) return false;
 
   bool added = false;
   ValueProvenance summary = {0};
   bool callee_may_return = true;
-  if (function_return_value_provenance(program, resolved.callee, resolved.bindings, resolved.binding_len, &summary, &callee_may_return)) {
+  if (function_return_value_provenance(ctx, program, resolved.callee, resolved.bindings, resolved.binding_len, &summary, &callee_may_return)) {
     for (size_t origin_index = 0; origin_index < summary.len; origin_index++) {
-      if (instantiate_call_provenance_entry(program, resolved.callee, expr, resolved.receiver, resolved.param_offset, scope, resolved.bindings, resolved.binding_len, &summary.items[origin_index], origins)) added = true;
+      if (instantiate_call_provenance_entry(ctx, program, resolved.callee, expr, resolved.receiver, resolved.param_offset, scope, resolved.bindings, resolved.binding_len, &summary.items[origin_index], origins)) added = true;
     }
   }
   value_provenance_free(&summary);
@@ -6104,7 +6114,7 @@ static bool call_result_value_provenance(const Program *program, const Expr *exp
   if (resolved.receiver && resolved.callee->params.len > 0) {
     char *param_type = call_param_type_text(resolved.callee, 0, resolved.bindings, resolved.binding_len);
     if (type_is_named_generic(param_type, "ref") || type_is_named_generic(param_type, "mutref")) {
-      if (expr_reference_provenance_as(program, resolved.receiver, scope, origins, return_mut)) {
+      if (expr_reference_provenance_as(ctx, program, resolved.receiver, scope, origins, return_mut)) {
         added = true;
       } else {
         char root[128];
@@ -6121,17 +6131,17 @@ static bool call_result_value_provenance(const Program *program, const Expr *exp
     bool reference_param = type_is_named_generic(param_type, "ref") || type_is_named_generic(param_type, "mutref");
     free(param_type);
     if (!reference_param) continue;
-    if (expr_reference_provenance_as(program, expr->args.items[i], scope, origins, return_mut)) added = true;
+    if (expr_reference_provenance_as(ctx, program, expr->args.items[i], scope, origins, return_mut)) added = true;
   }
   resolved_provenance_call_free(&resolved);
   return added;
 }
 
-static bool expr_reference_provenance(const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {
+static bool expr_reference_provenance(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ValueProvenance *origins) {
   if (!expr || !origins) return false;
   if (expr_value_provenance(expr, scope, origins) ||
-      choice_constructor_value_provenance(program, expr, scope, origins) ||
-      call_result_value_provenance(program, expr, scope, origins)) return true;
+      choice_constructor_value_provenance(ctx, program, expr, scope, origins) ||
+      call_result_value_provenance(ctx, program, expr, scope, origins)) return true;
   if (expr->kind == EXPR_IDENT) {
     const char *actual = scope_type(scope, expr->text);
     if (actual && type_value_provenance_from_place(program, actual, scope, expr->text, scope_binding_scope(scope, expr->text), NULL, NULL, origins, 0)) return true;
@@ -6139,8 +6149,8 @@ static bool expr_reference_provenance(const Program *program, const Expr *expr, 
   if (expr->kind == EXPR_CHECK) {
     ValueProvenance checked_provenance = {0};
     bool added = false;
-    if (expr_reference_provenance(program, expr->left, scope, &checked_provenance)) {
-      const char *checked_type = expr_type(program, expr->left, scope);
+    if (expr_reference_provenance(ctx, program, expr->left, scope, &checked_provenance)) {
+      const char *checked_type = expr_type(ctx, program, expr->left, scope);
       const char *inner = NULL;
       size_t inner_len = 0;
       if (type_has_generic_arg(checked_type, "Maybe", &inner, &inner_len)) {
@@ -6155,8 +6165,8 @@ static bool expr_reference_provenance(const Program *program, const Expr *expr, 
   if (expr->kind == EXPR_RESCUE) {
     bool added = false;
     ValueProvenance left_provenance = {0};
-    if (expr_reference_provenance(program, expr->left, scope, &left_provenance)) {
-      const char *left_type = expr_type(program, expr->left, scope);
+    if (expr_reference_provenance(ctx, program, expr->left, scope, &left_provenance)) {
+      const char *left_type = expr_type(ctx, program, expr->left, scope);
       const char *inner = NULL;
       size_t inner_len = 0;
       if (type_has_generic_arg(left_type, "Maybe", &inner, &inner_len)) {
@@ -6167,17 +6177,17 @@ static bool expr_reference_provenance(const Program *program, const Expr *expr, 
     }
     value_provenance_free(&left_provenance);
     ValueProvenance fallback_provenance = {0};
-    if (expr_reference_provenance(program, expr->right, scope, &fallback_provenance)) {
+    if (expr_reference_provenance(ctx, program, expr->right, scope, &fallback_provenance)) {
       if (value_provenance_add_all(origins, &fallback_provenance)) added = true;
     }
     value_provenance_free(&fallback_provenance);
     return added;
   }
-  if (expr->kind == EXPR_CAST) return expr_reference_provenance(program, expr->left, scope, origins);
+  if (expr->kind == EXPR_CAST) return expr_reference_provenance(ctx, program, expr->left, scope, origins);
   if (expr->kind == EXPR_MEMBER) {
     char root[128];
     char path[256];
-    const char *member_type = expr_type(program, expr, scope);
+    const char *member_type = expr_type(ctx, program, expr, scope);
     if (expr_binding_path(expr, root, sizeof(root), path, sizeof(path))) {
       ValueProvenance binding_origins = {0};
       bool has_binding_origins = scope_copy_value_provenance(scope, root, &binding_origins);
@@ -6194,7 +6204,7 @@ static bool expr_reference_provenance(const Program *program, const Expr *expr, 
           free(place_path);
         }
         for (size_t i = 0; i < places.len; i++) {
-          if (place_storage_value_provenance_under_path(program, scope, &places.items[i], NULL, origins)) added = true;
+          if (place_storage_value_provenance_under_path(ctx, program, scope, &places.items[i], NULL, origins)) added = true;
         }
         place_vec_free(&places);
       }
@@ -6206,7 +6216,7 @@ static bool expr_reference_provenance(const Program *program, const Expr *expr, 
     if (type_is_named_generic(member_type, "ref") || type_is_named_generic(member_type, "mutref")) {
       ValueProvenance receiver_origins = {0};
       bool added = false;
-      if (expr_reference_provenance(program, expr->left, scope, &receiver_origins)) {
+      if (expr_reference_provenance(ctx, program, expr->left, scope, &receiver_origins)) {
         added = value_provenance_add_all_under_path(origins, &receiver_origins, expr->text);
       }
       value_provenance_free(&receiver_origins);
@@ -6216,7 +6226,7 @@ static bool expr_reference_provenance(const Program *program, const Expr *expr, 
   if (expr->kind == EXPR_INDEX) {
     char root[128];
     char path[256];
-    const char *element_type = expr_type(program, expr, scope);
+    const char *element_type = expr_type(ctx, program, expr, scope);
     if (expr_binding_path(expr, root, sizeof(root), path, sizeof(path))) {
       ValueProvenance binding_origins = {0};
       bool has_binding_origins = scope_copy_value_provenance(scope, root, &binding_origins);
@@ -6233,7 +6243,7 @@ static bool expr_reference_provenance(const Program *program, const Expr *expr, 
           free(place_path);
         }
         for (size_t i = 0; i < places.len; i++) {
-          if (place_storage_value_provenance_under_path(program, scope, &places.items[i], NULL, origins)) added = true;
+          if (place_storage_value_provenance_under_path(ctx, program, scope, &places.items[i], NULL, origins)) added = true;
         }
         place_vec_free(&places);
       }
@@ -6245,7 +6255,7 @@ static bool expr_reference_provenance(const Program *program, const Expr *expr, 
     if (type_is_named_generic(element_type, "ref") || type_is_named_generic(element_type, "mutref")) {
       ValueProvenance receiver_origins = {0};
       bool added = false;
-      if (expr_reference_provenance(program, expr->left, scope, &receiver_origins)) {
+      if (expr_reference_provenance(ctx, program, expr->left, scope, &receiver_origins)) {
         added = value_provenance_add_all_under_path(origins, &receiver_origins, "[*]");
       }
       value_provenance_free(&receiver_origins);
@@ -6256,7 +6266,7 @@ static bool expr_reference_provenance(const Program *program, const Expr *expr, 
     bool added = false;
     for (size_t i = 0; i < expr->fields.len; i++) {
       ValueProvenance field_origins = {0};
-      if (expr_reference_provenance(program, expr->fields.items[i].value, scope, &field_origins)) {
+      if (expr_reference_provenance(ctx, program, expr->fields.items[i].value, scope, &field_origins)) {
         if (value_provenance_add_all_with_prefix(origins, &field_origins, expr->fields.items[i].name)) added = true;
       }
       value_provenance_free(&field_origins);
@@ -6268,7 +6278,7 @@ static bool expr_reference_provenance(const Program *program, const Expr *expr, 
     size_t element_count = expr->array_repeat ? (expr->args.len > 0 ? 1 : 0) : expr->args.len;
     for (size_t i = 0; i < element_count; i++) {
       ValueProvenance item_origins = {0};
-      if (expr_reference_provenance(program, expr->args.items[i], scope, &item_origins)) {
+      if (expr_reference_provenance(ctx, program, expr->args.items[i], scope, &item_origins)) {
         char element_path[40];
         snprintf(element_path, sizeof(element_path), "[%zu]", i);
         if (value_provenance_add_all_with_prefix(origins, &item_origins, element_path)) added = true;
@@ -6280,10 +6290,10 @@ static bool expr_reference_provenance(const Program *program, const Expr *expr, 
   return false;
 }
 
-static bool register_borrow_binding(const Program *program, const Stmt *stmt, Scope *scope) {
+static bool register_borrow_binding(CheckContext *ctx, const Program *program, const Stmt *stmt, Scope *scope) {
   if (!stmt || !stmt->name || !stmt->expr) return false;
   ValueProvenance origins = {0};
-  if (!expr_reference_provenance(program, stmt->expr, scope, &origins)) {
+  if (!expr_reference_provenance(ctx, program, stmt->expr, scope, &origins)) {
     value_provenance_free(&origins);
     return false;
   }
@@ -6323,7 +6333,7 @@ static bool collect_assignment_target_places(const Expr *target, Scope *scope, P
   return place_vec_add(places, root, scope_binding_scope(scope, root), path);
 }
 
-static bool update_borrow_assignment(const Program *program, const Expr *target, const Expr *value, Scope *scope, ZDiag *diag) {
+static bool update_borrow_assignment(CheckContext *ctx, const Program *program, const Expr *target, const Expr *value, Scope *scope, ZDiag *diag) {
   char target_root[128];
   char target_path[256];
   if (!target || !expr_binding_path(target, target_root, sizeof(target_root), target_path, sizeof(target_path)) || !scope_has(scope, target_root)) return true;
@@ -6331,7 +6341,7 @@ static bool update_borrow_assignment(const Program *program, const Expr *target,
   PlaceVec targets = {0};
   if (!collect_assignment_target_places(target, scope, &targets)) return true;
   ValueProvenance origins = {0};
-  if (expr_reference_provenance(program, value, scope, &origins)) {
+  if (expr_reference_provenance(ctx, program, value, scope, &origins)) {
     for (size_t target_index = 0; target_index < targets.len; target_index++) {
       Scope *target_scope = targets.items[target_index].root_scope ? targets.items[target_index].root_scope : scope_binding_scope(scope, targets.items[target_index].root);
       for (size_t i = 0; i < origins.len; i++) {
@@ -6409,7 +6419,7 @@ static char *return_provenance_type_text(const char *type, GenericBinding *bindi
   return z_strdup(type);
 }
 
-static bool collect_return_value_provenance_from_stmt_vec(const Program *program, const Function *fun, const StmtVec *body, Scope *scope, GenericBinding *bindings, size_t binding_len, ValueProvenance *out, bool *may_return, bool *complete) {
+static bool collect_return_value_provenance_from_stmt_vec(CheckContext *ctx, const Program *program, const Function *fun, const StmtVec *body, Scope *scope, GenericBinding *bindings, size_t binding_len, ValueProvenance *out, bool *may_return, bool *complete) {
   if (!program || !fun || !body || !scope || !out) {
     if (complete) *complete = false;
     return false;
@@ -6420,27 +6430,27 @@ static bool collect_return_value_provenance_from_stmt_vec(const Program *program
     if (!stmt) continue;
     if (stmt->kind == STMT_LET) {
       ZDiag ignored = {0};
-      if (!apply_expr_call_storage_effects(program, stmt->expr, scope, &ignored)) {
+      if (!apply_expr_call_storage_effects(ctx, program, stmt->expr, scope, &ignored)) {
         if (complete) *complete = false;
         return added;
       }
       const char *binding_type = stmt->resolved_type ? stmt->resolved_type : stmt->type;
-      if (!binding_type && stmt->expr) binding_type = expr_type(program, stmt->expr, scope);
+      if (!binding_type && stmt->expr) binding_type = expr_type(ctx, program, stmt->expr, scope);
       char *substituted_type = return_provenance_type_text(binding_type, bindings, binding_len);
       if (stmt->name) {
         scope_add(scope, stmt->name, substituted_type ? substituted_type : "Unknown", stmt->mutable_binding);
-        register_borrow_binding(program, stmt, scope);
+        register_borrow_binding(ctx, program, stmt, scope);
       }
       free(substituted_type);
       continue;
     }
     if (stmt->kind == STMT_ASSIGN) {
       ZDiag ignored = {0};
-      if (!apply_expr_call_storage_effects(program, stmt->expr, scope, &ignored)) {
+      if (!apply_expr_call_storage_effects(ctx, program, stmt->expr, scope, &ignored)) {
         if (complete) *complete = false;
         return added;
       }
-      if (!update_borrow_assignment(program, stmt->target, stmt->expr, scope, &ignored)) {
+      if (!update_borrow_assignment(ctx, program, stmt->target, stmt->expr, scope, &ignored)) {
         if (complete) *complete = false;
         return added;
       }
@@ -6448,13 +6458,13 @@ static bool collect_return_value_provenance_from_stmt_vec(const Program *program
     }
     if (stmt->kind == STMT_RETURN) {
       ZDiag ignored = {0};
-      if (!apply_expr_call_storage_effects(program, stmt->expr, scope, &ignored)) {
+      if (!apply_expr_call_storage_effects(ctx, program, stmt->expr, scope, &ignored)) {
         if (complete) *complete = false;
         return added;
       }
       if (may_return) *may_return = true;
       ValueProvenance origins = {0};
-      if (expr_reference_provenance(program, stmt->expr, scope, &origins)) {
+      if (expr_reference_provenance(ctx, program, stmt->expr, scope, &origins)) {
         if (value_provenance_add_all(out, &origins)) added = true;
       }
       value_provenance_free(&origins);
@@ -6466,7 +6476,7 @@ static bool collect_return_value_provenance_from_stmt_vec(const Program *program
     }
     if (stmt->kind == STMT_EXPR || stmt->kind == STMT_CHECK || stmt->kind == STMT_DEFER) {
       ZDiag ignored = {0};
-      if (!apply_expr_call_storage_effects(program, stmt->expr, scope, &ignored)) {
+      if (!apply_expr_call_storage_effects(ctx, program, stmt->expr, scope, &ignored)) {
         if (complete) *complete = false;
         return added;
       }
@@ -6474,7 +6484,7 @@ static bool collect_return_value_provenance_from_stmt_vec(const Program *program
     }
     if (stmt->kind == STMT_IF) {
       ZDiag ignored = {0};
-      if (!apply_expr_call_storage_effects(program, stmt->expr, scope, &ignored)) {
+      if (!apply_expr_call_storage_effects(ctx, program, stmt->expr, scope, &ignored)) {
         if (complete) *complete = false;
         return added;
       }
@@ -6489,14 +6499,14 @@ static bool collect_return_value_provenance_from_stmt_vec(const Program *program
       ProvenanceScopeSnapshot *else_after = NULL;
       if (then_possible) {
         Scope then_scope = {.parent = scope};
-        if (collect_return_value_provenance_from_stmt_vec(program, fun, &stmt->then_body, &then_scope, bindings, binding_len, out, may_return, complete)) added = true;
+        if (collect_return_value_provenance_from_stmt_vec(ctx, program, fun, &stmt->then_body, &then_scope, bindings, binding_len, out, may_return, complete)) added = true;
         scope_free(&then_scope);
         then_after = provenance_scope_snapshot_capture(scope);
       }
       provenance_scope_snapshot_restore(before);
       if (else_possible) {
         Scope else_scope = {.parent = scope};
-        if (collect_return_value_provenance_from_stmt_vec(program, fun, &stmt->else_body, &else_scope, bindings, binding_len, out, may_return, complete)) added = true;
+        if (collect_return_value_provenance_from_stmt_vec(ctx, program, fun, &stmt->else_body, &else_scope, bindings, binding_len, out, may_return, complete)) added = true;
         scope_free(&else_scope);
         else_after = provenance_scope_snapshot_capture(scope);
       }
@@ -6514,7 +6524,7 @@ static bool collect_return_value_provenance_from_stmt_vec(const Program *program
     }
     if (stmt->kind == STMT_WHILE) {
       ZDiag ignored = {0};
-      if (!apply_expr_call_storage_effects(program, stmt->expr, scope, &ignored)) {
+      if (!apply_expr_call_storage_effects(ctx, program, stmt->expr, scope, &ignored)) {
         if (complete) *complete = false;
         return added;
       }
@@ -6523,7 +6533,7 @@ static bool collect_return_value_provenance_from_stmt_vec(const Program *program
       ProvenanceScopeSnapshot *body_after = NULL;
       if (body_possible) {
         Scope body_scope = {.parent = scope};
-        if (collect_return_value_provenance_from_stmt_vec(program, fun, &stmt->then_body, &body_scope, bindings, binding_len, out, may_return, complete)) added = true;
+        if (collect_return_value_provenance_from_stmt_vec(ctx, program, fun, &stmt->then_body, &body_scope, bindings, binding_len, out, may_return, complete)) added = true;
         scope_free(&body_scope);
         body_after = provenance_scope_snapshot_capture(scope);
       }
@@ -6536,18 +6546,18 @@ static bool collect_return_value_provenance_from_stmt_vec(const Program *program
     }
     if (stmt->kind == STMT_FOR) {
       ZDiag ignored = {0};
-      if (!apply_expr_call_storage_effects(program, stmt->expr, scope, &ignored) ||
-          !apply_expr_call_storage_effects(program, stmt->range_end, scope, &ignored)) {
+      if (!apply_expr_call_storage_effects(ctx, program, stmt->expr, scope, &ignored) ||
+          !apply_expr_call_storage_effects(ctx, program, stmt->range_end, scope, &ignored)) {
         if (complete) *complete = false;
         return added;
       }
       ProvenanceScopeSnapshot *before = provenance_scope_snapshot_capture(scope);
       Scope body_scope = {.parent = scope};
-      const char *iter_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(program, stmt->expr, scope) : "Unknown");
+      const char *iter_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(ctx, program, stmt->expr, scope) : "Unknown");
       char *substituted_iter_type = return_provenance_type_text(iter_type, bindings, binding_len);
       if (stmt->name) scope_add(&body_scope, stmt->name, substituted_iter_type ? substituted_iter_type : "Unknown", false);
       free(substituted_iter_type);
-      if (collect_return_value_provenance_from_stmt_vec(program, fun, &stmt->then_body, &body_scope, bindings, binding_len, out, may_return, complete)) added = true;
+      if (collect_return_value_provenance_from_stmt_vec(ctx, program, fun, &stmt->then_body, &body_scope, bindings, binding_len, out, may_return, complete)) added = true;
       scope_free(&body_scope);
       ProvenanceScopeSnapshot *body_after = provenance_scope_snapshot_capture(scope);
       ProvenanceScopeSnapshot *states[] = {before, body_after};
@@ -6559,14 +6569,14 @@ static bool collect_return_value_provenance_from_stmt_vec(const Program *program
     }
     if (stmt->kind == STMT_MATCH) {
       ZDiag ignored = {0};
-      if (!apply_expr_call_storage_effects(program, stmt->expr, scope, &ignored)) {
+      if (!apply_expr_call_storage_effects(ctx, program, stmt->expr, scope, &ignored)) {
         if (complete) *complete = false;
         return added;
       }
       ProvenanceScopeSnapshot *before = provenance_scope_snapshot_capture(scope);
       ProvenanceScopeSnapshot **arm_states = z_checked_calloc(stmt->match_arms.len, sizeof(ProvenanceScopeSnapshot *));
       bool *arm_continues = z_checked_calloc(stmt->match_arms.len, sizeof(bool));
-      const char *match_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(program, stmt->expr, scope) : "Unknown");
+      const char *match_type = stmt->resolved_type ? stmt->resolved_type : (stmt->expr ? expr_type(ctx, program, stmt->expr, scope) : "Unknown");
       const Choice *item_choice = find_choice(program, match_type);
       for (size_t arm_index = 0; arm_index < stmt->match_arms.len; arm_index++) {
         provenance_scope_snapshot_restore(before);
@@ -6577,11 +6587,11 @@ static bool collect_return_value_provenance_from_stmt_vec(const Program *program
           if (item_case && item_case->type) {
             char *payload_type = return_provenance_type_text(item_case->type, bindings, binding_len);
             scope_add(&arm_scope, arm->payload_name, payload_type ? payload_type : "Unknown", false);
-            register_match_payload_binding_provenance(program, stmt->expr, scope, &arm_scope, arm->payload_name, arm->case_name);
+            register_match_payload_binding_provenance(ctx, program, stmt->expr, scope, &arm_scope, arm->payload_name, arm->case_name);
             free(payload_type);
           }
         }
-        if (collect_return_value_provenance_from_stmt_vec(program, fun, &arm->body, &arm_scope, bindings, binding_len, out, may_return, complete)) added = true;
+        if (collect_return_value_provenance_from_stmt_vec(ctx, program, fun, &arm->body, &arm_scope, bindings, binding_len, out, may_return, complete)) added = true;
         scope_free(&arm_scope);
         arm_states[arm_index] = provenance_scope_snapshot_capture(scope);
         arm_continues[arm_index] = !stmt_vec_guarantees_exit(&arm->body, fun->raises);
@@ -6617,7 +6627,7 @@ static bool seed_param_storage_value_provenance(const Program *program, Scope *s
   return added;
 }
 
-static bool function_provenance_summary(const Program *program, const Function *fun, GenericBinding *bindings, size_t binding_len, FunctionProvenanceSummary *summary) {
+static bool function_provenance_summary(CheckContext *ctx, const Program *program, const Function *fun, GenericBinding *bindings, size_t binding_len, FunctionProvenanceSummary *summary) {
   if (!summary) return false;
   *summary = (FunctionProvenanceSummary){.may_return = true};
   if (!program || !fun) return false;
@@ -6626,12 +6636,10 @@ static bool function_provenance_summary(const Program *program, const Function *
   summary->return_complete = true;
   summary->effect_complete = true;
   function_return_provenance_depth++;
-  GenericBinding *previous_expr_bindings = return_provenance_expr_bindings;
-  size_t previous_expr_binding_len = return_provenance_expr_binding_len;
-  const Function *previous_checking_function = checking_function;
-  return_provenance_expr_bindings = bindings;
-  return_provenance_expr_binding_len = binding_len;
-  checking_function = fun;
+  CheckContext summary_ctx = ctx ? *ctx : (CheckContext){0};
+  summary_ctx.return_provenance_expr_bindings = bindings;
+  summary_ctx.return_provenance_expr_binding_len = binding_len;
+  summary_ctx.function = fun;
   Scope scope = {0};
   for (size_t param_index = 0; param_index < fun->params.len; param_index++) {
     const Param *param = &fun->params.items[param_index];
@@ -6646,7 +6654,7 @@ static bool function_provenance_summary(const Program *program, const Function *
   }
 
   bool body_complete = true;
-  collect_return_value_provenance_from_stmt_vec(program, fun, &fun->body, &scope, bindings, binding_len, &summary->return_value, &summary->may_return, &body_complete);
+  collect_return_value_provenance_from_stmt_vec(&summary_ctx, program, fun, &fun->body, &scope, bindings, binding_len, &summary->return_value, &summary->may_return, &body_complete);
   if (!body_complete) {
     summary->return_complete = false;
     summary->effect_complete = false;
@@ -6669,18 +6677,15 @@ static bool function_provenance_summary(const Program *program, const Function *
   }
 
   scope_free(&scope);
-  checking_function = previous_checking_function;
-  return_provenance_expr_bindings = previous_expr_bindings;
-  return_provenance_expr_binding_len = previous_expr_binding_len;
   function_return_provenance_depth--;
   return summary->return_complete && summary->effect_complete;
 }
 
-static bool function_return_value_provenance(const Program *program, const Function *fun, GenericBinding *bindings, size_t binding_len, ValueProvenance *origins, bool *may_return) {
+static bool function_return_value_provenance(CheckContext *ctx, const Program *program, const Function *fun, GenericBinding *bindings, size_t binding_len, ValueProvenance *origins, bool *may_return) {
   if (may_return) *may_return = true;
   if (!program || !fun || !origins) return false;
   FunctionProvenanceSummary summary = {0};
-  bool ok = function_provenance_summary(program, fun, bindings, binding_len, &summary);
+  bool ok = function_provenance_summary(ctx, program, fun, bindings, binding_len, &summary);
   if (may_return) *may_return = summary.may_return;
   value_provenance_add_all(origins, &summary.return_value);
   function_provenance_summary_free(&summary);
@@ -6705,11 +6710,11 @@ static bool function_param_index_by_name(const Function *fun, const char *name, 
   return false;
 }
 
-static bool collect_effect_target_places(const Program *program, const Expr *actual, Scope *scope, PlaceVec *places) {
+static bool collect_effect_target_places(CheckContext *ctx, const Program *program, const Expr *actual, Scope *scope, PlaceVec *places) {
   if (!program || !actual || !scope || !places) return false;
   bool added = false;
   ValueProvenance direct = {0};
-  if (expr_reference_provenance(program, actual, scope, &direct)) {
+  if (expr_reference_provenance(ctx, program, actual, scope, &direct)) {
     for (size_t i = 0; i < direct.len; i++) {
       ProvenanceEntry *entry = &direct.items[i];
       if (origin_path_text(entry->value_path)[0]) continue;
@@ -6728,7 +6733,8 @@ static bool collect_effect_target_places(const Program *program, const Expr *act
   return false;
 }
 
-static bool place_storage_value_provenance_under_path(const Program *program, Scope *scope, const Place *place, const char *relative_path, ValueProvenance *out) {
+static bool place_storage_value_provenance_under_path(CheckContext *ctx, const Program *program, Scope *scope, const Place *place, const char *relative_path, ValueProvenance *out) {
+  (void)ctx;
   if (!program || !scope || !place || !place->root || !out) return false;
   bool added = false;
   char *full_path = origin_path_join(place->path, relative_path);
@@ -6757,20 +6763,20 @@ static bool place_storage_value_provenance_under_path(const Program *program, Sc
   return added;
 }
 
-static bool actual_storage_value_provenance_under_path(const Program *program, const Expr *actual, Scope *scope, const char *relative_path, ValueProvenance *out) {
+static bool actual_storage_value_provenance_under_path(CheckContext *ctx, const Program *program, const Expr *actual, Scope *scope, const char *relative_path, ValueProvenance *out) {
   if (!program || !actual || !scope || !out) return false;
   bool added = false;
   PlaceVec places = {0};
-  if (collect_effect_target_places(program, actual, scope, &places)) {
+  if (collect_effect_target_places(ctx, program, actual, scope, &places)) {
     for (size_t i = 0; i < places.len; i++) {
-      if (place_storage_value_provenance_under_path(program, scope, &places.items[i], relative_path, out)) added = true;
+      if (place_storage_value_provenance_under_path(ctx, program, scope, &places.items[i], relative_path, out)) added = true;
     }
   }
   place_vec_free(&places);
   return added;
 }
 
-static bool instantiate_call_provenance_entry(const Program *program, const Function *callee, const Expr *call, const Expr *receiver, size_t param_offset, Scope *scope, GenericBinding *bindings, size_t binding_len, const ProvenanceEntry *summary_entry, ValueProvenance *out) {
+static bool instantiate_call_provenance_entry(CheckContext *ctx, const Program *program, const Function *callee, const Expr *call, const Expr *receiver, size_t param_offset, Scope *scope, GenericBinding *bindings, size_t binding_len, const ProvenanceEntry *summary_entry, ValueProvenance *out) {
   if (!program || !callee || !call || !scope || !summary_entry || !out) return false;
   size_t param_index = callee->params.len;
   if (!function_param_index_by_name(callee, summary_entry->origin.root, &param_index)) return false;
@@ -6785,21 +6791,21 @@ static bool instantiate_call_provenance_entry(const Program *program, const Func
   if (reference_param && callee->params.items[param_index].name &&
       strcmp(callee->params.items[param_index].name, summary_entry->origin.root) == 0) {
     ValueProvenance storage_origins = {0};
-    if (actual_storage_value_provenance_under_path(program, actual, scope, summary_entry->origin.path, &storage_origins)) {
+    if (actual_storage_value_provenance_under_path(ctx, program, actual, scope, summary_entry->origin.path, &storage_origins)) {
       if (value_provenance_add_all_as_with_prefix(out, &storage_origins, summary_entry->mutable_borrow, summary_entry->value_path)) added = true;
       value_provenance_free(&storage_origins);
       return added;
     }
     value_provenance_free(&storage_origins);
   }
-  const char *actual_type = expr_type(program, actual, scope);
+  const char *actual_type = expr_type(ctx, program, actual, scope);
   bool actual_ref_like = type_is_named_generic(actual_type, "ref") || type_is_named_generic(actual_type, "mutref");
   char actual_root[128];
   char actual_path[256];
   bool implicit_reference_actual = reference_param && !actual_ref_like &&
     expr_binding_path(actual, actual_root, sizeof(actual_root), actual_path, sizeof(actual_path)) &&
     scope_has(scope, actual_root);
-  if (expr_reference_provenance_as(program, actual, scope, &actual_origins, summary_entry->mutable_borrow)) {
+  if (expr_reference_provenance_as(ctx, program, actual, scope, &actual_origins, summary_entry->mutable_borrow)) {
     ValueProvenance selected_origins = {0};
     ValueProvenance *source_origins = &actual_origins;
     if (summary_entry->origin.path) {
@@ -6854,10 +6860,10 @@ static bool validate_installed_provenance_lifetimes(Scope *scope, const char *ta
   return true;
 }
 
-static bool function_storage_effect_summary(const Program *program, const Function *fun, GenericBinding *bindings, size_t binding_len, ProvenanceStorageEffectVec *effects) {
+static bool function_storage_effect_summary(CheckContext *ctx, const Program *program, const Function *fun, GenericBinding *bindings, size_t binding_len, ProvenanceStorageEffectVec *effects) {
   if (!program || !fun || !effects) return false;
   FunctionProvenanceSummary summary = {0};
-  bool ok = function_provenance_summary(program, fun, bindings, binding_len, &summary);
+  bool ok = function_provenance_summary(ctx, program, fun, bindings, binding_len, &summary);
   for (size_t i = 0; i < summary.storage_effects.len; i++) {
     ProvenanceStorageEffect *effect = &summary.storage_effects.items[i];
     provenance_storage_effect_vec_add(effects, effect->target.root, effect->target.root_scope, effect->target.path, &effect->value, effect->overwrite);
@@ -6866,7 +6872,7 @@ static bool function_storage_effect_summary(const Program *program, const Functi
   return ok;
 }
 
-static bool apply_provenance_storage_effect(const Program *program, const ResolvedProvenanceCall *resolved, const ProvenanceStorageEffect *effect, Scope *scope, ZDiag *diag) {
+static bool apply_provenance_storage_effect(CheckContext *ctx, const Program *program, const ResolvedProvenanceCall *resolved, const ProvenanceStorageEffect *effect, Scope *scope, ZDiag *diag) {
   if (!program || !resolved || !resolved->callee || !resolved->call || !effect || !scope) return true;
   size_t param_index = resolved->callee->params.len;
   if (!function_param_index_by_name(resolved->callee, effect->target.root, &param_index)) return true;
@@ -6874,7 +6880,7 @@ static bool apply_provenance_storage_effect(const Program *program, const Resolv
   if (!actual) return true;
 
   PlaceVec targets = {0};
-  if (!collect_effect_target_places(program, actual, scope, &targets)) {
+  if (!collect_effect_target_places(ctx, program, actual, scope, &targets)) {
     place_vec_free(&targets);
     return true;
   }
@@ -6889,7 +6895,7 @@ static bool apply_provenance_storage_effect(const Program *program, const Resolv
       place_vec_free(&targets);
       return set_diag_detail(diag, 3030, "cannot store a reference to a callee-local binding through a mutable parameter", resolved->call->line, resolved->call->column, "borrow source that outlives the call", actual_detail, "store only references derived from caller-owned arguments into mutable parameter storage");
     }
-    instantiate_call_provenance_entry(program, resolved->callee, resolved->call, resolved->receiver, resolved->param_offset, scope, resolved->bindings, resolved->binding_len, entry, &instantiated);
+    instantiate_call_provenance_entry(ctx, program, resolved->callee, resolved->call, resolved->receiver, resolved->param_offset, scope, resolved->bindings, resolved->binding_len, entry, &instantiated);
   }
   if (instantiated.len == 0) {
     value_provenance_free(&instantiated);
@@ -6902,7 +6908,7 @@ static bool apply_provenance_storage_effect(const Program *program, const Resolv
     char *target_path = origin_path_join(target->path, effect->target.path);
     ValueProvenance target_effects = {0};
     if (!effect->overwrite || targets.len > 1) {
-      place_storage_value_provenance_under_path(program, scope, target, effect->target.path, &target_effects);
+      place_storage_value_provenance_under_path(ctx, program, scope, target, effect->target.path, &target_effects);
     }
     value_provenance_add_all(&target_effects, &instantiated);
     if (!validate_installed_provenance_lifetimes(scope, target->root, target->root_scope, &target_effects, resolved->call, diag)) {
@@ -6921,7 +6927,7 @@ static bool apply_provenance_storage_effect(const Program *program, const Resolv
     char *target_path = origin_path_join(target->path, effect->target.path);
     ValueProvenance target_effects = {0};
     if (!effect->overwrite || targets.len > 1) {
-      place_storage_value_provenance_under_path(program, scope, target, effect->target.path, &target_effects);
+      place_storage_value_provenance_under_path(ctx, program, scope, target, effect->target.path, &target_effects);
     }
     value_provenance_add_all(&target_effects, &instantiated);
     scope_set_value_provenance_path_in_scope(scope, target->root_scope, target->root, target_path, &target_effects);
@@ -6934,10 +6940,10 @@ static bool apply_provenance_storage_effect(const Program *program, const Resolv
   return true;
 }
 
-static bool apply_provenance_call_storage_effects(const Program *program, const ResolvedProvenanceCall *resolved, Scope *scope, ZDiag *diag) {
+static bool apply_provenance_call_storage_effects(CheckContext *ctx, const Program *program, const ResolvedProvenanceCall *resolved, Scope *scope, ZDiag *diag) {
   if (!program || !resolved || !resolved->callee || !resolved->call || !scope) return true;
   ProvenanceStorageEffectVec effects = {0};
-  bool complete = function_storage_effect_summary(program, resolved->callee, resolved->bindings, resolved->binding_len, &effects);
+  bool complete = function_storage_effect_summary(ctx, program, resolved->callee, resolved->bindings, resolved->binding_len, &effects);
   if (!complete) {
     for (size_t i = 0; i < resolved->callee->params.len; i++) {
       char *param_type = call_param_type_text(resolved->callee, i, resolved->bindings, resolved->binding_len);
@@ -6950,31 +6956,31 @@ static bool apply_provenance_call_storage_effects(const Program *program, const 
   }
   bool ok = true;
   for (size_t i = 0; ok && i < effects.len; i++) {
-    ok = apply_provenance_storage_effect(program, resolved, &effects.items[i], scope, diag);
+    ok = apply_provenance_storage_effect(ctx, program, resolved, &effects.items[i], scope, diag);
   }
   provenance_storage_effect_vec_free(&effects);
   return ok;
 }
 
-static bool apply_checked_call_storage_effects(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
+static bool apply_checked_call_storage_effects(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
   if (!program || !expr || expr->kind != EXPR_CALL || !expr->left || !scope) return true;
   ResolvedProvenanceCall resolved = {0};
-  if (!resolve_provenance_call(program, expr, scope, expr_type(program, expr, scope), checking_function, return_provenance_expr_bindings, return_provenance_expr_binding_len, &resolved)) return true;
-  bool ok = apply_provenance_call_storage_effects(program, &resolved, scope, diag);
+  if (!resolve_provenance_call(ctx, program, expr, scope, expr_type(ctx, program, expr, scope), ctx ? ctx->function : NULL, ctx ? ctx->return_provenance_expr_bindings : NULL, ctx ? ctx->return_provenance_expr_binding_len : 0, &resolved)) return true;
+  bool ok = apply_provenance_call_storage_effects(ctx, program, &resolved, scope, diag);
   resolved_provenance_call_free(&resolved);
   return ok;
 }
 
-static bool apply_resolved_call_storage_effects(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
-  return apply_checked_call_storage_effects(program, expr, scope, diag);
+static bool apply_resolved_call_storage_effects(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
+  return apply_checked_call_storage_effects(ctx, program, expr, scope, diag);
 }
 
-static bool apply_expr_call_storage_effects(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
+static bool apply_expr_call_storage_effects(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
   if (!program || !expr || !scope) return true;
   if (expr->kind == EXPR_RESCUE) {
-    if (!apply_expr_call_storage_effects(program, expr->left, scope, diag)) return false;
+    if (!apply_expr_call_storage_effects(ctx, program, expr->left, scope, diag)) return false;
     ProvenanceScopeSnapshot *before_right = provenance_scope_snapshot_capture(scope);
-    if (!apply_expr_call_storage_effects(program, expr->right, scope, diag)) {
+    if (!apply_expr_call_storage_effects(ctx, program, expr->right, scope, diag)) {
       provenance_scope_snapshot_restore(before_right);
       provenance_scope_snapshot_free(before_right);
       return false;
@@ -6986,9 +6992,9 @@ static bool apply_expr_call_storage_effects(const Program *program, const Expr *
     return true;
   }
   if (expr->kind == EXPR_BINARY && expr->text && (strcmp(expr->text, "&&") == 0 || strcmp(expr->text, "||") == 0)) {
-    if (!apply_expr_call_storage_effects(program, expr->left, scope, diag)) return false;
+    if (!apply_expr_call_storage_effects(ctx, program, expr->left, scope, diag)) return false;
     ProvenanceScopeSnapshot *before_right = provenance_scope_snapshot_capture(scope);
-    if (!apply_expr_call_storage_effects(program, expr->right, scope, diag)) {
+    if (!apply_expr_call_storage_effects(ctx, program, expr->right, scope, diag)) {
       provenance_scope_snapshot_restore(before_right);
       provenance_scope_snapshot_free(before_right);
       return false;
@@ -7010,15 +7016,15 @@ static bool apply_expr_call_storage_effects(const Program *program, const Expr *
     provenance_scope_snapshot_free(before_right);
     return true;
   }
-  if (!apply_expr_call_storage_effects(program, expr->left, scope, diag) ||
-      !apply_expr_call_storage_effects(program, expr->right, scope, diag)) return false;
+  if (!apply_expr_call_storage_effects(ctx, program, expr->left, scope, diag) ||
+      !apply_expr_call_storage_effects(ctx, program, expr->right, scope, diag)) return false;
   for (size_t i = 0; i < expr->args.len; i++) {
-    if (!apply_expr_call_storage_effects(program, expr->args.items[i], scope, diag)) return false;
+    if (!apply_expr_call_storage_effects(ctx, program, expr->args.items[i], scope, diag)) return false;
   }
   for (size_t i = 0; i < expr->fields.len; i++) {
-    if (!apply_expr_call_storage_effects(program, expr->fields.items[i].value, scope, diag)) return false;
+    if (!apply_expr_call_storage_effects(ctx, program, expr->fields.items[i].value, scope, diag)) return false;
   }
-  if (expr->kind == EXPR_CALL) return apply_resolved_call_storage_effects(program, expr, scope, diag);
+  if (expr->kind == EXPR_CALL) return apply_resolved_call_storage_effects(ctx, program, expr, scope, diag);
   return true;
 }
 
@@ -7044,10 +7050,10 @@ static bool check_assignment_not_borrowed(const Expr *target, Scope *scope, ZDia
   return false;
 }
 
-static bool check_return_borrow_escape(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
+static bool check_return_borrow_escape(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
   if (!expr) return true;
   ValueProvenance origins = {0};
-  if (!expr_reference_provenance(program, expr, scope, &origins)) {
+  if (!expr_reference_provenance(ctx, program, expr, scope, &origins)) {
     value_provenance_free(&origins);
     return true;
   }
@@ -7064,10 +7070,10 @@ static bool check_return_borrow_escape(const Program *program, const Expr *expr,
   return true;
 }
 
-static bool check_return_call_borrow_escape(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
+static bool check_return_call_borrow_escape(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
   if (!expr || expr->kind != EXPR_CALL || !expr->left) return true;
   ValueProvenance origins = {0};
-  if (!call_result_value_provenance(program, expr, scope, &origins)) {
+  if (!call_result_value_provenance(ctx, program, expr, scope, &origins)) {
     value_provenance_free(&origins);
     return true;
   }
@@ -7084,9 +7090,9 @@ static bool check_return_call_borrow_escape(const Program *program, const Expr *
   return true;
 }
 
-static bool check_return_reference_escape(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
-  if (!check_return_call_borrow_escape(program, expr, scope, diag)) return false;
-  return check_return_borrow_escape(program, expr, scope, diag);
+static bool check_return_reference_escape(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {
+  if (!check_return_call_borrow_escape(ctx, program, expr, scope, diag)) return false;
+  return check_return_borrow_escape(ctx, program, expr, scope, diag);
 }
 
 static bool param_vec_contains_name(const ParamVec *params, const char *name) {
@@ -7139,15 +7145,15 @@ static bool parse_match_int_literal(const char *text, unsigned long long *out) {
   return true;
 }
 
-static bool check_match_guard(const Program *program, MatchArm *arm, Scope *scope, ZDiag *diag) {
+static bool check_match_guard(CheckContext *ctx, const Program *program, MatchArm *arm, Scope *scope, ZDiag *diag) {
   if (!arm->guard) return true;
-  if (!check_expr(program, arm->guard, scope, diag)) return false;
-  const char *guard_type = expr_type(program, arm->guard, scope);
+  if (!check_expr(ctx, program, arm->guard, scope, diag)) return false;
+  const char *guard_type = expr_type(ctx, program, arm->guard, scope);
   if (!is_bool_type(guard_type)) return set_diag_detail(diag, 3111, "match arm guard must be Bool", arm->guard->line, arm->guard->column, "Bool", guard_type, "use a boolean condition after `if`");
   return true;
 }
 
-static bool check_scalar_match(const Program *program, const Function *fun, const Stmt *stmt, Scope *scope, ZDiag *diag, int loop_depth, const char *match_type) {
+static bool check_scalar_match(CheckContext *ctx, const Program *program, const Function *fun, const Stmt *stmt, Scope *scope, ZDiag *diag, int loop_depth, const char *match_type) {
   bool is_bool = is_bool_type(match_type);
   bool is_u8 = strcmp(match_type, "u8") == 0;
   bool bool_seen[2] = {false, false};
@@ -7183,7 +7189,7 @@ static bool check_scalar_match(const Program *program, const Function *fun, cons
         }
       }
     }
-    if (!check_match_guard(program, arm, scope, diag)) return false;
+    if (!check_match_guard(ctx, program, arm, scope, diag)) return false;
   }
   if (!has_fallback) {
     if (is_bool) {
@@ -7202,7 +7208,7 @@ static bool check_scalar_match(const Program *program, const Function *fun, cons
   for (size_t arm_index = 0; arm_index < stmt->match_arms.len; arm_index++) {
     provenance_scope_snapshot_restore(before);
     Scope arm_scope = {.parent = scope};
-    bool ok = check_stmt_vec_with_loop(program, fun, &stmt->match_arms.items[arm_index].body, &arm_scope, diag, loop_depth);
+    bool ok = check_stmt_vec_with_loop(ctx, program, fun, &stmt->match_arms.items[arm_index].body, &arm_scope, diag, loop_depth);
     scope_free(&arm_scope);
     if (!ok) {
       provenance_scope_snapshot_restore(before);
@@ -7223,7 +7229,7 @@ static bool check_scalar_match(const Program *program, const Function *fun, cons
   return true;
 }
 
-static bool check_stmt(const Program *program, const Function *fun, const Stmt *stmt, Scope *scope, ZDiag *diag, int loop_depth) {
+static bool check_stmt(CheckContext *ctx, const Program *program, const Function *fun, const Stmt *stmt, Scope *scope, ZDiag *diag, int loop_depth) {
   if (stmt->kind == STMT_LET) {
     for (size_t i = 0; i < scope->len; i++) {
       if (strcmp(scope->names[i], stmt->name) == 0) {
@@ -7232,8 +7238,8 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     }
     if (!validate_type_form(stmt->type, diag, stmt->line, stmt->column)) return false;
     if (!validate_local_type_names(program, fun, scope, stmt->type, diag, stmt->line, stmt->column)) return false;
-    if (!check_expr_expected(program, stmt->expr, scope, diag, stmt->type)) return false;
-    const char *actual = expr_type(program, stmt->expr, scope);
+    if (!check_expr_expected(ctx, program, stmt->expr, scope, diag, stmt->type)) return false;
+    const char *actual = expr_type(ctx, program, stmt->expr, scope);
     if (stmt->type && !types_compatible(stmt->type, actual)) {
       return set_diag_detail(diag, 3006, "let binding type does not match initializer", stmt->line, stmt->column, stmt->type, actual, "change the annotation or initializer");
     }
@@ -7241,41 +7247,41 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     mark_owned_move_if_needed(stmt->expr, scope, binding_type);
     set_stmt_resolved_type(stmt, binding_type);
     scope_add_decl(scope, stmt->name, binding_type, stmt->mutable_binding, stmt->line, stmt->column);
-    register_borrow_binding(program, stmt, scope);
+    register_borrow_binding(ctx, program, stmt, scope);
     return true;
   }
   if (stmt->kind == STMT_ASSIGN) {
     const Expr *target = stmt->target;
     char expected[128];
-    if (!check_lvalue_target(program, target, scope, diag, expected, sizeof(expected))) return false;
+    if (!check_lvalue_target(ctx, program, target, scope, diag, expected, sizeof(expected))) return false;
     if (!check_assignment_not_borrowed(target, scope, diag)) return false;
     AssignmentProvenanceSnapshot provenance_snapshot = {0};
     assignment_provenance_snapshot_clear(target, scope, &provenance_snapshot);
-    if (!check_expr_expected(program, stmt->expr, scope, diag, expected)) {
+    if (!check_expr_expected(ctx, program, stmt->expr, scope, diag, expected)) {
       assignment_provenance_snapshot_restore(scope, &provenance_snapshot);
       return false;
     }
     assignment_provenance_snapshot_restore(scope, &provenance_snapshot);
-    const char *actual = expr_type(program, stmt->expr, scope);
+    const char *actual = expr_type(ctx, program, stmt->expr, scope);
     if (!types_compatible(expected, actual)) {
       return set_diag_detail(diag, 3006, "assignment type does not match binding", stmt->line, stmt->column, expected, actual, "assign a compatible value");
     }
     mark_owned_move_if_needed(stmt->expr, scope, expected);
     mark_owned_target_live_if_needed(target, scope, expected);
-    if (!update_borrow_assignment(program, target, stmt->expr, scope, diag)) return false;
+    if (!update_borrow_assignment(ctx, program, target, stmt->expr, scope, diag)) return false;
     return true;
   }
   if (stmt->kind == STMT_CHECK) {
     if (!fun->raises) return set_diag_detail(diag, 1001, "`check` requires function to be marked raises", stmt->line, stmt->column, "function signature marked raises", "function is not marked raises", "add raises to the function signature");
-    allow_fallible_call++;
-    bool checked_ok = check_expr(program, stmt->expr, scope, diag);
-    allow_fallible_call--;
+    ctx->allow_fallible_call++;
+    bool checked_ok = check_expr(ctx, program, stmt->expr, scope, diag);
+    ctx->allow_fallible_call--;
     if (!checked_ok) return false;
-    const Function *callee = fallible_callee(program, stmt->expr);
-    if (callee && !function_error_sets_compatible(fun, callee, diag, stmt->expr)) return false;
+    const Function *callee = fallible_callee(ctx, program, stmt->expr);
+    if (callee && !function_error_sets_compatible(ctx, fun, callee, diag, stmt->expr)) return false;
     const char *builtin_type = builtin_fallible_return_type(stmt->expr);
     if (builtin_type && !function_error_sets_include_builtin(fun, diag, stmt->expr)) return false;
-    const char *checked_type = expr_type(program, stmt->expr, scope);
+    const char *checked_type = expr_type(ctx, program, stmt->expr, scope);
     bool world_stream_write = is_world_stream_write_call(stmt->expr, scope);
     const char *inner = NULL;
     size_t inner_len = 0;
@@ -7298,21 +7304,21 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     }
     return true;
   }
-  if (stmt->kind == STMT_DEFER) return check_expr(program, stmt->expr, scope, diag);
+  if (stmt->kind == STMT_DEFER) return check_expr(ctx, program, stmt->expr, scope, diag);
   if (stmt->kind == STMT_RETURN) {
-    if (!check_expr_expected(program, stmt->expr, scope, diag, fun->return_type)) return false;
-    const char *actual = stmt->expr ? expr_type(program, stmt->expr, scope) : "Void";
+    if (!check_expr_expected(ctx, program, stmt->expr, scope, diag, fun->return_type)) return false;
+    const char *actual = stmt->expr ? expr_type(ctx, program, stmt->expr, scope) : "Void";
     if (!types_compatible(fun->return_type, actual)) {
       return set_diag_detail(diag, 3007, "return type does not match function return type", stmt->line, stmt->column, fun->return_type, actual, "return a value compatible with the function signature");
     }
-    if (!check_return_reference_escape(program, stmt->expr, scope, diag)) return false;
+    if (!check_return_reference_escape(ctx, program, stmt->expr, scope, diag)) return false;
     mark_owned_move_if_needed(stmt->expr, scope, fun->return_type);
     return true;
   }
-  if (stmt->kind == STMT_EXPR) return check_expr(program, stmt->expr, scope, diag);
+  if (stmt->kind == STMT_EXPR) return check_expr(ctx, program, stmt->expr, scope, diag);
   if (stmt->kind == STMT_IF) {
-    if (!check_expr_expected(program, stmt->expr, scope, diag, "Bool")) return false;
-    const char *condition_type = expr_type(program, stmt->expr, scope);
+    if (!check_expr_expected(ctx, program, stmt->expr, scope, diag, "Bool")) return false;
+    const char *condition_type = expr_type(ctx, program, stmt->expr, scope);
     if (!is_bool_type(condition_type)) return set_diag_detail(diag, 3016, "condition must be Bool", stmt->expr->line, stmt->expr->column, "Bool", condition_type, "compare explicitly or produce a Bool value");
     bool then_possible = true;
     bool else_possible = true;
@@ -7322,7 +7328,7 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     }
     ProvenanceScopeSnapshot *before = provenance_scope_snapshot_capture(scope);
     Scope then_scope = {.parent = scope};
-    bool ok = check_stmt_vec_with_loop(program, fun, &stmt->then_body, &then_scope, diag, loop_depth);
+    bool ok = check_stmt_vec_with_loop(ctx, program, fun, &stmt->then_body, &then_scope, diag, loop_depth);
     scope_free(&then_scope);
     if (!ok) {
       provenance_scope_snapshot_restore(before);
@@ -7332,7 +7338,7 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     ProvenanceScopeSnapshot *then_after = provenance_scope_snapshot_capture(scope);
     provenance_scope_snapshot_restore(before);
     Scope else_scope = {.parent = scope};
-    ok = check_stmt_vec_with_loop(program, fun, &stmt->else_body, &else_scope, diag, loop_depth);
+    ok = check_stmt_vec_with_loop(ctx, program, fun, &stmt->else_body, &else_scope, diag, loop_depth);
     scope_free(&else_scope);
     if (!ok) {
       provenance_scope_snapshot_restore(before);
@@ -7353,12 +7359,12 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     return true;
   }
   if (stmt->kind == STMT_WHILE) {
-    if (!check_expr_expected(program, stmt->expr, scope, diag, "Bool")) return false;
-    const char *condition_type = expr_type(program, stmt->expr, scope);
+    if (!check_expr_expected(ctx, program, stmt->expr, scope, diag, "Bool")) return false;
+    const char *condition_type = expr_type(ctx, program, stmt->expr, scope);
     if (!is_bool_type(condition_type)) return set_diag_detail(diag, 3016, "condition must be Bool", stmt->expr->line, stmt->expr->column, "Bool", condition_type, "compare explicitly or produce a Bool value");
     ProvenanceScopeSnapshot *before = provenance_scope_snapshot_capture(scope);
     Scope body_scope = {.parent = scope};
-    bool ok = check_stmt_vec_with_loop(program, fun, &stmt->then_body, &body_scope, diag, loop_depth + 1);
+    bool ok = check_stmt_vec_with_loop(ctx, program, fun, &stmt->then_body, &body_scope, diag, loop_depth + 1);
     scope_free(&body_scope);
     if (!ok) {
       provenance_scope_snapshot_restore(before);
@@ -7375,17 +7381,17 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     return true;
   }
   if (stmt->kind == STMT_FOR) {
-    if (!check_expr(program, stmt->expr, scope, diag)) return false;
-    const char *start_type = expr_type(program, stmt->expr, scope);
-    if (!check_expr_expected(program, stmt->range_end, scope, diag, is_int_type(start_type) ? start_type : NULL)) return false;
-    const char *end_type = expr_type(program, stmt->range_end, scope);
+    if (!check_expr(ctx, program, stmt->expr, scope, diag)) return false;
+    const char *start_type = expr_type(ctx, program, stmt->expr, scope);
+    if (!check_expr_expected(ctx, program, stmt->range_end, scope, diag, is_int_type(start_type) ? start_type : NULL)) return false;
+    const char *end_type = expr_type(ctx, program, stmt->range_end, scope);
     if (!is_int_type(start_type) || !is_int_type(end_type)) return set_diag_detail(diag, 3020, "range loop bounds must be integers", stmt->line, stmt->column, "integer-compatible range bounds", "non-integer bound", "use integer start and end expressions");
     if (!types_compatible(start_type, end_type)) return set_diag_detail(diag, 3020, "range loop bounds must have matching integer types", stmt->line, stmt->column, start_type, end_type, "use matching integer bounds until explicit casts are supported");
     set_stmt_resolved_type(stmt, start_type);
     ProvenanceScopeSnapshot *before = provenance_scope_snapshot_capture(scope);
     Scope body_scope = {.parent = scope};
     scope_add(&body_scope, stmt->name, start_type, false);
-    bool ok = check_stmt_vec_with_loop(program, fun, &stmt->then_body, &body_scope, diag, loop_depth + 1);
+    bool ok = check_stmt_vec_with_loop(ctx, program, fun, &stmt->then_body, &body_scope, diag, loop_depth + 1);
     scope_free(&body_scope);
     if (!ok) {
       provenance_scope_snapshot_restore(before);
@@ -7409,14 +7415,14 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
     return true;
   }
   if (stmt->kind == STMT_MATCH) {
-    if (!check_expr(program, stmt->expr, scope, diag)) return false;
-    const char *match_type = expr_type(program, stmt->expr, scope);
+    if (!check_expr(ctx, program, stmt->expr, scope, diag)) return false;
+    const char *match_type = expr_type(ctx, program, stmt->expr, scope);
     set_stmt_resolved_type(stmt, match_type);
     const EnumDecl *item_enum = find_enum(program, match_type);
     const Choice *item_choice = find_choice(program, match_type);
     const ParamVec *cases = item_enum ? &item_enum->cases : (item_choice ? &item_choice->cases : NULL);
     if (!cases) {
-      if (is_bool_type(match_type) || is_int_type(match_type)) return check_scalar_match(program, fun, stmt, scope, diag, loop_depth, match_type);
+      if (is_bool_type(match_type) || is_int_type(match_type)) return check_scalar_match(ctx, program, fun, stmt, scope, diag, loop_depth, match_type);
       return set_diag_detail(diag, 3105, "match expects enum, choice, Bool, or integer value", stmt->line, stmt->column, "enum, choice, Bool, or integer value", match_type, "match on a supported scalar or variant binding");
     }
     bool has_fallback = false;
@@ -7436,7 +7442,7 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
       for (size_t previous = 0; previous < arm_index; previous++) {
         if (!arm->guard && !stmt->match_arms.items[previous].guard && strcmp(stmt->match_arms.items[previous].case_name, arm->case_name) == 0) return set_diag_detail(diag, 3107, "duplicate match arm", arm->line, arm->column, "one unguarded arm per variant case", arm->case_name, "remove the duplicate arm");
       }
-      if (!check_match_guard(program, arm, scope, diag)) return false;
+      if (!check_match_guard(ctx, program, arm, scope, diag)) return false;
     }
     for (size_t case_index = 0; case_index < cases->len; case_index++) {
       bool seen = false;
@@ -7456,10 +7462,10 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
         const Param *item_case = find_case(&item_choice->cases, arm->case_name);
         if (item_case && item_case->type) {
           scope_add(&arm_scope, arm->payload_name, item_case->type, false);
-          register_match_payload_binding_provenance(program, stmt->expr, scope, &arm_scope, arm->payload_name, arm->case_name);
+          register_match_payload_binding_provenance(ctx, program, stmt->expr, scope, &arm_scope, arm->payload_name, arm->case_name);
         }
       }
-      bool ok = check_stmt_vec_with_loop(program, fun, &arm->body, &arm_scope, diag, loop_depth);
+      bool ok = check_stmt_vec_with_loop(ctx, program, fun, &arm->body, &arm_scope, diag, loop_depth);
       scope_free(&arm_scope);
       if (!ok) {
         provenance_scope_snapshot_restore(before);
@@ -7482,15 +7488,15 @@ static bool check_stmt(const Program *program, const Function *fun, const Stmt *
   return true;
 }
 
-static bool check_stmt_vec_with_loop(const Program *program, const Function *fun, const StmtVec *body, Scope *scope, ZDiag *diag, int loop_depth) {
+static bool check_stmt_vec_with_loop(CheckContext *ctx, const Program *program, const Function *fun, const StmtVec *body, Scope *scope, ZDiag *diag, int loop_depth) {
   for (size_t i = 0; i < body->len; i++) {
-    if (!check_stmt(program, fun, body->items[i], scope, diag, loop_depth)) return false;
+    if (!check_stmt(ctx, program, fun, body->items[i], scope, diag, loop_depth)) return false;
   }
   return true;
 }
 
-static bool check_stmt_vec(const Program *program, const Function *fun, const StmtVec *body, Scope *scope, ZDiag *diag) {
-  return check_stmt_vec_with_loop(program, fun, body, scope, diag, 0);
+static bool check_stmt_vec(CheckContext *ctx, const Program *program, const Function *fun, const StmtVec *body, Scope *scope, ZDiag *diag) {
+  return check_stmt_vec_with_loop(ctx, program, fun, body, scope, diag, 0);
 }
 
 static bool stmt_vec_guarantees_exit(const StmtVec *body, bool function_raises);
@@ -7546,7 +7552,7 @@ static bool validate_drop_method(const Shape *shape, const Function *method, ZDi
   return true;
 }
 
-static bool check_shape_method_body(const Program *program, const Shape *shape, const Function *method, ZDiag *diag) {
+static bool check_shape_method_body(CheckContext *ctx, const Program *program, const Shape *shape, const Function *method, ZDiag *diag) {
   Scope scope = {0};
   size_t binding_len = 1 + shape->type_params.len;
   GenericBinding *bindings = z_checked_calloc(binding_len, sizeof(GenericBinding));
@@ -7573,7 +7579,12 @@ static bool check_shape_method_body(const Program *program, const Shape *shape, 
   for (size_t alias_index = 0; alias_index < program->aliases.len; alias_index++) scope_add(&scope, program->aliases.items[alias_index].name, "Type", false);
   Function checking_method = *method;
   checking_method.return_type = type_substitute_generic(method->return_type, bindings, binding_len);
-  bool ok = check_stmt_vec(program, &checking_method, &method->body, &scope, diag);
+  CheckContext method_ctx = ctx ? *ctx : (CheckContext){0};
+  method_ctx.function = &checking_method;
+  method_ctx.allow_fallible_call = 0;
+  method_ctx.return_provenance_expr_bindings = NULL;
+  method_ctx.return_provenance_expr_binding_len = 0;
+  bool ok = check_stmt_vec(&method_ctx, program, &checking_method, &method->body, &scope, diag);
   if (ok) ok = check_function_has_required_return(&checking_method, diag);
   free(checking_method.return_type);
   generic_bindings_free(bindings, binding_len);
@@ -7906,6 +7917,8 @@ bool z_check_program(const Program *program, ZDiag *diag) {
   meta_cache_free();
   if (!current_check_target) current_check_target = z_find_target(z_host_target());
   current_type_program = program;
+  CheckContext check_ctx = {0};
+  CheckContext *ctx = &check_ctx;
   const Function *main_fun = NULL;
   bool has_test = false;
   if (!validate_c_imports(program, diag)) return false;
@@ -7947,11 +7960,11 @@ bool z_check_program(const Program *program, ZDiag *diag) {
       scope_free(&const_scope);
       return false;
     }
-    if (!check_expr_expected(program, item->expr, &const_scope, diag, declared_type)) {
+    if (!check_expr_expected(ctx, program, item->expr, &const_scope, diag, declared_type)) {
       scope_free(&const_scope);
       return false;
     }
-    const char *actual = expr_type(program, item->expr, &const_scope);
+    const char *actual = expr_type(ctx, program, item->expr, &const_scope);
     if (declared_type && !types_compatible(declared_type, actual)) {
       bool ok = set_diag_detail(diag, 3006, "const initializer type does not match annotation", item->line, item->column, declared_type, actual, "change the literal or update the const annotation");
       scope_free(&const_scope);
@@ -8004,7 +8017,7 @@ bool z_check_program(const Program *program, ZDiag *diag) {
         if (!validate_type_names(program, param->type, &program->shapes.items[i].type_params, &method->type_params, true, diag, param->line, param->column)) return false;
       }
       if (!validate_drop_method(&program->shapes.items[i], method, diag)) return false;
-      if (!check_shape_method_body(program, &program->shapes.items[i], method, diag)) return false;
+      if (!check_shape_method_body(ctx, program, &program->shapes.items[i], method, diag)) return false;
     }
     for (size_t other = i + 1; other < program->shapes.len; other++) {
       if (strcmp(program->shapes.items[i].name, program->shapes.items[other].name) == 0) {
@@ -8068,7 +8081,7 @@ bool z_check_program(const Program *program, ZDiag *diag) {
 	    Scope scope = {0};
 	    for (size_t const_index = 0; const_index < program->consts.len; const_index++) {
 	      const ConstDecl *item = &program->consts.items[const_index];
-	      scope_add(&scope, item->name, item->type ? item->type : expr_type(program, item->expr, &scope), false);
+	      scope_add(&scope, item->name, item->type ? item->type : expr_type(ctx, program, item->expr, &scope), false);
 	    }
 	    for (size_t type_param_index = 0; type_param_index < fun->type_params.len; type_param_index++) {
 	      const Param *type_param = &fun->type_params.items[type_param_index];
@@ -8097,10 +8110,13 @@ bool z_check_program(const Program *program, ZDiag *diag) {
     for (size_t enum_index = 0; enum_index < program->enums.len; enum_index++) scope_add(&scope, program->enums.items[enum_index].name, "Type", false);
     for (size_t choice_index = 0; choice_index < program->choices.len; choice_index++) scope_add(&scope, program->choices.items[choice_index].name, "Type", false);
     for (size_t alias_index = 0; alias_index < program->aliases.len; alias_index++) scope_add(&scope, program->aliases.items[alias_index].name, "Type", false);
-    checking_function = fun;
-    bool ok = check_stmt_vec(program, fun, &fun->body, &scope, diag);
+    ctx->function = fun;
+    ctx->allow_fallible_call = 0;
+    ctx->return_provenance_expr_bindings = NULL;
+    ctx->return_provenance_expr_binding_len = 0;
+    bool ok = check_stmt_vec(ctx, program, fun, &fun->body, &scope, diag);
     if (ok) ok = check_function_has_required_return(fun, diag);
-    checking_function = NULL;
+    ctx->function = NULL;
     scope_free(&scope);
     if (!ok) return false;
   }

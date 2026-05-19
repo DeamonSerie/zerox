@@ -291,8 +291,8 @@ assertIncludes("function provenance summary", summaryBody, "seed_param_storage_v
 assertIncludes("function provenance summary", summaryBody, "provenance_storage_effect_vec_add");
 assertIncludes("function provenance summary", summaryBody, "return summary->return_complete && summary->effect_complete");
 assertIncludes("choice type provenance", checker, "const Choice *choice = find_choice(program, type)");
-assertIncludes("choice constructor provenance", checker, "choice_constructor_value_provenance(program, expr, scope, origins)");
-assertIncludes("choice match payload provenance", checker, "register_match_payload_binding_provenance(program, stmt->expr, scope, &arm_scope, arm->payload_name, arm->case_name)");
+assertIncludes("choice constructor provenance", checker, "choice_constructor_value_provenance(ctx, program, expr, scope, origins)");
+assertIncludes("choice match payload provenance", checker, "register_match_payload_binding_provenance(ctx, program, stmt->expr, scope, &arm_scope, arm->payload_name, arm->case_name)");
 
 const storageSummaryBody = sliceBetween(checker, "static bool function_storage_effect_summary", "static bool apply_provenance_storage_effect");
 assertIncludes("storage-effect summary", storageSummaryBody, "function_provenance_summary");
@@ -308,11 +308,11 @@ assertIncludes("assignment path clearing", checker, "origin_path_is_definitely_w
 
 const checkExprExpectedBody = sliceBetween(
   checker,
-  "static bool check_expr_expected(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected) {",
-  "static bool check_expr(const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {"
+  "static bool check_expr_expected(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag, const char *expected) {",
+  "static bool check_expr(CheckContext *ctx, const Program *program, const Expr *expr, Scope *scope, ZDiag *diag) {"
 );
 const callCase = sliceBetween(checkExprExpectedBody, "case EXPR_CALL:", "case EXPR_CAST:");
-const callCaseStorageApplications = (callCase.match(/apply_checked_call_storage_effects\(program, expr, scope, diag\)/g) ?? []).length;
+const callCaseStorageApplications = (callCase.match(/apply_checked_call_storage_effects\(ctx, program, expr, scope, diag\)/g) ?? []).length;
 if (callCaseStorageApplications < 5) {
   fail(`EXPR_CALL provenance: expected storage-effect application for all user call forms, found ${callCaseStorageApplications}`);
 }
