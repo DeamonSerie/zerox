@@ -7,7 +7,7 @@
 #include <string.h>
 
 #define IR_READONLY_DATA_BASE 1024u
-#define IR_WASM_PAGE_BYTES 65536u
+#define IR_READONLY_DATA_LIMIT 65536u
 
 static Expr *clone_expr(const Expr *expr);
 static Stmt *clone_stmt(const Stmt *stmt);
@@ -541,7 +541,7 @@ static void ir_mark_unsupported(IrProgram *ir, const char *message, int line, in
   ir->mir_line = line > 0 ? line : 1;
   ir->mir_column = column > 0 ? column : 1;
   snprintf(ir->mir_message, sizeof(ir->mir_message), "%s", message ? message : "direct backend lowering failed");
-  snprintf(ir->mir_expected, sizeof(ir->mir_expected), "direct wasm MVP subset");
+  snprintf(ir->mir_expected, sizeof(ir->mir_expected), "direct backend MVP subset");
   snprintf(ir->mir_actual, sizeof(ir->mir_actual), "%s", actual ? actual : "unsupported construct");
   snprintf(ir->mir_help, sizeof(ir->mir_help), "restrict this program to exported primitive arithmetic functions or choose another supported direct target");
   z_backend_blocker_set(&ir->backend_blocker, NULL, NULL, NULL, "lower", ir->mir_actual);
@@ -790,8 +790,8 @@ static bool ir_add_readonly_data(IrProgram *ir, const unsigned char *bytes, unsi
   }
 
   size_t offset = IR_READONLY_DATA_BASE + ir->readonly_data_bytes;
-  if (offset + len >= IR_WASM_PAGE_BYTES) {
-    ir_mark_unsupported(ir, "direct backend readonly data exceeds the initial memory page", line, column, "string/data segment");
+  if (offset + len >= IR_READONLY_DATA_LIMIT) {
+    ir_mark_unsupported(ir, "direct backend readonly data exceeds the bootstrap data limit", line, column, "string/data segment");
     return false;
   }
   ir->data_segments = ir_grow_tracked_items(ir, ir->data_segments, ir->data_segment_len, &ir->data_segment_cap, 4, sizeof(IrDataSegment));
@@ -2347,57 +2347,6 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         *out = value;
         return true;
       }
-      if (strcmp(callee_name, "std.mem.peekByte") == 0 &&
-          expr->args.len == 1) {
-        IrValue *ptr = NULL;
-        if (!ir_lower_expr(program, ir, fun, expr->args.items[0], &ptr)) {
-          free(callee_name);
-          return false;
-        }
-        if (!ir_type_is_value(ptr->type)) {
-          ir_free_value(ptr);
-          free(callee_name);
-          ir_mark_unsupported(ir, "direct backend std.mem.peekByte pointer must be an integer value", expr->args.items[0]->line, expr->args.items[0]->column, "non-integer pointer");
-          return false;
-        }
-        IrValue *value = ir_new_value(ir, IR_VALUE_MEMORY_PEEK_U8, IR_TYPE_U8, expr->line, expr->column);
-        value->left = ptr;
-        free(callee_name);
-        *out = value;
-        return true;
-      }
-      if (strcmp(callee_name, "std.mem.pokeByte") == 0 &&
-          expr->args.len == 2) {
-        IrValue *ptr = NULL;
-        IrValue *byte = NULL;
-        if (!ir_lower_expr(program, ir, fun, expr->args.items[0], &ptr) ||
-            !ir_lower_expr(program, ir, fun, expr->args.items[1], &byte)) {
-          ir_free_value(ptr);
-          ir_free_value(byte);
-          free(callee_name);
-          return false;
-        }
-        if (!ir_type_is_value(ptr->type)) {
-          ir_free_value(ptr);
-          ir_free_value(byte);
-          free(callee_name);
-          ir_mark_unsupported(ir, "direct backend std.mem.pokeByte pointer must be an integer value", expr->args.items[0]->line, expr->args.items[0]->column, "non-integer pointer");
-          return false;
-        }
-        if (byte->type != IR_TYPE_U8) {
-          ir_free_value(ptr);
-          ir_free_value(byte);
-          free(callee_name);
-          ir_mark_unsupported(ir, "direct backend std.mem.pokeByte value must be u8", expr->args.items[1]->line, expr->args.items[1]->column, "non-u8 value");
-          return false;
-        }
-        IrValue *value = ir_new_value(ir, IR_VALUE_MEMORY_POKE_U8, IR_TYPE_BOOL, expr->line, expr->column);
-        value->left = ptr;
-        value->right = byte;
-        free(callee_name);
-        *out = value;
-        return true;
-      }
       if ((strcmp(callee_name, "std.mem.eqlBytes") == 0 || strcmp(callee_name, "std.mem.eql") == 0) &&
           expr->args.len == 2 &&
           ir_expr_is_byte_view_source(expr->args.items[0]) &&
@@ -3333,7 +3282,7 @@ static void ir_lower_direct_backend_subset(IrProgram *ir, const Program *program
   ir->mir_valid = true;
   ir->mir_line = 1;
   ir->mir_column = 1;
-  snprintf(ir->mir_expected, sizeof(ir->mir_expected), "direct wasm MVP subset");
+  snprintf(ir->mir_expected, sizeof(ir->mir_expected), "direct backend MVP subset");
   snprintf(ir->mir_help, sizeof(ir->mir_help), "restrict this program to exported primitive arithmetic functions or choose another supported direct target");
   ir->mir_bytes = sizeof(IrProgram);
   if (program->choices.len > 0 || program->interfaces.len > 0 || program->aliases.len > 0 ||

@@ -565,22 +565,6 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
       coff_patch_rel32(text, end_patch, text->len);
       return true;
     }
-    case IR_VALUE_MEMORY_PEEK_U8:
-      if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
-      append_u8(text, 0x0f);
-      append_u8(text, 0xb6);
-      append_u8(text, 0x00);
-      return true;
-    case IR_VALUE_MEMORY_POKE_U8:
-      if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
-      append_u8(text, 0x50);
-      if (!coff_emit_value(text, fun, value->right, ctx, diag)) return false;
-      append_u8(text, 0x59);
-      append_u8(text, 0x88);
-      append_u8(text, 0x01);
-      append_u8(text, 0xb8);
-      append_u32le(text, 1);
-      return true;
     case IR_VALUE_MAYBE_HAS:
       if (value->local_index >= fun->local_len || fun->locals[value->local_index].type != IR_TYPE_MAYBE_BYTE_VIEW) return coff_diag_at(diag, "direct COFF maybe helper requires a Maybe<MutSpan<u8>> local", value->line, value->column, "invalid maybe local");
       coff_emit_load_local_slot_eax(text, fun, value->local_index, 0);

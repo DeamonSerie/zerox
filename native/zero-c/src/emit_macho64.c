@@ -1173,16 +1173,6 @@ static bool macho_emit_value_to_reg(ZBuf *text, const IrFunction *fun, const IrV
     case IR_VALUE_ARGS_LEN:
       macho_emit_mov_w(text, reg, 20);
       return true;
-    case IR_VALUE_MEMORY_PEEK_U8:
-      if (!macho_emit_value_to_reg(text, fun, value->left, 8, frame_size, ctx, diag)) return false;
-      macho_emit_ldrb_w(text, reg, 8);
-      return true;
-    case IR_VALUE_MEMORY_POKE_U8:
-      if (!macho_emit_value_to_reg(text, fun, value->left, 8, frame_size, ctx, diag)) return false;
-      if (!macho_emit_value_to_reg(text, fun, value->right, 9, frame_size, ctx, diag)) return false;
-      macho_emit_strb_w(text, 9, 8);
-      macho_emit_movz_w(text, reg, 1);
-      return true;
     case IR_VALUE_MAYBE_HAS:
       if (value->local_index >= fun->local_len ||
           (fun->locals[value->local_index].type != IR_TYPE_MAYBE_BYTE_VIEW && fun->locals[value->local_index].type != IR_TYPE_MAYBE_SCALAR)) {

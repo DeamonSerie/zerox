@@ -19,8 +19,6 @@ const supportedTargets = [
   "linux-arm64",
   "win32-x64.exe",
   "win32-arm64.exe",
-  "wasm32-wasi",
-  "wasm32-web",
 ];
 const artifactSummaryPattern = /\((?:\d+ B|\d+\.\d KiB|\d+\.\d MiB|\d+\.\d GiB), (?:\d+ ms|\d+\.\d s)\)/;
 const runnableDirectTarget =
@@ -141,7 +139,7 @@ describe("native zero CLI", () => {
     }
   });
 
-  it("reports graph, size, routes, and targets", async () => {
+  it("reports graph, size, objects, and targets", async () => {
     const graph = JSON.parse((await runZero(["graph", "--json", "examples/point.0"])).stdout);
     assert.equal(graph.shapes[0].name, "Point");
     assert.equal(graph.functions.some((item: { name: string }) => item.name === "main"), true);
@@ -149,14 +147,6 @@ describe("native zero CLI", () => {
     const size = JSON.parse((await runZero(["size", "--json", "examples/point.0"])).stdout);
     assert.equal(size.schemaVersion, 1);
     assert.equal(size.generatedCBytes, 0);
-
-    const routes = JSON.parse((await runZero(["routes", "--json", "examples/web/hello"])).stdout);
-    assert.equal(routes.routes[0].path, "/");
-
-    const webDevPlan = JSON.parse((await runZero(["dev", "--json", "--target", "wasm32-web", "examples/web/hello"])).stdout);
-    assert.equal(webDevPlan.localRuntime.runtimeKind, "browser-worker");
-    assert.equal(webDevPlan.localRuntime.productionLikeImports, true);
-    assert.equal(webDevPlan.localRuntime.capabilityRestrictions.filesystem, "denied");
 
     const objOut = join(tmpdir(), `zero-target-${Date.now()}.o`);
     try {

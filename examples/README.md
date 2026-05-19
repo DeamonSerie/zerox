@@ -1,6 +1,6 @@
 # Zero Examples
 
-Use these examples as the hands-on path through Zero. Start at the top, run `bin/zero check`, and open the matching docs-site article when you want an explanation.
+Use these examples as the hands-on path through Zero. Start at the top, run `bin/zero check`, and open the matching docs article when you want an explanation.
 
 ## Profile And Size Checks
 
@@ -22,27 +22,25 @@ Build JSON reports `profileSemantics` and `profileBudget`. Size JSON adds `sizeB
 | `hello.0` | `pub fun main`, `World`, `check`, stdout | `bin/zero check examples/hello.0` |
 | `hello-let.0` | immutable `let` bindings | `bin/zero check examples/hello-let.0` |
 | `add.0` | helper functions, `return`, `if` / `else` | `bin/zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add` |
-| `direct-wasm-add.0` | experimental direct wasm backend for exported primitive arithmetic | `bin/zero build --emit wasm --target wasm32-wasi examples/direct-wasm-add.0 --out .zero/out/direct-wasm-add.wasm` |
-| `direct-u8-helper-call.0` | direct wasm signed LEB literals, byte arrays, and helper calls | `bin/zero build --emit wasm --target wasm32-web examples/direct-u8-helper-call.0 --out .zero/out/direct-u8-helper-call` |
-| `direct-array-bounds-trap.0` | direct wasm stack-memory bounds traps | `bin/zero build --emit wasm --target wasm32-web examples/direct-array-bounds-trap.0 --out .zero/out/direct-array-bounds-trap` |
-| `direct-string-len.0` | direct wasm string literal length for compiler token scans | `bin/zero build --emit wasm --target wasm32-web examples/direct-string-len.0 --out .zero/out/direct-string-len` |
-| `direct-string-literal.0` | direct wasm readonly string data segments and byte loads | `bin/zero build --emit wasm --target wasm32-web examples/direct-string-literal.0 --out .zero/out/direct-string-literal` |
-| `direct-span-read.0` | direct wasm readonly string slices as byte-span views | `bin/zero build --emit wasm --target wasm32-web examples/direct-span-read.0 --out .zero/out/direct-span-read` |
-| `direct-string-eql.0` | direct wasm byte-span equality over readonly string views | `bin/zero build --emit wasm --target wasm32-web examples/direct-string-eql.0 --out .zero/out/direct-string-eql` |
-| `direct-byte-view-locals.0` | direct wasm local `String`/`Span<u8>` pointer-length byte views | `bin/zero build --emit wasm --target wasm32-web examples/direct-byte-view-locals.0 --out .zero/out/direct-byte-view-locals` |
-| `direct-mutspan-len.0` | direct wasm local `MutSpan<u8>` pointer-length byte views | `bin/zero build --emit wasm --target wasm32-web examples/direct-mutspan-len.0 --out .zero/out/direct-mutspan-len` |
-| `direct-memory-peek.0` | direct wasm explicit byte reads from exported linear memory | `bin/zero build --emit wasm --target wasm32-web examples/direct-memory-peek.0 --out .zero/out/direct-memory-peek` |
-| `direct-byte-copy-fill.0` | direct wasm mutable byte copy/fill over fixed buffers | `bin/zero build --emit wasm --target wasm32-web examples/direct-byte-copy-fill.0 --out .zero/out/direct-byte-copy-fill` |
-| `direct-alloc-bump.0` | direct wasm explicit `FixedBufAlloc` bump allocation over caller storage | `bin/zero build --emit wasm --target wasm32-web examples/direct-alloc-bump.0 --out .zero/out/direct-alloc-bump` |
-| `direct-alloc-overflow.0` | direct wasm fixed-buffer allocation overflow returns `Maybe.none` without hidden heap growth | `bin/zero build --emit wasm --target wasm32-web examples/direct-alloc-overflow.0 --out .zero/out/direct-alloc-overflow` |
-| `direct-token-shape.0` | direct wasm stack layout for shape literals, field loads, defaults, and field stores | `bin/zero build --emit wasm --target wasm32-web examples/direct-token-shape.0 --out .zero/out/direct-token-shape` |
-| `direct-enum-match.0` | direct wasm compact enum cases and exhaustive match branches without matcher tables | `bin/zero build --emit wasm --target wasm32-web examples/direct-enum-match.0 --out .zero/out/direct-enum-match` |
-| `direct-raises-basic.0` | direct wasm packed error-result propagation for `raise` and `check` | `bin/zero build --emit wasm --target wasm32-web examples/direct-raises-basic.0 --out .zero/out/direct-raises-basic` |
-| `direct-rescue-basic.0` | direct wasm local `rescue` fallback over a raised error | `bin/zero build --emit wasm --target wasm32-web examples/direct-rescue-basic.0 --out .zero/out/direct-rescue-basic` |
-| `direct-byte-buf.0` | direct wasm monomorphic byte buffer push, length, capacity, and overflow checks | `bin/zero build --emit wasm --target wasm32-web examples/direct-byte-buf.0 --out .zero/out/direct-byte-buf` |
-| `direct-generic-identity.0` | direct wasm explicit generic function specialization without runtime metadata | `bin/zero build --emit wasm --target wasm32-web examples/direct-generic-identity.0 --out .zero/out/direct-generic-identity` |
-| `direct-generic-fixedbuf.0` | direct wasm generic storage shape with concrete type and static value arguments | `bin/zero build --emit wasm --target wasm32-web examples/direct-generic-fixedbuf.0 --out .zero/out/direct-generic-fixedbuf` |
-| `direct-generic-vec.0` | direct wasm generic fixed-capacity vector layout for byte, token, and AST-node element kinds | `bin/zero build --emit wasm --target wasm32-web examples/direct-generic-vec.0 --out .zero/out/direct-generic-vec` |
+| `direct-u8-helper-call.0` | direct backend signed LEB literals, byte arrays, and helper calls | `bin/zero check examples/direct-u8-helper-call.0` |
+| `direct-array-bounds-trap.0` | direct backend stack-memory bounds traps | `bin/zero check examples/direct-array-bounds-trap.0` |
+| `direct-string-len.0` | direct backend string literal length for compiler token scans | `bin/zero check examples/direct-string-len.0` |
+| `direct-string-literal.0` | direct backend readonly string data segments and byte loads | `bin/zero check examples/direct-string-literal.0` |
+| `direct-span-read.0` | direct backend readonly string slices as byte-span views | `bin/zero check examples/direct-span-read.0` |
+| `direct-string-eql.0` | direct backend byte-span equality over readonly string views | `bin/zero check examples/direct-string-eql.0` |
+| `direct-byte-view-locals.0` | direct backend local `String`/`Span<u8>` pointer-length byte views | `bin/zero check examples/direct-byte-view-locals.0` |
+| `direct-mutspan-len.0` | direct backend local `MutSpan<u8>` pointer-length byte views | `bin/zero check examples/direct-mutspan-len.0` |
+| `direct-byte-copy-fill.0` | direct backend mutable byte copy/fill over fixed buffers | `bin/zero check examples/direct-byte-copy-fill.0` |
+| `direct-alloc-bump.0` | direct backend explicit `FixedBufAlloc` bump allocation over caller storage | `bin/zero check examples/direct-alloc-bump.0` |
+| `direct-alloc-overflow.0` | direct backend fixed-buffer allocation overflow returns `Maybe.none` without hidden heap growth | `bin/zero check examples/direct-alloc-overflow.0` |
+| `direct-token-shape.0` | direct backend stack layout for shape literals, field loads, defaults, and field stores | `bin/zero check examples/direct-token-shape.0` |
+| `direct-enum-match.0` | direct backend compact enum cases and exhaustive match branches without matcher tables | `bin/zero check examples/direct-enum-match.0` |
+| `direct-raises-basic.0` | direct backend packed error-result propagation for `raise` and `check` | `bin/zero check examples/direct-raises-basic.0` |
+| `direct-rescue-basic.0` | direct backend local `rescue` fallback over a raised error | `bin/zero check examples/direct-rescue-basic.0` |
+| `direct-byte-buf.0` | direct backend monomorphic byte buffer push, length, capacity, and overflow checks | `bin/zero check examples/direct-byte-buf.0` |
+| `direct-generic-identity.0` | direct backend explicit generic function specialization without runtime metadata | `bin/zero check examples/direct-generic-identity.0` |
+| `direct-generic-fixedbuf.0` | direct backend generic storage shape with concrete type and static value arguments | `bin/zero check examples/direct-generic-fixedbuf.0` |
+| `direct-generic-vec.0` | direct backend generic fixed-capacity vector layout for byte, token, and AST-node element kinds | `bin/zero check examples/direct-generic-vec.0` |
 | `direct-i64-return.0` | direct ELF64 object backend support for i64/u64 values | `bin/zero build --emit obj --target linux-musl-x64 examples/direct-i64-return.0 --out .zero/out/direct-i64-return.o` |
 | `direct-byte-view-reloc.0` | direct ELF64 readonly byte-view relocations for string-backed span locals | `bin/zero build --emit obj --target linux-musl-x64 examples/direct-byte-view-reloc.0 --out .zero/out/direct-byte-view-reloc.o` |
 | `functions.0` | calling functions and ignoring return values | `bin/zero check examples/functions.0` |
@@ -82,9 +80,9 @@ Build JSON reports `profileSemantics` and `profileBudget`. Size JSON adds `sizeB
 | `std-http-request.0` | hosted HTTP request envelope with custom method, headers, and body | `bin/zero check examples/std-http-request.0` |
 | `std-http-headers.0` | hosted HTTP request envelope, response buffer, and header-value lookup | `bin/zero check examples/std-http-headers.0` |
 | `std-platform.0` | `std.time`, `std.rand`, `std.proc`, and `std.crypto` capability-shaped helpers | `bin/zero check examples/std-platform.0` |
-| `cli-file.0` | `std.args`, `std.env`, byte-span file writes, stderr/stdout | `bin/zero build --emit wasm --target wasm32-wasi examples/cli-file.0 --out .zero/out/cli-file` |
-| `file-copy.0` | `Fs`, `owned<File>`, read/write resource capabilities, automatic close | `bin/zero build --emit wasm --target wasm32-wasi examples/file-copy.0 --out .zero/out/file-copy` |
-| `zero-hash/` | File checksum CLI with args, fixed buffers, `readAll`, and CRC-32 bytes | `bin/zero build --emit wasm --target wasm32-wasi examples/zero-hash --out .zero/out/zero-hash` |
+| `cli-file.0` | `std.args`, `std.env`, byte-span file writes, stderr/stdout | `bin/zero check examples/cli-file.0` |
+| `file-copy.0` | `Fs`, `owned<File>`, read/write resource capabilities, automatic close | `bin/zero check examples/file-copy.0` |
+| `zero-hash/` | File checksum CLI with args, fixed buffers, `readAll`, and CRC-32 bytes | `bin/zero check examples/zero-hash` |
 
 ## Native Workflow Coverage
 
@@ -92,7 +90,7 @@ These examples are the small native workflow set used by docs and tests:
 
 | Surface | Example | Try it |
 | --- | --- | --- |
-| arguments and environment | `cli-file.0` | `ZERO_CLI_FILE_MODE=verbose bin/zero build --emit wasm --target wasm32-wasi examples/cli-file.0 --out .zero/out/cli-file` |
+| arguments and environment | `cli-file.0` | `ZERO_CLI_FILE_MODE=verbose bin/zero check examples/cli-file.0` |
 | filesystem resources | `zero-hash/` | `bin/zero check examples/zero-hash` |
 | deterministic exit status | `direct-exe-return.0` | `bin/zero build --emit exe --target linux-musl-x64 examples/direct-exe-return.0 --out .zero/out/direct-exe-return` |
 | unhandled error exit path | `direct-unhandled-error-exit.0` | `bin/zero check examples/direct-unhandled-error-exit.0` |
@@ -107,15 +105,8 @@ These examples are the small native workflow set used by docs and tests:
 | `batch3-cli/` | module graph metadata, local `rescue`, path helpers, named fs errors, explicit allocation | `bin/zero check examples/batch3-cli` |
 | `resource-cli/` | args/env fallback, path joins, `std.mem.copy`/`fill`, named-error owned-file resources | `bin/zero check examples/resource-cli` |
 | `memory-package/` | target-neutral package imports and byte-span helper checks without hosted file I/O | `bin/zero build --target linux-musl-x64 examples/memory-package --out .zero/out/memory-package` |
-| `direct-package-call-order/` | direct wasm package merge order and cross-module helper calls | `bin/zero build --emit wasm --target wasm32-web examples/direct-package-call-order --out .zero/out/direct-package-call-order` |
+| `direct-package-call-order/` | direct backend package merge order and cross-module helper calls | `bin/zero check examples/direct-package-call-order` |
 | `error-tour/` | copyable failing commands and repaired fixtures for common diagnostics | `bin/zero explain TAR002` |
-
-## Web
-
-| Example | What it teaches | Try it |
-| --- | --- | --- |
-| `web-response.0` | single-file web-style `GET` handler | `bin/zero check examples/web-response.0` |
-| `web/hello/` | `[targets.web]`, route manifest metadata, `Request`, and `Response` | `bin/zero routes --json examples/web/hello` |
 
 ## Build A Runnable Program
 

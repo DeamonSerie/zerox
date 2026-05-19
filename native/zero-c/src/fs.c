@@ -1522,12 +1522,6 @@ static bool dir_exists_for_cc(const char *path) {
 
 static bool profile_should_strip_artifact(const char *profile);
 
-static bool target_uses_emscripten(const ZTargetInfo *target) {
-  return target &&
-         ((target->linker && (strcmp(target->linker, "emcc") == 0 || strcmp(target->linker, "emscripten") == 0)) ||
-          (target->libc_mode && strcmp(target->libc_mode, "emscripten") == 0));
-}
-
 static const char *sysroot_status_for(const ZTargetInfo *target, const char *env_name, const char *sysroot) {
   if (!z_target_requires_sysroot(target)) return "not-required";
   if (!env_name || !env_name[0] || !sysroot || !sysroot[0]) return "missing";
@@ -1541,7 +1535,6 @@ ZToolchainPlan z_plan_toolchain(const char *cc, const char *profile, const ZTarg
   const char *env_override = getenv("ZERO_CC");
   if (env_override && !env_override[0]) env_override = NULL;
   bool host_target = !target || z_target_is_host(target);
-  bool emscripten_target = target_uses_emscripten(target);
   const char *sysroot_env = target && z_target_requires_sysroot(target) ? z_target_sysroot_env_name(target) : "";
   const char *sysroot = sysroot_env && sysroot_env[0] ? getenv(sysroot_env) : NULL;
   const char *sysroot_status = sysroot_status_for(target, sysroot_env, sysroot);
@@ -1572,15 +1565,6 @@ ZToolchainPlan z_plan_toolchain(const char *cc, const char *profile, const ZTarg
     plan.driver_kind = "override-cc";
     plan.selection_source = "env";
     plan.compiler = env_override;
-    return plan;
-  }
-
-  if (emscripten_target) {
-    plan.driver_kind = "emcc";
-    plan.selection_source = "target-manifest";
-    plan.compiler = "emcc";
-    plan.uses_target_flag = false;
-    plan.strip_artifact = false;
     return plan;
   }
 
@@ -1615,11 +1599,6 @@ static bool validate_toolchain_plan(const ZToolchainPlan *plan, const ZTargetInf
     return false;
   }
 
-  if (strcmp(plan->driver_kind, "emcc") == 0 && !command_exists("emcc")) {
-    fprintf(stderr, "target '%s' requires emcc; install Emscripten or pass --cc/ZERO_CC for a browser-capable C compiler\n", target->name);
-    return false;
-  }
-
   if (strcmp(plan->driver_kind, "host-cc") == 0 && !command_exists("cc")) {
     fprintf(stderr, "host target requires cc; install a native C compiler or pass --cc/ZERO_CC\n");
     return false;
@@ -1646,8 +1625,6 @@ static void append_toolchain_driver_command(ZBuf *cmd, const ZToolchainPlan *pla
     zbuf_appendf(cmd, "'%s'", plan->compiler);
   } else if (strcmp(plan->driver_kind, "host-cc") == 0) {
     zbuf_append(cmd, "cc");
-  } else if (strcmp(plan->driver_kind, "emcc") == 0) {
-    zbuf_append(cmd, "emcc");
   } else {
     zbuf_append(cmd, "mkdir -p .zero/zig-global-cache .zero/zig-local-cache && ZIG_GLOBAL_CACHE_DIR=.zero/zig-global-cache ZIG_LOCAL_CACHE_DIR=.zero/zig-local-cache zig cc");
     zbuf_appendf(cmd, " -target '%s'", plan->target_triple);

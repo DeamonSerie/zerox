@@ -1028,22 +1028,6 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       size_t patch = elf_emit_jmp32_placeholder(code, 0xe8);
       return elf_record_runtime_http_header_value_patch(ctx, patch, diag, value);
     }
-    case IR_VALUE_MEMORY_PEEK_U8:
-      if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
-      elf_append_u8(code, 0x0f);
-      elf_append_u8(code, 0xb6);
-      elf_append_u8(code, 0x00);
-      return true;
-    case IR_VALUE_MEMORY_POKE_U8:
-      if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
-      elf_append_u8(code, 0x50);
-      if (!elf_emit_value(code, fun, value->right, ctx, diag)) return false;
-      elf_append_u8(code, 0x59);
-      elf_append_u8(code, 0x88);
-      elf_append_u8(code, 0x01);
-      elf_append_u8(code, 0xb8);
-      elf_append_u32(code, 1);
-      return true;
     case IR_VALUE_ARGS_LEN:
       if (ctx && ctx->seed_main_process_args) {
         elf_emit_push_reg64(code, 14);

@@ -1,5 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { execFile } from "node:child_process";
+import { Sandbox, type NetworkPolicy } from "@vercel/sandbox";
+import { execFile, spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -11,18 +12,19 @@ import {
   sourcePatternFailures,
 } from "./source.js";
 
-type MessageParam = Anthropic.MessageCreateParams["messages"][number];
-type Tool = NonNullable<Anthropic.MessageCreateParams["tools"]>[number];
-type ContentBlock = Anthropic.Message["content"][number];
-
 interface RunOptions {
   caseId: string | null;
   dryRun: boolean;
   fixture: boolean;
   json: boolean;
+  keepAlive: boolean;
   maxTurns: number;
   model: string;
   outDir: string;
+  sandboxRuntime: string;
+  sandboxTimeoutMs: number;
+  sandboxVcpus: number;
+  commandTimeoutMs: number;
 }
 
 interface CommandResult {
@@ -46,11 +48,11 @@ interface AgentToolResult {
 interface AgentStep {
   turn: number;
   id: string;
-  stopReason: string | null;
+  type: string;
   text: string;
   toolCalls: AgentToolCall[];
   toolResults: AgentToolResult[];
-  usage: Anthropic.Message["usage"];
+  usage: unknown;
 }
 
 interface AgentMetrics {
@@ -66,69 +68,42 @@ interface AgentRun {
   responseText: string;
   steps: AgentStep[];
   metrics: AgentMetrics | null;
+  rawOutputPath?: string;
+  stderrPath?: string;
+}
+
+interface SandboxContext {
+  sandbox: Sandbox;
+  sandboxId: string;
+  projectDir: string;
+}
+
+interface SandboxCredentials {
+  token?: string;
+  teamId?: string;
+  projectId?: string;
 }
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const zero = join(repoRoot, "bin", "zero");
-const AI_GATEWAY_URL = "https://ai-gateway.vercel.sh";
-const TOOL_OUTPUT_LIMIT = 16_000;
-
-const ALLOWED_ZERO_SUBCOMMANDS = new Set([
-  "--version",
-  "check",
-  "doctor",
-  "explain",
-  "fix",
-  "fmt",
-  "graph",
-  "parse",
-  "run",
-  "size",
-  "skills",
-  "targets",
-  "test",
-  "tokens",
-]);
+const AI_GATEWAY_HOST = "ai-gateway.vercel.sh";
+const AI_GATEWAY_URL = `https://${AI_GATEWAY_HOST}`;
+const DEFAULT_PROJECT_DIR = "/vercel/sandbox/zero-lang";
+const PROMPT_PATH = "/tmp/zero-eval-prompt.txt";
 
 const systemPrompt = [
   "You are an agent evaluating a Zero programming task.",
-  "Use zero_cli as your source of Zero-specific guidance and verification.",
-  "First call zero_cli with args [\"skills\", \"get\", \"zero\", \"--full\"].",
+  "Work inside the repository checkout prepared by the evaluator.",
+  "Use the local ./bin/zero compiler as your source of Zero-specific guidance and verification.",
+  "First run ./bin/zero skills get zero --full.",
   "Load any additional skills recommended by that skill before writing code.",
-  "Use zero_cli feedback to check and run your candidate.",
+  "Use ./bin/zero feedback to check and run your candidate.",
   "For the final answer, output code only: exactly the verified source bytes.",
   "Do not summarize success, mention stdout, add a preamble, or use Markdown fences.",
 ].join("\n");
 
-const zeroCliTool: Tool = {
-  name: "zero_cli",
-  description: [
-    "Run the repository's local bin/zero compiler with guarded subcommands.",
-    "Use this to load Zero skills, check source, explain diagnostics, and run candidate Zero programs.",
-    "For source-bearing commands, pass source and omit the source path; the tool writes a scratch .0 file and appends it.",
-  ].join(" "),
-  input_schema: {
-    type: "object",
-    properties: {
-      args: {
-        type: "array",
-        minItems: 1,
-        items: { type: "string" },
-        description:
-          "Arguments after bin/zero, for example [\"skills\", \"get\", \"zero\", \"--full\"] or [\"check\", \"--json\"].",
-      },
-      source: {
-        type: "string",
-        description:
-          "Optional Zero source to write to a scratch .0 file and pass as the final command argument.",
-      },
-    },
-    required: ["args"],
-    additionalProperties: false,
-  },
-};
-
 async function main() {
+  loadDotEnvFiles([".env", ".env.local"]);
   const options = parseArgs(process.argv.slice(2));
   const selectedCases = selectCases(options.caseId);
 
@@ -137,6 +112,7 @@ async function main() {
       model: options.model,
       gatewayURL: AI_GATEWAY_URL,
       maxTurns: options.maxTurns,
+      mode: options.fixture ? "fixture" : "sandbox",
       cases: selectedCases.map(
         ({ id, title, prompt, expectedStdout, requiredSourcePatterns }) => ({
           id,
@@ -150,47 +126,109 @@ async function main() {
     return;
   }
 
-  if (!options.fixture) {
-    resolveGatewayCredential();
-  }
-
   await mkdir(options.outDir, { recursive: true });
 
-  const results = [];
-  for (const evalCase of selectedCases) {
-    results.push(await runCase(evalCase, options));
+  let sandboxContext: SandboxContext | null = null;
+  try {
+    if (!options.fixture) {
+      sandboxContext = await createSandboxContext(options);
+    }
+
+    const results = [];
+    for (const evalCase of selectedCases) {
+      results.push(await runCase(evalCase, options, sandboxContext));
+    }
+
+    const summary = {
+      ok: results.every((result) => result.passed),
+      model: options.model,
+      outDir: options.outDir,
+      sandboxId: sandboxContext?.sandboxId ?? null,
+      sandboxKeptAlive: Boolean(sandboxContext && options.keepAlive),
+      passed: results.filter((result) => result.passed).length,
+      failed: results.filter((result) => !result.passed).length,
+      results,
+    };
+
+    await writeFile(
+      join(options.outDir, "summary.json"),
+      `${JSON.stringify(summary, null, 2)}\n`,
+    );
+    printJsonOrText(options.json, summary);
+    if (!summary.ok) process.exitCode = 1;
+  } finally {
+    if (sandboxContext && !options.keepAlive) {
+      await sandboxContext.sandbox.stop({ blocking: true }).catch(() => {});
+    } else if (sandboxContext) {
+      process.stderr.write(
+        `Leaving Vercel Sandbox running: ${sandboxContext.sandboxId}\n`,
+      );
+    }
   }
-
-  const summary = {
-    ok: results.every((result) => result.passed),
-    model: options.model,
-    outDir: options.outDir,
-    passed: results.filter((result) => result.passed).length,
-    failed: results.filter((result) => !result.passed).length,
-    results,
-  };
-
-  await writeFile(
-    join(options.outDir, "summary.json"),
-    `${JSON.stringify(summary, null, 2)}\n`,
-  );
-  printJsonOrText(options.json, summary);
-  if (!summary.ok) process.exitCode = 1;
 }
 
-async function runCase(evalCase: EvalCase, options: RunOptions) {
+async function createSandboxContext(
+  options: RunOptions,
+): Promise<SandboxContext> {
+  ensureSandboxAuthEnv();
+  const gatewayCredential = resolveGatewayCredential();
+  const archivePath = createSourceArchive(options.outDir);
+  const sandboxCredentials = resolveSandboxCredentials();
+
+  process.stderr.write("Creating Vercel Sandbox for Zero evals...\n");
+  const sandbox = await Sandbox.create({
+    ...sandboxCredentials,
+    runtime: options.sandboxRuntime,
+    timeout: options.sandboxTimeoutMs,
+    resources: { vcpus: options.sandboxVcpus },
+    networkPolicy: buildAIGatewayNetworkPolicy(gatewayCredential),
+    env: buildClaudeGatewayEnv(),
+  });
+  const sandboxId = sandbox.sandboxId;
+  const projectDir =
+    process.env.ZERO_EVAL_SANDBOX_PROJECT_DIR?.trim() || DEFAULT_PROJECT_DIR;
+
+  try {
+    process.stderr.write(`Sandbox ready: ${sandboxId}\n`);
+    await sandbox.writeFiles([
+      {
+        path: "/tmp/zero-lang-source.tar.gz",
+        content: readFileSync(archivePath),
+      },
+    ]);
+    await runSandboxCommandChecked(
+      sandbox,
+      {
+        cmd: "bash",
+        args: ["-lc", buildSandboxSetupScript(projectDir)],
+      },
+      "sandbox setup",
+    );
+    return { sandbox, sandboxId, projectDir };
+  } catch (error) {
+    await sandbox.stop({ blocking: true }).catch(() => {});
+    throw error;
+  }
+}
+
+async function runCase(
+  evalCase: EvalCase,
+  options: RunOptions,
+  sandboxContext: SandboxContext | null,
+) {
   const started = performance.now();
   const caseDir = join(options.outDir, evalCase.id);
   await rm(caseDir, { force: true, recursive: true });
   await mkdir(caseDir, { recursive: true });
 
-  const agentRun: AgentRun = options.fixture
-    ? {
-        responseText: evalCase.fixtureSource,
-        steps: [],
-        metrics: null,
-      }
-    : await runAgentCase(evalCase, options, caseDir);
+  const agentRun: AgentRun =
+    options.fixture || !sandboxContext
+      ? {
+          responseText: evalCase.fixtureSource,
+          steps: [],
+          metrics: null,
+        }
+      : await runSandboxAgentCase(evalCase, options, sandboxContext, caseDir);
 
   const responsePath = join(caseDir, "response.md");
   const stepsPath = options.fixture ? null : join(caseDir, "steps.json");
@@ -203,20 +241,12 @@ async function runCase(evalCase: EvalCase, options: RunOptions) {
   }
   await writeFile(sourcePath, source);
 
-  const check = await runCommand(zero, ["check", "--json", sourcePath]);
-  let run: CommandResult | null = null;
-  let error: string | null = null;
-  if (check.code === 0) {
-    run = await runCommand(zero, [
-      "run",
-      "--out",
-      join(caseDir, "program"),
-      sourcePath,
-    ]);
-  } else {
-    error = "zero check failed";
-  }
+  const validation = sandboxContext
+    ? await validateSourceInSandbox(sandboxContext, evalCase, source)
+    : await validateSourceLocally(sourcePath);
+  const { check, run, remoteSourcePath } = validation;
 
+  let error: string | null = check.code === 0 ? null : "zero check failed";
   const patternFailures = sourcePatternFailures(
     source,
     evalCase.requiredSourcePatterns,
@@ -253,11 +283,14 @@ async function runCase(evalCase: EvalCase, options: RunOptions) {
     title: evalCase.title,
     passed,
     model: options.model,
-    mode: options.fixture ? "fixture" : "agent",
+    mode: options.fixture ? "fixture" : "sandbox",
     durationMs: Math.round(performance.now() - started),
     sourcePath,
+    remoteSourcePath,
     responsePath,
     stepsPath,
+    rawOutputPath: agentRun.rawOutputPath ?? null,
+    stderrPath: agentRun.stderrPath ?? null,
     agent: agentRun.metrics,
     check,
     run,
@@ -276,209 +309,481 @@ async function runCase(evalCase: EvalCase, options: RunOptions) {
   return result;
 }
 
-async function runAgentCase(
+async function runSandboxAgentCase(
   evalCase: EvalCase,
   options: RunOptions,
+  context: SandboxContext,
   caseDir: string,
 ): Promise<AgentRun> {
-  const client = createAnthropicClient();
-  const executeZeroCli = createZeroCliExecutor(caseDir);
-  const messages: MessageParam[] = [
+  const prompt = buildClaudePrompt(evalCase, options, context.projectDir);
+  await context.sandbox.writeFiles([
     {
-      role: "user",
-      content: [
-        evalCase.prompt,
-        "",
-        "Use zero_cli to load the Zero skill, check your candidate, and run it.",
-        "After the source checks and produces the expected output, return code only.",
-        "Do not include a success sentence, explanation, or Markdown fence.",
-      ].join("\n"),
+      path: PROMPT_PATH,
+      content: prompt,
+      mode: 0o600,
     },
+  ]);
+
+  const claudeArgs = [
+    "--model",
+    shellQuote(claudeModelName(options.model)),
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--dangerously-skip-permissions",
   ];
-  const steps: AgentStep[] = [];
-  let latestText = "";
+  const commandTimeoutSeconds = Math.max(
+    1,
+    Math.ceil(options.commandTimeoutMs / 1000),
+  );
+  const script = [
+    "set -euo pipefail",
+    `cd ${shellQuote(context.projectDir)}`,
+    `export ANTHROPIC_BASE_URL=${shellQuote(AI_GATEWAY_URL)}`,
+    "export ANTHROPIC_AUTH_TOKEN=placeholder",
+    "export ANTHROPIC_API_KEY=",
+    `export BASH_DEFAULT_TIMEOUT_MS=${shellQuote(String(Math.min(options.commandTimeoutMs, 600_000)))}`,
+    `export BASH_MAX_TIMEOUT_MS=${shellQuote(String(options.commandTimeoutMs))}`,
+    `ZERO_EVAL_PROMPT="$(cat ${shellQuote(PROMPT_PATH)})"`,
+    `timeout --foreground ${commandTimeoutSeconds}s claude ${claudeArgs.join(" ")} -p "$ZERO_EVAL_PROMPT"`,
+  ].join("\n");
 
-  for (let turn = 1; turn <= options.maxTurns; turn += 1) {
-    const message = await client.messages.create({
-      model: options.model,
-      max_tokens: 2_000,
-      temperature: 0,
-      system: systemPrompt,
-      messages,
-      tools: [zeroCliTool],
-    });
+  const output = await runSandboxCommand(
+    context.sandbox,
+    {
+      cmd: "bash",
+      args: ["-lc", script],
+      cwd: context.projectDir,
+    },
+    "claude eval",
+  );
+  const rawOutputPath = join(caseDir, "claude-stream.jsonl");
+  const stderrPath = join(caseDir, "claude-stderr.txt");
+  await writeFile(rawOutputPath, output.stdout);
+  await writeFile(stderrPath, output.stderr);
 
-    const toolUses = message.content.filter(isToolUseBlock);
-    latestText = extractText(message.content);
-    const step: AgentStep = {
-      turn,
-      id: message.id,
-      stopReason: message.stop_reason,
-      text: truncate(latestText, 4_000),
-      toolCalls: toolUses.map((toolUse) => ({
-        id: toolUse.id,
-        name: toolUse.name,
-        input: toolUse.input,
-      })),
-      toolResults: [],
-      usage: message.usage,
-    };
-    steps.push(step);
-
-    if (toolUses.length === 0) {
-      return {
-        responseText: latestText,
-        steps,
-        metrics: measureAgent(steps),
-      };
-    }
-
-    messages.push({
-      role: "assistant",
-      content: message.content as MessageParam["content"],
-    });
-
-    const toolResults = [];
-    for (const toolUse of toolUses) {
-      const output =
-        toolUse.name === "zero_cli"
-          ? await executeZeroCli(toolUse.input)
-          : {
-              error: `Unknown tool: ${toolUse.name}`,
-            };
-      step.toolResults.push({
-        toolUseId: toolUse.id,
-        name: toolUse.name,
-        output: summarizeToolOutput(output),
-      });
-      toolResults.push({
-        type: "tool_result" as const,
-        tool_use_id: toolUse.id,
-        content: JSON.stringify(output, null, 2),
-        is_error: Boolean(
-          output &&
-            typeof output === "object" &&
-            "error" in output &&
-            !("command" in output),
-        ),
-      });
-    }
-
-    messages.push({
-      role: "user",
-      content: toolResults,
-    });
+  if (output.code !== 0) {
+    throw new Error(
+      `Claude Code failed with exit code ${output.code}\n${truncate(output.stderr || output.stdout, 4_000)}`,
+    );
   }
 
+  const parsed = parseClaudeStream(output.stdout);
+  if (!parsed.responseText.trim()) {
+    throw new Error("Claude Code stream did not include a final result");
+  }
+  return { ...parsed, rawOutputPath, stderrPath };
+}
+
+function buildClaudePrompt(
+  evalCase: EvalCase,
+  options: RunOptions,
+  projectDir: string,
+) {
+  return [
+    systemPrompt,
+    "",
+    "Task:",
+    evalCase.prompt,
+    "",
+    `Repository root: ${projectDir}`,
+    `You have at most ${options.maxTurns} agent turns before the evaluator gives up.`,
+    "Use shell commands from the repository root. Prefer ./bin/zero, not any global zero binary.",
+    "After the source checks and produces the expected output, return code only.",
+    "Do not include a success sentence, explanation, or Markdown fence.",
+  ].join("\n");
+}
+
+async function validateSourceLocally(sourcePath: string) {
+  const check = await runLocalCommand(zero, ["check", "--json", sourcePath]);
+  let run: CommandResult | null = null;
+  if (check.code === 0) {
+    run = await runLocalCommand(zero, [
+      "run",
+      "--out",
+      join(dirname(sourcePath), "program"),
+      sourcePath,
+    ]);
+  }
+  return { check, run, remoteSourcePath: null };
+}
+
+async function validateSourceInSandbox(
+  context: SandboxContext,
+  evalCase: EvalCase,
+  source: string,
+) {
+  const remoteCaseDir = `/tmp/zero-evals/${evalCase.id}`;
+  const remoteSourcePath = `${remoteCaseDir}/candidate.0`;
+  await runSandboxCommandChecked(
+    context.sandbox,
+    { cmd: "mkdir", args: ["-p", remoteCaseDir] },
+    "create eval case directory",
+  );
+  await context.sandbox.writeFiles([
+    {
+      path: remoteSourcePath,
+      content: source,
+    },
+  ]);
+
+  const check = await runSandboxCommand(
+    context.sandbox,
+    {
+      cmd: "bash",
+      args: ["-lc", `./bin/zero check --json ${shellQuote(remoteSourcePath)}`],
+      cwd: context.projectDir,
+    },
+    "zero check",
+  );
+  let run: CommandResult | null = null;
+  if (check.code === 0) {
+    run = await runSandboxCommand(
+      context.sandbox,
+      {
+        cmd: "bash",
+        args: [
+          "-lc",
+          `./bin/zero run --out ${shellQuote(`${remoteCaseDir}/program`)} ${shellQuote(remoteSourcePath)}`,
+        ],
+        cwd: context.projectDir,
+      },
+      "zero run",
+    );
+  }
+
+  return { check, run, remoteSourcePath };
+}
+
+async function runSandboxCommand(
+  sandbox: Sandbox,
+  params: {
+    cmd: string;
+    args?: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+  },
+  _label: string,
+): Promise<CommandResult> {
+  const result = await sandbox.runCommand(params);
+  const [stdout, stderr] = await Promise.all([result.stdout(), result.stderr()]);
+  return { code: result.exitCode, stdout, stderr };
+}
+
+async function runSandboxCommandChecked(
+  sandbox: Sandbox,
+  params: {
+    cmd: string;
+    args?: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+  },
+  label: string,
+) {
+  process.stderr.write(`${label}...\n`);
+  const result = await runSandboxCommand(sandbox, params, label);
+  if (result.stdout) process.stderr.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.code !== 0) {
+    throw new Error(
+      `${label} failed with exit code ${result.code}\n${truncate(result.stderr || result.stdout, 4_000)}`,
+    );
+  }
+  return result;
+}
+
+function parseClaudeStream(output: string): AgentRun {
+  const steps: AgentStep[] = [];
+  let responseText = "";
+  let latestAssistantText = "";
+  let toolResultCount = 0;
+
+  for (const line of output.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let event: unknown;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (!isRecord(event)) continue;
+
+    const eventType = typeof event.type === "string" ? event.type : "unknown";
+    if (eventType === "assistant") {
+      const message = isRecord(event.message) ? event.message : {};
+      const content = Array.isArray(message.content) ? message.content : [];
+      const toolCalls: AgentToolCall[] = [];
+      const textParts: string[] = [];
+      for (const block of content) {
+        if (!isRecord(block)) continue;
+        if (block.type === "text" && typeof block.text === "string") {
+          textParts.push(block.text);
+        } else if (block.type === "tool_use") {
+          toolCalls.push({
+            id: typeof block.id === "string" ? block.id : "",
+            name: typeof block.name === "string" ? block.name : "tool",
+            input: "input" in block ? block.input : null,
+          });
+        }
+      }
+      latestAssistantText = textParts.join("");
+      steps.push({
+        turn: steps.length + 1,
+        id: typeof message.id === "string" ? message.id : "",
+        type: eventType,
+        text: truncate(latestAssistantText, 4_000),
+        toolCalls,
+        toolResults: [],
+        usage: "usage" in message ? message.usage : null,
+      });
+      continue;
+    }
+
+    if (eventType === "user") {
+      const message = isRecord(event.message) ? event.message : {};
+      const content = Array.isArray(message.content) ? message.content : [];
+      const toolResults: AgentToolResult[] = [];
+      for (const block of content) {
+        if (!isRecord(block) || block.type !== "tool_result") continue;
+        toolResultCount += 1;
+        toolResults.push({
+          toolUseId:
+            typeof block.tool_use_id === "string"
+              ? block.tool_use_id
+              : `tool-result-${toolResultCount}`,
+          name: "tool_result",
+          output: summarizeToolResult(block),
+        });
+      }
+      if (toolResults.length > 0) {
+        const latest = steps.at(-1);
+        if (latest) {
+          latest.toolResults.push(...toolResults);
+        } else {
+          steps.push({
+            turn: steps.length + 1,
+            id: "",
+            type: eventType,
+            text: "",
+            toolCalls: [],
+            toolResults,
+            usage: null,
+          });
+        }
+      }
+      continue;
+    }
+
+    if (eventType === "result") {
+      responseText =
+        typeof event.result === "string" ? event.result : latestAssistantText;
+    }
+  }
+
+  if (!responseText) responseText = latestAssistantText;
   return {
-    responseText: latestText,
+    responseText,
     steps,
     metrics: measureAgent(steps),
   };
 }
 
-function createAnthropicClient() {
-  const credential = resolveGatewayCredential();
-  const usesApiKey = credential.source === "AI_GATEWAY_API_KEY";
-  return new Anthropic({
-    apiKey: usesApiKey ? credential.value : null,
-    authToken: usesApiKey ? null : credential.value,
-    baseURL: AI_GATEWAY_URL,
-  });
+function summarizeToolResult(block: Record<string, unknown>) {
+  const value = block.content;
+  if (typeof value !== "string") return value ?? null;
+  return truncate(value, 2_000);
+}
+
+function createSourceArchive(outDir: string) {
+  const archivePath = join(outDir, "source.tar.gz");
+  const excludes = [
+    ".git",
+    ".cursor",
+    ".env",
+    ".env.*",
+    ".vercel",
+    ".zero",
+    ".next",
+    ".pnpm-store",
+    ".turbo",
+    "coverage",
+    "dist",
+    "node_modules",
+    "docs/.next",
+    "docs/out",
+    "docs/node_modules",
+    "extensions/*/node_modules",
+  ];
+  const excludeArgs = excludes.flatMap((exclude) => [
+    `--exclude=${exclude}`,
+    `--exclude=./${exclude}`,
+  ]);
+  const metadataArgs = process.platform === "darwin" ? ["--no-xattrs"] : [];
+  const result = spawnSync(
+    "tar",
+    [...metadataArgs, ...excludeArgs, "-czf", archivePath, "."],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: { ...process.env, COPYFILE_DISABLE: "1" },
+    },
+  );
+  if (result.status !== 0) {
+    throw new Error(
+      `failed to create eval source archive\n${result.stderr.trim()}`,
+    );
+  }
+  return archivePath;
+}
+
+function buildSandboxSetupScript(projectDir: string) {
+  return [
+    "set -euo pipefail",
+    "as_root() { if command -v sudo >/dev/null 2>&1; then sudo \"$@\"; else \"$@\"; fi; }",
+    "install_build_tools() {",
+    "  if command -v make >/dev/null 2>&1 && { command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1; }; then return; fi",
+    "  if command -v apt-get >/dev/null 2>&1; then",
+    "    as_root apt-get update",
+    "    as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential ca-certificates curl git gzip make npm tar",
+    "  elif command -v apk >/dev/null 2>&1; then",
+    "    as_root apk add --no-cache build-base ca-certificates curl git gzip make npm tar",
+    "  elif command -v dnf >/dev/null 2>&1; then",
+    "    as_root dnf install -y ca-certificates curl gcc git glibc-devel gzip make npm tar",
+    "  elif command -v yum >/dev/null 2>&1; then",
+    "    as_root yum install -y ca-certificates curl gcc git glibc-devel gzip make npm tar",
+    "  else",
+    "    echo 'no supported package manager found to install make and a C compiler' >&2",
+    "    exit 127",
+    "  fi",
+    "}",
+    "install_build_tools",
+    `rm -rf ${shellQuote(projectDir)}`,
+    `mkdir -p ${shellQuote(projectDir)}`,
+    `tar -xzf /tmp/zero-lang-source.tar.gz -C ${shellQuote(projectDir)}`,
+    `cd ${shellQuote(projectDir)}`,
+    "make -C native/zero-c",
+    "command -v claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code",
+    "claude --version",
+    "./bin/zero --version",
+  ].join("\n");
+}
+
+function buildAIGatewayNetworkPolicy(gatewayCredential: string): NetworkPolicy {
+  return {
+    allow: {
+      "*": [],
+      [AI_GATEWAY_HOST]: [
+        {
+          transform: [
+            {
+              headers: {
+                authorization: `Bearer ${gatewayCredential}`,
+              },
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+function buildClaudeGatewayEnv() {
+  return {
+    ANTHROPIC_BASE_URL: AI_GATEWAY_URL,
+    ANTHROPIC_AUTH_TOKEN: "placeholder",
+    ANTHROPIC_API_KEY: "",
+  };
 }
 
 function resolveGatewayCredential() {
-  const source =
-    process.env.AI_GATEWAY_API_KEY !== undefined
-      ? "AI_GATEWAY_API_KEY"
-      : process.env.ANTHROPIC_AUTH_TOKEN !== undefined
-        ? "ANTHROPIC_AUTH_TOKEN"
-        : process.env.VERCEL_OIDC_TOKEN !== undefined
-          ? "VERCEL_OIDC_TOKEN"
-          : null;
-  const value = source ? process.env[source] : undefined;
+  const credential =
+    process.env.AI_GATEWAY_API_KEY ||
+    process.env.ANTHROPIC_AUTH_TOKEN ||
+    process.env.VERCEL_OIDC_TOKEN;
 
-  if (!source || !value) {
+  if (!credential) {
     throw new Error(
       [
         "Missing AI Gateway credential.",
-        "Set AI_GATEWAY_API_KEY, ANTHROPIC_AUTH_TOKEN, or VERCEL_OIDC_TOKEN.",
+        "Set AI_GATEWAY_API_KEY, set ANTHROPIC_AUTH_TOKEN to an AI Gateway key,",
+        "or run `vercel env pull` to provide VERCEL_OIDC_TOKEN.",
       ].join(" "),
     );
   }
 
-  return { source, value };
+  return credential;
 }
 
-function createZeroCliExecutor(caseDir: string) {
-  let invocation = 0;
-  return async (input: unknown) => {
-    invocation += 1;
-    const toolDir = join(caseDir, "tool");
-    await mkdir(toolDir, { recursive: true });
-    const { args, source } = parseZeroCliInput(input);
-    const commandArgs = normalizeZeroArgs(args);
-    let sourcePath: string | null = null;
+function resolveSandboxCredentials(): SandboxCredentials {
+  const token = process.env.SANDBOX_VERCEL_TOKEN ?? process.env.VERCEL_TOKEN;
+  const teamId =
+    process.env.SANDBOX_VERCEL_TEAM_ID ?? process.env.VERCEL_TEAM_ID;
+  const projectId =
+    process.env.SANDBOX_VERCEL_PROJECT_ID ?? process.env.VERCEL_PROJECT_ID;
 
-    if (source !== undefined) {
-      sourcePath = join(toolDir, `candidate-${invocation}.0`);
-      await writeFile(sourcePath, extractZeroSource(source));
-      if (commandArgs[0] === "run" && !commandArgs.includes("--out")) {
-        commandArgs.splice(1, 0, "--out", join(toolDir, `program-${invocation}`));
-      }
-      commandArgs.push(sourcePath);
-    }
+  if (token && teamId && projectId) {
+    return { token, teamId, projectId };
+  }
 
-    const result = await runCommand(zero, commandArgs, 20_000);
-    const stdout = truncate(result.stdout, TOOL_OUTPUT_LIMIT);
-    const stderr = truncate(result.stderr, TOOL_OUTPUT_LIMIT);
-    return {
-      command: ["bin/zero", ...commandArgs],
-      code: result.code,
-      stdout,
-      stderr,
-      stdoutTruncated: stdout.length !== result.stdout.length,
-      stderrTruncated: stderr.length !== result.stderr.length,
-      sourcePath,
-    };
-  };
+  return {};
 }
 
-function parseZeroCliInput(input: unknown) {
-  if (!input || typeof input !== "object") {
-    throw new Error("zero_cli input must be an object");
-  }
-  const args = "args" in input ? input.args : undefined;
-  if (!Array.isArray(args) || args.some((arg) => typeof arg !== "string")) {
-    throw new Error("zero_cli args must be an array of strings");
-  }
-  const source = "source" in input ? input.source : undefined;
-  if (source !== undefined && typeof source !== "string") {
-    throw new Error("zero_cli source must be a string when provided");
-  }
-  return { args, source };
+function ensureSandboxAuthEnv() {
+  const credentials = resolveSandboxCredentials();
+  if (credentials.token && credentials.teamId && credentials.projectId) return;
+  if (process.env.VERCEL_OIDC_TOKEN?.trim()) return;
+  throw new Error(
+    [
+      "Missing Vercel Sandbox credentials.",
+      "Set VERCEL_OIDC_TOKEN, or set VERCEL_TOKEN, VERCEL_TEAM_ID, and VERCEL_PROJECT_ID.",
+    ].join(" "),
+  );
 }
 
-function normalizeZeroArgs(args: string[]): string[] {
-  const commandArgs = args.map((arg) => {
-    if (arg.includes("\0")) {
-      throw new Error("zero_cli arguments cannot contain NUL bytes");
-    }
-    if (arg.startsWith("/") || arg.includes("..")) {
-      throw new Error(
-        "zero_cli only accepts relative arguments inside the eval scratch flow",
+function loadDotEnvFiles(paths: string[]) {
+  for (const path of paths) {
+    const fullPath = join(repoRoot, path);
+    if (!existsSync(fullPath)) continue;
+    const lines = readFileSync(fullPath, "utf8").split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed === "" || trimmed.startsWith("#")) continue;
+      const match = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(
+        trimmed,
       );
+      if (!match || process.env[match[1]] !== undefined) continue;
+      process.env[match[1]] = parseDotEnvValue(match[2]);
     }
-    return arg;
-  });
-  const subcommand = commandArgs[0];
-  if (!subcommand || !ALLOWED_ZERO_SUBCOMMANDS.has(subcommand)) {
-    const allowed = [...ALLOWED_ZERO_SUBCOMMANDS].sort().join(", ");
-    throw new Error(
-      `zero_cli subcommand '${subcommand ?? ""}' is not allowed. Allowed: ${allowed}`,
-    );
   }
-  return commandArgs;
+}
+
+function parseDotEnvValue(value: string) {
+  const trimmed = value.trim();
+  const quote = trimmed[0];
+  if ((quote === "\"" || quote === "'") && trimmed.endsWith(quote)) {
+    const inner = trimmed.slice(1, -1);
+    return quote === "\""
+      ? inner
+          .replace(/\\n/g, "\n")
+          .replace(/\\r/g, "\r")
+          .replace(/\\t/g, "\t")
+          .replace(/\\"/g, "\"")
+          .replace(/\\\\/g, "\\")
+      : inner;
+  }
+  const commentStart = trimmed.search(/\s#/);
+  return commentStart === -1 ? trimmed : trimmed.slice(0, commentStart).trimEnd();
+}
+
+function shellQuote(value: string) {
+  if (/^[A-Za-z0-9_/:=.,@%+-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function claudeModelName(value: string) {
+  return value.startsWith("anthropic/") ? value.slice("anthropic/".length) : value;
 }
 
 function parseArgs(args: string[]): RunOptions {
@@ -486,9 +791,26 @@ function parseArgs(args: string[]): RunOptions {
   let dryRun = false;
   let fixture = false;
   let json = false;
+  let keepAlive = false;
   let maxTurns = 10;
   let model = process.env.ZERO_EVAL_MODEL ?? "anthropic/claude-sonnet-4.6";
   let outDir = join(repoRoot, ".zero", "evals", "runs", timestamp());
+  let sandboxRuntime = process.env.ZERO_EVAL_SANDBOX_RUNTIME ?? "node24";
+  let sandboxTimeoutMs = parsePositiveIntOrDefault(
+    process.env.ZERO_EVAL_SANDBOX_TIMEOUT_MS,
+    30 * 60 * 1000,
+    "ZERO_EVAL_SANDBOX_TIMEOUT_MS",
+  );
+  let sandboxVcpus = parsePositiveIntOrDefault(
+    process.env.ZERO_EVAL_SANDBOX_VCPUS,
+    4,
+    "ZERO_EVAL_SANDBOX_VCPUS",
+  );
+  let commandTimeoutMs = parsePositiveIntOrDefault(
+    process.env.ZERO_EVAL_COMMAND_TIMEOUT_MS,
+    20 * 60 * 1000,
+    "ZERO_EVAL_COMMAND_TIMEOUT_MS",
+  );
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -505,12 +827,31 @@ function parseArgs(args: string[]): RunOptions {
       );
     } else if (arg === "--out") {
       outDir = resolve(requiredValue(args, ++i, "--out"));
+    } else if (arg === "--sandbox-runtime") {
+      sandboxRuntime = requiredValue(args, ++i, "--sandbox-runtime");
+    } else if (arg === "--sandbox-timeout-ms") {
+      sandboxTimeoutMs = parsePositiveInt(
+        requiredValue(args, ++i, "--sandbox-timeout-ms"),
+        "--sandbox-timeout-ms",
+      );
+    } else if (arg === "--sandbox-vcpus") {
+      sandboxVcpus = parsePositiveInt(
+        requiredValue(args, ++i, "--sandbox-vcpus"),
+        "--sandbox-vcpus",
+      );
+    } else if (arg === "--command-timeout-ms") {
+      commandTimeoutMs = parsePositiveInt(
+        requiredValue(args, ++i, "--command-timeout-ms"),
+        "--command-timeout-ms",
+      );
     } else if (arg === "--dry-run") {
       dryRun = true;
     } else if (arg === "--fixture") {
       fixture = true;
     } else if (arg === "--json") {
       json = true;
+    } else if (arg === "--keep-alive") {
+      keepAlive = true;
     } else if (arg === "--help" || arg === "-h") {
       printHelp();
       process.exit(0);
@@ -519,7 +860,20 @@ function parseArgs(args: string[]): RunOptions {
     }
   }
 
-  return { caseId, dryRun, fixture, json, maxTurns, model, outDir };
+  return {
+    caseId,
+    dryRun,
+    fixture,
+    json,
+    keepAlive,
+    maxTurns,
+    model,
+    outDir,
+    sandboxRuntime,
+    sandboxTimeoutMs,
+    sandboxVcpus,
+    commandTimeoutMs,
+  };
 }
 
 function selectCases(caseId: string | null) {
@@ -548,7 +902,16 @@ function parsePositiveInt(value: string, flag: string): number {
   return parsed;
 }
 
-async function runCommand(
+function parsePositiveIntOrDefault(
+  value: string | undefined,
+  fallback: number,
+  label: string,
+) {
+  if (value === undefined || value === "") return fallback;
+  return parsePositiveInt(value, label);
+}
+
+async function runLocalCommand(
   command: string,
   args: string[],
   timeoutMs = 15_000,
@@ -595,7 +958,7 @@ function failureReason(input: {
 function getAgentRequirementFailures(metrics: AgentMetrics | null): string[] {
   if (!metrics) return ["missing agent metrics"];
   const failures = [];
-  if (metrics.zeroCliCallCount === 0) failures.push("zero_cli was not called");
+  if (metrics.zeroCliCallCount === 0) failures.push("zero CLI was not called");
   if (metrics.zeroSkillLoadCount === 0) {
     failures.push("zero skill was not loaded");
   }
@@ -606,80 +969,43 @@ function getAgentRequirementFailures(metrics: AgentMetrics | null): string[] {
 
 function measureAgent(steps: AgentStep[]): AgentMetrics {
   const toolCalls = steps.flatMap((step) => step.toolCalls);
-  const zeroCliCalls = toolCalls.filter((call) => call.name === "zero_cli");
+  const commands = toolCalls
+    .map((call) => toolCommand(call))
+    .filter((command): command is string => Boolean(command));
+  const zeroCommands = commands.filter(isZeroCliCommand);
   return {
     turnCount: steps.length,
     toolCallCount: toolCalls.length,
-    zeroCliCallCount: zeroCliCalls.length,
-    zeroSkillLoadCount: zeroCliCalls.filter((call) =>
-      isZeroSkillLoad(inputArgs(call.input)),
+    zeroCliCallCount: zeroCommands.length,
+    zeroSkillLoadCount: zeroCommands.filter(isZeroSkillLoadCommand).length,
+    zeroCheckCallCount: zeroCommands.filter((command) =>
+      /\b(?:\.\/)?bin\/zero\s+check\b/.test(command),
     ).length,
-    zeroCheckCallCount: zeroCliCalls.filter(
-      (call) => firstZeroArg(call.input) === "check",
-    ).length,
-    zeroRunCallCount: zeroCliCalls.filter(
-      (call) => firstZeroArg(call.input) === "run",
+    zeroRunCallCount: zeroCommands.filter((command) =>
+      /\b(?:\.\/)?bin\/zero\s+run\b/.test(command),
     ).length,
   };
 }
 
-function isZeroSkillLoad(args: unknown): boolean {
+function toolCommand(call: AgentToolCall): string | null {
+  if (!isRecord(call.input)) return null;
+  const command = call.input.command;
+  return typeof command === "string" ? command : null;
+}
+
+function isZeroCliCommand(command: string) {
+  return /\b(?:\.\/)?bin\/zero\b/.test(command);
+}
+
+function isZeroSkillLoadCommand(command: string) {
   return (
-    Array.isArray(args) &&
-    args[0] === "skills" &&
-    args[1] === "get" &&
-    args[2] === "zero" &&
-    args.includes("--full")
+    /\b(?:\.\/)?bin\/zero\s+skills\s+get\s+zero\b/.test(command) &&
+    /--full\b/.test(command)
   );
 }
 
-function inputArgs(input: unknown): unknown {
-  if (!input || typeof input !== "object" || !("args" in input)) return null;
-  return input.args;
-}
-
-function firstZeroArg(input: unknown): string | null {
-  const args = inputArgs(input);
-  if (!Array.isArray(args) || typeof args[0] !== "string") return null;
-  return args[0];
-}
-
-function isToolUseBlock(
-  block: ContentBlock,
-): block is Extract<ContentBlock, { type: "tool_use" }> {
-  return block.type === "tool_use";
-}
-
-function extractText(content: ContentBlock[]): string {
-  return content
-    .filter((block): block is Extract<ContentBlock, { type: "text" }> => {
-      return block.type === "text";
-    })
-    .map((block) => block.text)
-    .join("");
-}
-
-function summarizeToolOutput(output: unknown) {
-  if (!output || typeof output !== "object") return output;
-  const maybeZeroOutput = output as {
-    command?: unknown;
-    code?: unknown;
-    stdout?: unknown;
-    stderr?: unknown;
-    stdoutTruncated?: unknown;
-    stderrTruncated?: unknown;
-    sourcePath?: unknown;
-  };
-  if (!Array.isArray(maybeZeroOutput.command)) return output;
-  return {
-    command: maybeZeroOutput.command,
-    code: maybeZeroOutput.code,
-    stdout: truncate(String(maybeZeroOutput.stdout ?? ""), 4_000),
-    stderr: truncate(String(maybeZeroOutput.stderr ?? ""), 2_000),
-    stdoutTruncated: maybeZeroOutput.stdoutTruncated,
-    stderrTruncated: maybeZeroOutput.stderrTruncated,
-    sourcePath: maybeZeroOutput.sourcePath,
-  };
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object");
 }
 
 function truncate(text: string, limit: number): string {
@@ -713,6 +1039,11 @@ function printJsonOrText(json: boolean, value: unknown) {
         console.log(`  ${result.responseFormatFailures.join("; ")}`);
       }
     }
+    if (value.sandboxId) {
+      console.log(
+        `sandbox: ${value.sandboxId}${value.sandboxKeptAlive ? " (kept alive)" : ""}`,
+      );
+    }
     console.log(`results: ${value.outDir}`);
     return;
   }
@@ -722,6 +1053,8 @@ function printJsonOrText(json: boolean, value: unknown) {
 
 function isSummary(value: unknown): value is {
   outDir: string;
+  sandboxId: string | null;
+  sandboxKeptAlive: boolean;
   results: Array<{
     id: string;
     mode: string;
@@ -745,13 +1078,22 @@ function printHelp() {
   console.log(`Usage: pnpm evals -- [options]
 
 Options:
-  --case <id>       Run one case, e.g. hello-world
-  --model <id>      AI Gateway model id (default: ZERO_EVAL_MODEL or anthropic/claude-sonnet-4.6)
-  --max-turns <n>   Maximum Claude tool turns (default: 10)
-  --out <dir>       Output directory (default: .zero/evals/runs/<timestamp>)
-  --dry-run         Print selected cases without calling Claude
-  --fixture         Run checked-in fixture answers instead of calling Claude
-  --json            Print JSON output
+  --case <id>              Run one case, e.g. hello-world
+  --model <id>             AI Gateway model id (default: ZERO_EVAL_MODEL or anthropic/claude-sonnet-4.6)
+  --max-turns <n>          Prompted maximum Claude turns (default: 10)
+  --out <dir>              Output directory (default: .zero/evals/runs/<timestamp>)
+  --sandbox-runtime <id>   Vercel Sandbox runtime (default: ZERO_EVAL_SANDBOX_RUNTIME or node24)
+  --sandbox-timeout-ms <n> Sandbox timeout (default: ZERO_EVAL_SANDBOX_TIMEOUT_MS or 1800000)
+  --sandbox-vcpus <n>      Sandbox vCPU count (default: ZERO_EVAL_SANDBOX_VCPUS or 4)
+  --command-timeout-ms <n> Claude command timeout (default: ZERO_EVAL_COMMAND_TIMEOUT_MS or 1200000)
+  --keep-alive             Leave the Vercel Sandbox running after the eval
+  --dry-run                Print selected cases without creating a sandbox
+  --fixture                Run checked-in fixture answers locally instead of calling Claude
+  --json                   Print JSON output
+
+Live eval credentials:
+  Vercel Sandbox: VERCEL_OIDC_TOKEN, or VERCEL_TOKEN + VERCEL_TEAM_ID + VERCEL_PROJECT_ID
+  AI Gateway: AI_GATEWAY_API_KEY, ANTHROPIC_AUTH_TOKEN, or VERCEL_OIDC_TOKEN
 `);
 }
 

@@ -412,8 +412,6 @@ typedef enum {
   IR_VALUE_BYTE_COPY,
   IR_VALUE_BYTE_FILL,
   IR_VALUE_CRC32_BYTES,
-  IR_VALUE_MEMORY_PEEK_U8,
-  IR_VALUE_MEMORY_POKE_U8,
   IR_VALUE_FIXED_BUF_ALLOC,
   IR_VALUE_VEC_INIT,
   IR_VALUE_VEC_PUSH,
@@ -803,7 +801,6 @@ void z_diag_set_backend_blocker(ZDiag *diag, const ZBackendBlocker *blocker);
 IrProgram z_lower_program(const Program *program);
 IrProgram z_lower_program_with_source(const Program *program, const SourceInput *input);
 void z_free_ir_program(IrProgram *program);
-bool z_emit_wasm_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_elf64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_elf64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_elf_aarch64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
@@ -813,8 +810,6 @@ bool z_emit_macho64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag
 bool z_emit_coff_x64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_coff_x64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 
-bool z_discover_routes_json(const char *input, char **json, ZDiag *diag);
-bool z_discover_web_dev_plan_json(const char *input, char **json, ZDiag *diag);
 const char *z_host_target(void);
 size_t z_target_count(void);
 const ZTargetInfo *z_target_at(size_t index);

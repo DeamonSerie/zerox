@@ -52,7 +52,6 @@ zero run examples/add.0
 zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add
 zero graph --json examples/systems-package
 zero size --json examples/point.0
-zero routes --json examples/web/hello
 zero skills get zero --full
 zero doctor --json
 ```

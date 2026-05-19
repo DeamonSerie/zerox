@@ -110,33 +110,7 @@ static const char *fallback_manifest =
 "libcMode = \"sysroot\"\n"
 "exeSuffix = \".exe\"\n"
 "zigTarget = \"aarch64-windows-msvc\"\n"
-"capabilities = [\"memory\", \"stdio\", \"time\", \"rand\"]\n"
-"[[target]]\n"
-"name = \"wasm32-wasi\"\n"
-"aliases = []\n"
-"os = \"wasi\"\n"
-"arch = \"wasm32\"\n"
-"abi = \"wasi\"\n"
-"objectFormat = \"wasm\"\n"
-"linker = \"wasm-ld\"\n"
-"libc = \"wasi\"\n"
-"libcMode = \"bundled-libc\"\n"
-"exeSuffix = \".wasm\"\n"
-"zigTarget = \"wasm32-wasi\"\n"
-"capabilities = [\"memory\", \"stdio\", \"args\", \"env\", \"fs\", \"time\", \"rand\"]\n"
-"[[target]]\n"
-"name = \"wasm32-web\"\n"
-"aliases = []\n"
-"os = \"web\"\n"
-"arch = \"wasm32\"\n"
-"abi = \"emscripten\"\n"
-"objectFormat = \"wasm\"\n"
-"linker = \"emcc\"\n"
-"libc = \"emscripten\"\n"
-"libcMode = \"emscripten\"\n"
-"exeSuffix = \".js\"\n"
-"zigTarget = \"wasm32-emscripten\"\n"
-"capabilities = [\"memory\", \"stdio\", \"env\", \"time\", \"rand\", \"web\"]\n";
+"capabilities = [\"memory\", \"stdio\", \"time\", \"rand\"]\n";
 
 static ZTargetInfo *targets = NULL;
 static size_t target_count = 0;
@@ -356,18 +330,11 @@ static const char *target_libc_mode(const ZTargetInfo *target) {
   return z_target_libc_mode(target);
 }
 
-static bool target_uses_emscripten(const ZTargetInfo *target) {
-  return target &&
-         ((target->linker && (strcmp(target->linker, "emcc") == 0 || strcmp(target->linker, "emscripten") == 0)) ||
-          (target->libc_mode && strcmp(target->libc_mode, "emscripten") == 0));
-}
-
 const char *z_direct_object_emitter(const ZTargetInfo *target) {
   if (!target) return "none";
   const char *format = target->object_format ? target->object_format : "";
   const char *arch = target->arch ? target->arch : "";
   const char *os = target->os ? target->os : "";
-  if (strcmp(format, "wasm") == 0 && strcmp(arch, "wasm32") == 0) return "zero-wasm";
   if (strcmp(format, "elf") == 0 && strcmp(arch, "x86_64") == 0 && strcmp(os, "linux") == 0) return "zero-elf64";
   if (strcmp(format, "elf") == 0 && strcmp(arch, "aarch64") == 0 && strcmp(os, "linux") == 0) return "zero-elf-aarch64";
   if (strcmp(format, "macho") == 0 && strcmp(arch, "aarch64") == 0 && strcmp(os, "macos") == 0) return "zero-macho64";
@@ -389,7 +356,6 @@ const char *z_direct_exe_emitter(const ZTargetInfo *target) {
 const char *z_direct_backend_status(const ZTargetInfo *target) {
   if (!target) return "known-unimplemented";
   if (strcmp(z_direct_exe_emitter(target), "none") != 0) return "native-exe";
-  if (strcmp(z_direct_object_emitter(target), "zero-wasm") == 0) return "wasm-module";
   if (strcmp(z_direct_object_emitter(target), "none") != 0) return "native-object";
   return "known-unimplemented";
 }
@@ -408,7 +374,7 @@ const char *z_direct_backend_reason(const ZTargetInfo *target) {
 }
 
 static void append_target_toolchain_json(ZBuf *buf, const ZTargetInfo *target) {
-  const char *driver = z_target_is_host(target) ? "cc" : (target_uses_emscripten(target) ? "emcc" : "target-capable C compiler");
+  const char *driver = z_target_is_host(target) ? "cc" : "target-capable C compiler";
   const char *linker = target->linker && strcmp(target->linker, "zig cc") == 0 ? "target-cc" : (target->linker ? target->linker : "cc");
   zbuf_appendf(
     buf,
