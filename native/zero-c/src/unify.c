@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define UNIFY_BINDER_PATH_MAX 64
+
 static void *unify_reallocarray(void *ptr, size_t count, size_t size) {
   if (size != 0 && count > ((size_t)-1) / size) abort();
   void *next = realloc(ptr, count * size);
@@ -93,12 +95,66 @@ bool z_type_occurs(const ZTypeArena *arena, ZTypeId type, ZTypeBinderId binder) 
   return false;
 }
 
+static bool binder_path_contains(const ZTypeBinderId *path, size_t len, ZTypeBinderId binder) {
+  for (size_t i = 0; i < len; i++) {
+    if (path[i] == binder) return true;
+  }
+  return false;
+}
+
+static bool binder_path_push(const ZTypeBinderId *path, size_t path_len, ZTypeBinderId binder, ZTypeBinderId out[UNIFY_BINDER_PATH_MAX], size_t *out_len) {
+  if (path_len >= UNIFY_BINDER_PATH_MAX) return false;
+  for (size_t i = 0; i < path_len; i++) out[i] = path[i];
+  out[path_len] = binder;
+  if (out_len) *out_len = path_len + 1;
+  return true;
+}
+
+static bool binder_alias_resolves_to(const ZTypeArena *arena, const ZUnifyTrace *trace, ZTypeId type, ZTypeBinderId target, const ZTypeBinderId *path, size_t path_len) {
+  if (target == Z_TYPE_BINDER_ID_INVALID || z_type_kind(arena, type) != Z_TYPE_NODE_BINDER) return false;
+  ZTypeBinderId binder = z_type_binder(arena, type);
+  if (binder == target) return true;
+  if (binder_path_contains(path, path_len, binder)) return false;
+  const ZUnifyBinding *binding = z_unify_trace_lookup(trace, binder, Z_UNIFY_BINDING_TYPE);
+  if (!binding || z_type_kind(arena, binding->type) != Z_TYPE_NODE_BINDER) return false;
+  ZTypeBinderId next_path[UNIFY_BINDER_PATH_MAX];
+  size_t next_len = 0;
+  if (!binder_path_push(path, path_len, binder, next_path, &next_len)) return false;
+  return binder_alias_resolves_to(arena, trace, binding->type, target, next_path, next_len);
+}
+
+static bool type_binding_occurs_resolved(const ZTypeArena *arena, const ZUnifyTrace *trace, ZTypeId type, ZTypeBinderId binder, const ZTypeBinderId *path, size_t path_len) {
+  if (binder == Z_TYPE_BINDER_ID_INVALID) return false;
+  ZTypeNodeKind kind = z_type_kind(arena, type);
+  if (kind == Z_TYPE_NODE_BINDER) {
+    ZTypeBinderId found = z_type_binder(arena, type);
+    if (found == binder) return true;
+    if (binder_path_contains(path, path_len, found)) return false;
+    const ZUnifyBinding *binding = z_unify_trace_lookup(trace, found, Z_UNIFY_BINDING_TYPE);
+    if (!binding) return false;
+    ZTypeBinderId next_path[UNIFY_BINDER_PATH_MAX];
+    size_t next_len = 0;
+    if (!binder_path_push(path, path_len, found, next_path, &next_len)) return true;
+    return type_binding_occurs_resolved(arena, trace, binding->type, binder, next_path, next_len);
+  }
+  if (kind == Z_TYPE_NODE_CONST) return type_binding_occurs_resolved(arena, trace, z_type_const_inner(arena, type), binder, path, path_len);
+  if (kind == Z_TYPE_NODE_ARRAY) return type_binding_occurs_resolved(arena, trace, z_type_array_element(arena, type), binder, path, path_len);
+  if (kind == Z_TYPE_NODE_APPLY) {
+    for (size_t i = 0; i < z_type_apply_arg_len(arena, type); i++) {
+      const ZTypeArg *arg = z_type_apply_arg(arena, type, i);
+      if (arg && arg->kind == Z_TYPE_ARG_TYPE && type_binding_occurs_resolved(arena, trace, arg->as.type, binder, path, path_len)) return true;
+    }
+  }
+  return false;
+}
+
 static bool bind_type(ZTypeArena *arena, ZUnifyTrace *trace, const char *name, ZTypeBinderId binder, ZTypeId type) {
   if (binder == Z_TYPE_BINDER_ID_INVALID || type == Z_TYPE_ID_INVALID) return unify_fail(trace, "invalid type binding");
   if (z_type_kind(arena, type) == Z_TYPE_NODE_BINDER && z_type_binder(arena, type) == binder) return true;
   ZUnifyBinding *existing = unify_trace_lookup_mut(trace, binder, Z_UNIFY_BINDING_TYPE);
   if (existing) return z_type_unify(arena, existing->type, type, trace);
-  if (z_type_occurs(arena, type, binder)) return unify_fail(trace, "recursive type binding rejected by occurs check");
+  if (binder_alias_resolves_to(arena, trace, type, binder, NULL, 0)) return true;
+  if (type_binding_occurs_resolved(arena, trace, type, binder, NULL, 0)) return unify_fail(trace, "recursive type binding rejected by occurs check");
   ZUnifyBinding *binding = unify_trace_push(trace);
   if (!binding) return unify_fail(trace, "unification trace is required");
   binding->binder = binder;
@@ -108,14 +164,26 @@ static bool bind_type(ZTypeArena *arena, ZUnifyTrace *trace, const char *name, Z
   return true;
 }
 
+static bool static_binder_alias_resolves_to(const ZUnifyTrace *trace, const ZStaticValue *value, ZTypeBinderId target, const ZTypeBinderId *path, size_t path_len) {
+  if (target == Z_TYPE_BINDER_ID_INVALID || !value || value->kind != Z_STATIC_VALUE_BINDER) return false;
+  if (value->binder == target) return true;
+  if (binder_path_contains(path, path_len, value->binder)) return false;
+  const ZUnifyBinding *binding = z_unify_trace_lookup(trace, value->binder, Z_UNIFY_BINDING_STATIC);
+  if (!binding || binding->static_value.kind != Z_STATIC_VALUE_BINDER) return false;
+  ZTypeBinderId next_path[UNIFY_BINDER_PATH_MAX];
+  size_t next_len = 0;
+  if (!binder_path_push(path, path_len, value->binder, next_path, &next_len)) return false;
+  return static_binder_alias_resolves_to(trace, &binding->static_value, target, next_path, next_len);
+}
+
+static bool static_value_unify(const ZStaticValue *pattern, const ZStaticValue *actual, ZUnifyTrace *trace);
+
 static bool bind_static(ZUnifyTrace *trace, const char *name, ZTypeBinderId binder, const ZStaticValue *value) {
   if (binder == Z_TYPE_BINDER_ID_INVALID || !value) return unify_fail(trace, "invalid static binding");
   if (value->kind == Z_STATIC_VALUE_BINDER && value->binder == binder) return true;
   ZUnifyBinding *existing = unify_trace_lookup_mut(trace, binder, Z_UNIFY_BINDING_STATIC);
-  if (existing) {
-    if (z_static_value_equal(&existing->static_value, value)) return true;
-    return unify_fail(trace, "conflicting static generic binding");
-  }
+  if (existing) return static_value_unify(&existing->static_value, value, trace);
+  if (static_binder_alias_resolves_to(trace, value, binder, NULL, 0)) return true;
   ZUnifyBinding *binding = unify_trace_push(trace);
   if (!binding) return unify_fail(trace, "unification trace is required");
   binding->binder = binder;
@@ -132,13 +200,23 @@ static bool static_value_unify(const ZStaticValue *pattern, const ZStaticValue *
   return unify_fail(trace, "static values do not unify");
 }
 
-static bool substitute_static_value(const ZStaticValue *source, const ZUnifyTrace *trace, ZStaticValue *out) {
+static bool substitute_static_value_inner(const ZStaticValue *source, const ZUnifyTrace *trace, ZStaticValue *out, const ZTypeBinderId *path, size_t path_len) {
   if (!source || !out) return false;
   if (source->kind == Z_STATIC_VALUE_BINDER) {
+    if (binder_path_contains(path, path_len, source->binder)) return false;
     const ZUnifyBinding *binding = z_unify_trace_lookup(trace, source->binder, Z_UNIFY_BINDING_STATIC);
-    if (binding) return z_static_value_clone(&binding->static_value, out);
+    if (binding) {
+      ZTypeBinderId next_path[UNIFY_BINDER_PATH_MAX];
+      size_t next_len = 0;
+      if (!binder_path_push(path, path_len, source->binder, next_path, &next_len)) return false;
+      return substitute_static_value_inner(&binding->static_value, trace, out, next_path, next_len);
+    }
   }
   return z_static_value_clone(source, out);
+}
+
+static bool substitute_static_value(const ZStaticValue *source, const ZUnifyTrace *trace, ZStaticValue *out) {
+  return substitute_static_value_inner(source, trace, out, NULL, 0);
 }
 
 static void free_type_arg_copy(ZTypeArg *args, size_t len) {
@@ -149,16 +227,19 @@ static void free_type_arg_copy(ZTypeArg *args, size_t len) {
   free(args);
 }
 
-bool z_type_substitute(ZTypeArena *arena, ZTypeId source, const ZUnifyTrace *trace, ZTypeId *out) {
+static bool type_substitute_inner(ZTypeArena *arena, ZTypeId source, const ZUnifyTrace *trace, ZTypeId *out, const ZTypeBinderId *path, size_t path_len) {
   if (out) *out = Z_TYPE_ID_INVALID;
   ZTypeNodeKind kind = z_type_kind(arena, source);
   if (kind == Z_TYPE_NODE_INVALID) return false;
   if (kind == Z_TYPE_NODE_BINDER) {
     ZTypeBinderId binder = z_type_binder(arena, source);
+    if (binder_path_contains(path, path_len, binder)) return false;
     const ZUnifyBinding *binding = z_unify_trace_lookup(trace, binder, Z_UNIFY_BINDING_TYPE);
     if (binding) {
-      if (out) *out = binding->type;
-      return true;
+      ZTypeBinderId next_path[UNIFY_BINDER_PATH_MAX];
+      size_t next_len = 0;
+      if (!binder_path_push(path, path_len, binder, next_path, &next_len)) return false;
+      return type_substitute_inner(arena, binding->type, trace, out, next_path, next_len);
     }
     ZTypeId clone = z_type_make_binder(arena, z_type_name(arena, source), binder);
     if (out) *out = clone;
@@ -171,7 +252,7 @@ bool z_type_substitute(ZTypeArena *arena, ZTypeId source, const ZUnifyTrace *tra
   }
   if (kind == Z_TYPE_NODE_CONST) {
     ZTypeId inner = Z_TYPE_ID_INVALID;
-    if (!z_type_substitute(arena, z_type_const_inner(arena, source), trace, &inner)) return false;
+    if (!type_substitute_inner(arena, z_type_const_inner(arena, source), trace, &inner, path, path_len)) return false;
     ZTypeId clone = z_type_make_const(arena, inner);
     if (out) *out = clone;
     return clone != Z_TYPE_ID_INVALID;
@@ -180,7 +261,7 @@ bool z_type_substitute(ZTypeArena *arena, ZTypeId source, const ZUnifyTrace *tra
     ZStaticValue length = {0};
     ZTypeId element = Z_TYPE_ID_INVALID;
     if (!substitute_static_value(z_type_array_length(arena, source), trace, &length)) return false;
-    bool ok = z_type_substitute(arena, z_type_array_element(arena, source), trace, &element);
+    bool ok = type_substitute_inner(arena, z_type_array_element(arena, source), trace, &element, path, path_len);
     if (!ok) {
       z_static_value_free(&length);
       return false;
@@ -199,7 +280,7 @@ bool z_type_substitute(ZTypeArena *arena, ZTypeId source, const ZUnifyTrace *tra
       args[i] = *arg;
       if (arg->kind == Z_TYPE_ARG_TYPE) {
         args[i].as.type = Z_TYPE_ID_INVALID;
-        ok = z_type_substitute(arena, arg->as.type, trace, &args[i].as.type);
+        ok = type_substitute_inner(arena, arg->as.type, trace, &args[i].as.type, path, path_len);
       } else {
         args[i].as.static_value = (ZStaticValue){0};
         ok = substitute_static_value(&arg->as.static_value, trace, &args[i].as.static_value);
@@ -211,6 +292,10 @@ bool z_type_substitute(ZTypeArena *arena, ZTypeId source, const ZUnifyTrace *tra
     return clone != Z_TYPE_ID_INVALID;
   }
   return false;
+}
+
+bool z_type_substitute(ZTypeArena *arena, ZTypeId source, const ZUnifyTrace *trace, ZTypeId *out) {
+  return type_substitute_inner(arena, source, trace, out, NULL, 0);
 }
 
 bool z_type_unify(ZTypeArena *arena, ZTypeId pattern, ZTypeId actual, ZUnifyTrace *trace) {

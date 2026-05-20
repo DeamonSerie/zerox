@@ -215,6 +215,90 @@ static void expect_occurs_check_rejects_recursive_binding(void) {
   z_type_arena_free(&arena);
 }
 
+static void expect_occurs_check_follows_trace_bindings(void) {
+  ZTypeArena arena;
+  z_type_arena_init(&arena);
+  ZTypeBinderDecl decls[] = {
+    {.name = "T", .kind = Z_TYPE_BINDER_TYPE, .id = 30},
+    {.name = "U", .kind = Z_TYPE_BINDER_TYPE, .id = 31},
+  };
+  ZTypeBinderScope scope = {.items = decls, .len = 2};
+  ZTypeId pattern = parse_with_binders_or_die(&arena, "Pair<T,U>", &scope);
+  ZTypeId recursive = parse_with_binders_or_die(&arena, "Pair<U,Maybe<T>>", &scope);
+  ZUnifyTrace trace;
+  z_unify_trace_init(&trace);
+  expect(!z_type_unify(&arena, pattern, recursive, &trace), "transitive recursive type binding passed occurs check");
+  expect(strstr(trace.message, "occurs") != NULL, "transitive occurs check failure did not leave a trace message");
+  z_unify_trace_free(&trace);
+  z_type_arena_free(&arena);
+}
+
+static void expect_binder_alias_swap_unifies(void) {
+  ZTypeArena arena;
+  z_type_arena_init(&arena);
+  ZTypeBinderDecl decls[] = {
+    {.name = "T", .kind = Z_TYPE_BINDER_TYPE, .id = 40},
+    {.name = "U", .kind = Z_TYPE_BINDER_TYPE, .id = 41},
+  };
+  ZTypeBinderScope scope = {.items = decls, .len = 2};
+  ZTypeId pattern = parse_with_binders_or_die(&arena, "Pair<T,U>", &scope);
+  ZTypeId actual = parse_with_binders_or_die(&arena, "Pair<U,T>", &scope);
+  ZUnifyTrace trace;
+  z_unify_trace_init(&trace);
+  expect(z_type_unify(&arena, pattern, actual, &trace), "plain binder alias swap did not unify");
+  ZTypeId substituted = Z_TYPE_ID_INVALID;
+  expect(z_type_substitute(&arena, pattern, &trace, &substituted), "alias substitution failed");
+  char *formatted = z_type_format(&arena, substituted);
+  expect(formatted && strcmp(formatted, "Pair<U,U>") == 0, "alias substitution did not use canonical binder");
+  free(formatted);
+  z_unify_trace_free(&trace);
+  z_type_arena_free(&arena);
+}
+
+static void expect_chained_type_substitution(void) {
+  ZTypeArena arena;
+  z_type_arena_init(&arena);
+  ZTypeBinderDecl decls[] = {
+    {.name = "T", .kind = Z_TYPE_BINDER_TYPE, .id = 50},
+    {.name = "U", .kind = Z_TYPE_BINDER_TYPE, .id = 51},
+  };
+  ZTypeBinderScope scope = {.items = decls, .len = 2};
+  ZTypeId pattern = parse_with_binders_or_die(&arena, "Pair<T,T>", &scope);
+  ZTypeId actual = parse_with_binders_or_die(&arena, "Pair<U,i32>", &scope);
+  ZUnifyTrace trace;
+  z_unify_trace_init(&trace);
+  expect(z_type_unify(&arena, pattern, actual, &trace), "chained type binder pattern did not unify");
+  ZTypeId substituted = Z_TYPE_ID_INVALID;
+  expect(z_type_substitute(&arena, pattern, &trace, &substituted), "chained type substitution failed");
+  char *formatted = z_type_format(&arena, substituted);
+  expect(formatted && strcmp(formatted, "Pair<i32,i32>") == 0, "chained type substitution left an unresolved binder");
+  free(formatted);
+  z_unify_trace_free(&trace);
+  z_type_arena_free(&arena);
+}
+
+static void expect_chained_static_substitution(void) {
+  ZTypeArena arena;
+  z_type_arena_init(&arena);
+  ZTypeBinderDecl decls[] = {
+    {.name = "N", .kind = Z_TYPE_BINDER_STATIC, .id = 60, .static_type = "usize"},
+    {.name = "M", .kind = Z_TYPE_BINDER_STATIC, .id = 61, .static_type = "usize"},
+  };
+  ZTypeBinderScope scope = {.items = decls, .len = 2};
+  ZTypeId pattern = parse_with_binders_or_die(&arena, "Pair<FixedVec<u8,N>,FixedVec<u8,N>>", &scope);
+  ZTypeId actual = parse_with_binders_or_die(&arena, "Pair<FixedVec<u8,M>,FixedVec<u8,4>>", &scope);
+  ZUnifyTrace trace;
+  z_unify_trace_init(&trace);
+  expect(z_type_unify(&arena, pattern, actual, &trace), "chained static binder pattern did not unify");
+  ZTypeId substituted = Z_TYPE_ID_INVALID;
+  expect(z_type_substitute(&arena, pattern, &trace, &substituted), "chained static substitution failed");
+  char *formatted = z_type_format(&arena, substituted);
+  expect(formatted && strcmp(formatted, "Pair<FixedVec<u8,4>,FixedVec<u8,4>>") == 0, "chained static substitution left an unresolved binder");
+  free(formatted);
+  z_unify_trace_free(&trace);
+  z_type_arena_free(&arena);
+}
+
 int main(void) {
   expect_roundtrip("i32", "i32");
   expect_roundtrip("const i32", "const i32");
@@ -248,6 +332,10 @@ int main(void) {
   expect_binder_identity();
   expect_unify_and_substitute();
   expect_occurs_check_rejects_recursive_binding();
+  expect_occurs_check_follows_trace_bindings();
+  expect_binder_alias_swap_unifies();
+  expect_chained_type_substitution();
+  expect_chained_static_substitution();
 
   expect_invalid_type("");
   expect_invalid_type("Span<");
