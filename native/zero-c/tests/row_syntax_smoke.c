@@ -691,6 +691,19 @@ static void rejects_unconsumed_row_expression_tokens(void) {
   );
 }
 
+static void rejects_missing_let_initializer_after_type_annotation(void) {
+  expect_row_parse_failure(
+    "pub fn main Void\n"
+    "  let value i32\n",
+    "initializer"
+  );
+  expect_row_parse_failure(
+    "pub fn main Void\n"
+    "  mut value String\n",
+    "initializer"
+  );
+}
+
 static void rejects_malformed_array_type_lengths(void) {
   expect_row_parse_failure(
     "pub fn main Void\n"
@@ -711,6 +724,7 @@ static void rejects_malformed_array_type_lengths(void) {
 
 static void rejects_empty_use_import(void) {
   expect_row_parse_failure("use\n", "import module");
+  expect_row_parse_failure("pub use std.mem\n", "pub use");
   expect_row_parse_failure("use as mem\n", "import module");
   expect_row_parse_failure("use std.\n", "module segment");
   expect_row_parse_failure("use .std\n", "import module");
@@ -737,6 +751,12 @@ static void rejects_unexpected_child_rows(void) {
     "    raise Hidden\n"
     "pub fn main Void\n",
     "indented row"
+  );
+  expect_row_parse_failure(
+    "type Point\n"
+    "  pub x i32\n"
+    "pub fn main Void\n",
+    "pub only applies"
   );
   expect_row_parse_failure(
     "enum Mode\n"
@@ -859,6 +879,7 @@ int main(void) {
   rejects_else_after_explicit_else_block();
   rejects_reserved_word_identifiers();
   rejects_unconsumed_row_expression_tokens();
+  rejects_missing_let_initializer_after_type_annotation();
   rejects_malformed_array_type_lengths();
   rejects_empty_use_import();
   rejects_unexpected_child_rows();

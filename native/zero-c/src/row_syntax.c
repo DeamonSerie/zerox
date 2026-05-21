@@ -1086,6 +1086,17 @@ static Stmt *row_parse_statement(const ZRowTokenVec *tokens, const ZRowTree *tre
     stmt->mutable_binding = is_mut;
     if (name) stmt->name = z_strdup(name->text);
     if (row_explicit_type_annotation(tokens, pos, end, diag)) stmt->type = row_parse_type_text(tokens, &pos, end, diag);
+    else if (!row_has_diag(diag) && row_is_type_start(tokens, pos, end)) {
+      size_t copy = pos;
+      ZDiag scratch = {0};
+      char *type = row_parse_type_text(tokens, &copy, end, &scratch);
+      free(type);
+      if (scratch.code == 0 && copy >= end) {
+        const ZRowToken *type_token = &tokens->items[pos];
+        row_diag(diag, type_token->line, type_token->column, type_token->length > 0 ? (int)type_token->length : 1,
+                 "expected initializer after let type annotation", "expression after type annotation", "add an initializer or remove the type annotation");
+      }
+    }
     stmt->expr = row_parse_expr_range(tokens, pos, end, diag);
     return stmt;
   }
@@ -1364,12 +1375,19 @@ static void row_parse_type_decl(const ZRowTokenVec *tokens, const ZRowTree *tree
     size_t child_pos = child->first_token;
     size_t child_end = child->first_token + child->token_count;
     bool method_public = false;
+    const ZRowToken *pub_token = NULL;
     if (row_token_text_at(tokens, child_pos, child_end, "pub")) {
+      pub_token = &tokens->items[child_pos];
       method_public = true;
       child_pos++;
     }
     if (row_token_text_at(tokens, child_pos, child_end, "fn")) {
       row_push_function(&shape.methods, row_parse_function_decl(tokens, tree, i, method_public, false, diag));
+      continue;
+    }
+    if (method_public) {
+      row_diag(diag, pub_token ? pub_token->line : child->line, pub_token ? pub_token->column : child->column, 1,
+               "pub only applies to type methods", "fn method declaration", "remove pub from the field row or change it to a method");
       continue;
     }
     const ZRowToken *field = row_expect_word(tokens, &child_pos, child_end, diag, "expected field name");
@@ -1464,6 +1482,10 @@ Program z_parse_row(const ZRowTokenVec *tokens, const ZRowTree *tree, ZDiag *dia
     }
 
     if (row_token_text_at(tokens, pos, end, "use")) {
+      if (is_public) {
+        row_diag(diag, node->line, node->column, 1, "pub use is not supported in row syntax", "use declaration without pub", "remove pub from the import row");
+        return program;
+      }
       pos++;
       size_t module_start = pos;
       size_t module_end = pos;
