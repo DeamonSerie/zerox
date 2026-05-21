@@ -546,6 +546,16 @@ static bool row_token_text_at(const ZRowTokenVec *tokens, size_t index, size_t e
   return index < end && row_token_text(tokens, index, text);
 }
 
+static bool row_expect_end(const ZRowTokenVec *tokens, size_t pos, size_t end, ZDiag *diag, const char *context) {
+  if (row_has_diag(diag)) return false;
+  if (pos >= end) return true;
+  const ZRowToken *token = &tokens->items[pos];
+  char message[128];
+  snprintf(message, sizeof(message), "unexpected token after %s", context ? context : "row");
+  row_diag(diag, token->line, token->column, token->length > 0 ? (int)token->length : 1, message, "end of row", NULL);
+  return false;
+}
+
 static bool row_expect_text(const ZRowTokenVec *tokens, size_t *pos, size_t end, ZDiag *diag, const char *text, const char *message) {
   if (*pos < end && row_token_text(tokens, *pos, text)) {
     (*pos)++;
@@ -941,6 +951,24 @@ static bool row_explicit_type_annotation(const ZRowTokenVec *tokens, size_t pos,
   return scratch.code == 0 && copy < end;
 }
 
+static bool row_reject_child_rows(const ZRowTree *tree, size_t parent, ZDiag *diag, const char *context) {
+  if (row_has_diag(diag)) return false;
+  for (size_t i = 0; tree && i < tree->len; i++) {
+    if (tree->items[i].parent != parent) continue;
+    const ZRowNode *child = &tree->items[i];
+    char message[128];
+    snprintf(message, sizeof(message), "unexpected indented row after %s", context ? context : "row");
+    row_diag(diag, child->line, child->column, 1, message, "row without an indented body", "dedent the row or move it under a block-owning row");
+    return false;
+  }
+  return true;
+}
+
+static bool row_statement_owns_child_rows(const Stmt *stmt) {
+  if (!stmt) return false;
+  return stmt->kind == STMT_IF || stmt->kind == STMT_WHILE || stmt->kind == STMT_FOR || stmt->kind == STMT_MATCH;
+}
+
 static StmtVec row_parse_child_statements(const ZRowTokenVec *tokens, const ZRowTree *tree, size_t parent, ZDiag *diag);
 static MatchArmVec row_parse_match_arms(const ZRowTokenVec *tokens, const ZRowTree *tree, size_t parent, ZDiag *diag);
 
@@ -998,6 +1026,7 @@ static Stmt *row_parse_statement(const ZRowTokenVec *tokens, const ZRowTree *tre
     pos++;
     const ZRowToken *name = row_expect_word(tokens, &pos, end, diag, "expected error name after raise");
     if (name) stmt->name = z_strdup(name->text);
+    row_expect_end(tokens, pos, end, diag, "raise statement");
     return stmt;
   }
 
@@ -1034,11 +1063,17 @@ static Stmt *row_parse_statement(const ZRowTokenVec *tokens, const ZRowTree *tre
   }
 
   if (row_token_text_at(tokens, pos, end, "break")) {
-    return row_new_stmt(STMT_BREAK, start);
+    Stmt *stmt = row_new_stmt(STMT_BREAK, start);
+    pos++;
+    row_expect_end(tokens, pos, end, diag, "break statement");
+    return stmt;
   }
 
   if (row_token_text_at(tokens, pos, end, "continue")) {
-    return row_new_stmt(STMT_CONTINUE, start);
+    Stmt *stmt = row_new_stmt(STMT_CONTINUE, start);
+    pos++;
+    row_expect_end(tokens, pos, end, diag, "continue statement");
+    return stmt;
   }
 
   if (row_token_text_at(tokens, pos, end, "match")) {
@@ -1071,7 +1106,7 @@ static Stmt *row_parse_else_if_statement(const ZRowTokenVec *tokens, const ZRowT
 static StmtVec row_parse_child_statements(const ZRowTokenVec *tokens, const ZRowTree *tree, size_t parent, ZDiag *diag) {
   StmtVec body = {0};
   Stmt *pending_else_target = NULL;
-  for (size_t i = 0; i < tree->len; i++) {
+  for (size_t i = 0; i < tree->len && !row_has_diag(diag); i++) {
     if (tree->items[i].parent != parent) continue;
     const ZRowNode *node = &tree->items[i];
     size_t pos = node->first_token;
@@ -1099,6 +1134,7 @@ static StmtVec row_parse_child_statements(const ZRowTokenVec *tokens, const ZRow
     }
     Stmt *stmt = row_parse_statement(tokens, tree, i, diag);
     row_push_stmt(&body, stmt);
+    if (!row_statement_owns_child_rows(stmt)) row_reject_child_rows(tree, i, diag, "statement");
     pending_else_target = stmt && stmt->kind == STMT_IF && stmt->else_body.len == 0 ? stmt : NULL;
   }
   return body;
@@ -1106,7 +1142,7 @@ static StmtVec row_parse_child_statements(const ZRowTokenVec *tokens, const ZRow
 
 static MatchArmVec row_parse_match_arms(const ZRowTokenVec *tokens, const ZRowTree *tree, size_t parent, ZDiag *diag) {
   MatchArmVec arms = {0};
-  for (size_t i = 0; i < tree->len; i++) {
+  for (size_t i = 0; i < tree->len && !row_has_diag(diag); i++) {
     if (tree->items[i].parent != parent) continue;
     const ZRowNode *node = &tree->items[i];
     size_t pos = node->first_token;
@@ -1188,9 +1224,10 @@ static Function row_parse_function_decl(const ZRowTokenVec *tokens, const ZRowTr
         if (!error) break;
         row_push_param(&fun.errors, (Param){.name = z_strdup(error->text), .line = error->line, .column = error->column});
       }
-      row_expect_text(tokens, &pos, end, diag, "]", "expected ']' after named error set");
+      if (!row_expect_text(tokens, &pos, end, diag, "]", "expected ']' after named error set")) return fun;
     }
   }
+  row_expect_end(tokens, pos, end, diag, "function declaration");
 
   fun.body = row_parse_child_statements(tokens, tree, row_index, diag);
   return fun;
@@ -1214,8 +1251,9 @@ static void row_parse_type_decl(const ZRowTokenVec *tokens, const ZRowTree *tree
   Shape shape = {.layout = z_strdup("auto"), .is_public = is_public, .line = node->line, .column = node->column};
   if (name) shape.name = z_strdup(name->text);
   row_parse_type_params(tokens, &pos, end, &shape.type_params, diag);
+  if (!row_expect_end(tokens, pos, end, diag, "type declaration")) return;
 
-  for (size_t i = 0; i < tree->len; i++) {
+  for (size_t i = 0; i < tree->len && !row_has_diag(diag); i++) {
     if (tree->items[i].parent != row_index) continue;
     const ZRowNode *child = &tree->items[i];
     size_t child_pos = child->first_token;
@@ -1234,6 +1272,7 @@ static void row_parse_type_decl(const ZRowTokenVec *tokens, const ZRowTree *tree
     char *type = row_parse_type_text(tokens, &child_pos, child_end, diag);
     Expr *default_value = child_pos < child_end ? row_parse_expr_range(tokens, child_pos, child_end, diag) : NULL;
     row_push_param(&shape.fields, (Param){.name = z_strdup(field->text), .type = type, .default_value = default_value, .line = field->line, .column = field->column});
+    row_reject_child_rows(tree, i, diag, "field declaration");
   }
 
   row_push_shape(&program->shapes, shape);
@@ -1249,12 +1288,16 @@ static void row_parse_enum_decl(const ZRowTokenVec *tokens, const ZRowTree *tree
   EnumDecl item = {.line = node->line, .column = node->column};
   if (name) item.name = z_strdup(name->text);
   if (pos < end) item.type = row_parse_type_text(tokens, &pos, end, diag);
-  for (size_t i = 0; i < tree->len; i++) {
+  if (!row_expect_end(tokens, pos, end, diag, "enum declaration")) return;
+  for (size_t i = 0; i < tree->len && !row_has_diag(diag); i++) {
     if (tree->items[i].parent != row_index) continue;
     const ZRowNode *child = &tree->items[i];
     size_t child_pos = child->first_token;
-    const ZRowToken *case_name = row_expect_word(tokens, &child_pos, child->first_token + child->token_count, diag, "expected enum case name");
+    size_t child_end = child->first_token + child->token_count;
+    const ZRowToken *case_name = row_expect_word(tokens, &child_pos, child_end, diag, "expected enum case name");
+    row_expect_end(tokens, child_pos, child_end, diag, "enum case");
     if (case_name) row_push_param(&item.cases, (Param){.name = z_strdup(case_name->text), .line = case_name->line, .column = case_name->column});
+    row_reject_child_rows(tree, i, diag, "enum case");
   }
   row_push_enum(&program->enums, item);
 }
@@ -1268,7 +1311,8 @@ static void row_parse_choice_decl(const ZRowTokenVec *tokens, const ZRowTree *tr
   const ZRowToken *name = row_expect_word(tokens, &pos, end, diag, "expected choice name");
   Choice item = {.line = node->line, .column = node->column};
   if (name) item.name = z_strdup(name->text);
-  for (size_t i = 0; i < tree->len; i++) {
+  if (!row_expect_end(tokens, pos, end, diag, "choice declaration")) return;
+  for (size_t i = 0; i < tree->len && !row_has_diag(diag); i++) {
     if (tree->items[i].parent != row_index) continue;
     const ZRowNode *child = &tree->items[i];
     size_t child_pos = child->first_token;
@@ -1276,7 +1320,9 @@ static void row_parse_choice_decl(const ZRowTokenVec *tokens, const ZRowTree *tr
     const ZRowToken *case_name = row_expect_word(tokens, &child_pos, child_end, diag, "expected choice case name");
     if (!case_name) continue;
     char *type = child_pos < child_end ? row_parse_type_text(tokens, &child_pos, child_end, diag) : NULL;
+    row_expect_end(tokens, child_pos, child_end, diag, "choice case");
     row_push_param(&item.cases, (Param){.name = z_strdup(case_name->text), .type = type, .line = case_name->line, .column = case_name->column});
+    row_reject_child_rows(tree, i, diag, "choice case");
   }
   row_push_choice(&program->choices, item);
 }
@@ -1340,6 +1386,7 @@ Program z_parse_row(const ZRowTokenVec *tokens, const ZRowTree *tree, ZDiag *dia
         .column = node->column,
         .end_column = end_column
       });
+      row_reject_child_rows(tree, i, diag, "use declaration");
     } else if (row_token_text_at(tokens, pos, end, "const")) {
       pos++;
       const ZRowToken *name = row_expect_word(tokens, &pos, end, diag, "expected const name");
@@ -1348,6 +1395,7 @@ Program z_parse_row(const ZRowTokenVec *tokens, const ZRowTree *tree, ZDiag *dia
       item.type = row_parse_type_text(tokens, &pos, end, diag);
       item.expr = row_parse_expr_range(tokens, pos, end, diag);
       row_push_const(&program.consts, item);
+      row_reject_child_rows(tree, i, diag, "const declaration");
     } else if (row_token_text_at(tokens, pos, end, "fn")) {
       row_push_function(&program.functions, row_parse_function_decl(tokens, tree, i, is_public, export_c, diag));
     } else if (row_token_text_at(tokens, pos, end, "type")) {
@@ -1359,6 +1407,7 @@ Program z_parse_row(const ZRowTokenVec *tokens, const ZRowTree *tree, ZDiag *dia
     } else if (row_token_text_at(tokens, pos, end, "test")) {
       pos++;
       const ZRowToken *name = pos < end && tokens->items[pos].kind == Z_ROW_TOKEN_STRING ? &tokens->items[pos++] : NULL;
+      if (!row_expect_end(tokens, pos, end, diag, "test declaration")) return program;
       ZBuf generated;
       zbuf_init(&generated);
       zbuf_appendf(&generated, "__zero_test_%zu", test_counter++);
@@ -1376,6 +1425,7 @@ Program z_parse_row(const ZRowTokenVec *tokens, const ZRowTree *tree, ZDiag *dia
       row_diag(diag, node->line, node->column, 1, "expected row declaration", "use, const, fn, type, enum, choice, or test", NULL);
       return program;
     }
+    if (row_has_diag(diag)) return program;
   }
 
   return program;

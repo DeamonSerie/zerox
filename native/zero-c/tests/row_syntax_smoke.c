@@ -528,6 +528,88 @@ static void rejects_empty_use_import(void) {
   expect_row_parse_failure("use as mem\n", "import module");
 }
 
+static void rejects_unexpected_child_rows(void) {
+  expect_row_parse_failure(
+    "pub fn main Void\n"
+    "  let x i32 1\n"
+    "    raise Hidden\n",
+    "indented row"
+  );
+  expect_row_parse_failure(
+    "const answer i32 42\n"
+    "  raise Hidden\n"
+    "pub fn main Void\n",
+    "indented row"
+  );
+  expect_row_parse_failure(
+    "type Point\n"
+    "  x i32\n"
+    "    raise Hidden\n"
+    "pub fn main Void\n",
+    "indented row"
+  );
+  expect_row_parse_failure(
+    "enum Mode\n"
+    "  off\n"
+    "    raise Hidden\n"
+    "pub fn main Void\n",
+    "indented row"
+  );
+  expect_row_parse_failure(
+    "choice Result\n"
+    "  ok i32\n"
+    "    raise Hidden\n"
+    "pub fn main Void\n",
+    "indented row"
+  );
+}
+
+static void rejects_trailing_fixed_row_tokens(void) {
+  expect_row_parse_failure(
+    "pub fn main Void\n"
+    "  break ignored\n",
+    "unexpected token"
+  );
+  expect_row_parse_failure(
+    "pub fn main Void\n"
+    "  raise Hidden ignored\n",
+    "unexpected token"
+  );
+  expect_row_parse_failure(
+    "test \"adds\" ignored\n"
+    "  expect true\n",
+    "unexpected token"
+  );
+  expect_row_parse_failure(
+    "fn validate Void ![InvalidInput] ignored\n",
+    "unexpected token"
+  );
+  expect_row_parse_failure(
+    "enum Mode extra ignored\n"
+    "  off\n"
+    "pub fn main Void\n",
+    "unexpected token"
+  );
+  expect_row_parse_failure(
+    "enum Mode\n"
+    "  off ignored\n"
+    "pub fn main Void\n",
+    "unexpected token"
+  );
+  expect_row_parse_failure(
+    "choice Result extra\n"
+    "  ok i32\n"
+    "pub fn main Void\n",
+    "unexpected token"
+  );
+  expect_row_parse_failure(
+    "choice Result\n"
+    "  ok i32 ignored\n"
+    "pub fn main Void\n",
+    "unexpected token"
+  );
+}
+
 int main(void) {
   tokenizes_layout_and_trivia();
   tracks_nested_dedents();
@@ -546,6 +628,8 @@ int main(void) {
   rejects_else_after_explicit_else_block();
   rejects_unconsumed_row_expression_tokens();
   rejects_empty_use_import();
+  rejects_unexpected_child_rows();
+  rejects_trailing_fixed_row_tokens();
   printf("row syntax smoke ok\n");
   return 0;
 }
