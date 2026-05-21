@@ -3682,14 +3682,89 @@ static char *direct_module_name_from_path(const char *path) {
   return len > 0 ? z_strndup(name, len) : z_strdup("main");
 }
 
+static char *direct_dirname_of(const char *path) {
+  const char *slash = path ? strrchr(path, '/') : NULL;
+  if (!slash) return z_strdup(".");
+  return z_strndup(path, (size_t)(slash - path));
+}
+
+static char *direct_join_path(const char *left, const char *right) {
+  ZBuf buf;
+  zbuf_init(&buf);
+  zbuf_append(&buf, left && left[0] ? left : ".");
+  if (buf.len == 0 || buf.data[buf.len - 1] != '/') zbuf_append_char(&buf, '/');
+  zbuf_append(&buf, right ? right : "");
+  return buf.data;
+}
+
+static bool direct_file_exists(const char *path) {
+  FILE *file = fopen(path, "rb");
+  if (!file) return false;
+  fclose(file);
+  return true;
+}
+
+static bool direct_input_has_file(const SourceInput *input, const char *path) {
+  for (size_t i = 0; input && i < input->source_file_count; i++) {
+    if (strcmp(input->source_files[i], path) == 0) return true;
+  }
+  return false;
+}
+
+static char *direct_row_module_name_from_path(const char *root, const char *path) {
+  const char *relative = path ? path : "main";
+  size_t root_len = root ? strlen(root) : 0;
+  if (root && strncmp(relative, root, root_len) == 0) {
+    relative += root_len;
+    if (*relative == '/') relative++;
+  } else {
+    const char *slash = strrchr(relative, '/');
+    relative = slash ? slash + 1 : relative;
+  }
+  size_t len = strlen(relative);
+  if (len > 4 && strcmp(relative + len - 4, ".row") == 0) len -= 4;
+  if (len >= 4 && strcmp(relative + len - 4, "/mod") == 0) len -= 4;
+  ZBuf buf;
+  zbuf_init(&buf);
+  for (size_t i = 0; i < len; i++) zbuf_append_char(&buf, relative[i] == '/' ? '.' : relative[i]);
+  if (buf.len == 0) zbuf_append(&buf, "main");
+  return buf.data;
+}
+
+static void direct_input_push_module(SourceInput *input, const char *module, const char *path) {
+  input->module_names = z_checked_reallocarray(input->module_names, input->module_count + 1, sizeof(char *));
+  input->module_paths = z_checked_reallocarray(input->module_paths, input->module_count + 1, sizeof(char *));
+  input->module_names[input->module_count] = z_strdup(module ? module : "");
+  input->module_paths[input->module_count] = z_strdup(path ? path : "");
+  input->module_count++;
+}
+
+static void direct_input_push_import(SourceInput *input, const char *module) {
+  direct_input_push_string(&input->imports, &input->import_count, module);
+}
+
+static void direct_input_push_import_edge(SourceInput *input, const char *from, const char *to, const char *path, const char *source_path, int line, int column, int length) {
+  input->import_from = z_checked_reallocarray(input->import_from, input->import_edge_count + 1, sizeof(char *));
+  input->import_to = z_checked_reallocarray(input->import_to, input->import_edge_count + 1, sizeof(char *));
+  input->import_paths = z_checked_reallocarray(input->import_paths, input->import_edge_count + 1, sizeof(char *));
+  input->import_source_paths = z_checked_reallocarray(input->import_source_paths, input->import_edge_count + 1, sizeof(char *));
+  input->import_lines = z_checked_reallocarray(input->import_lines, input->import_edge_count + 1, sizeof(int));
+  input->import_columns = z_checked_reallocarray(input->import_columns, input->import_edge_count + 1, sizeof(int));
+  input->import_lengths = z_checked_reallocarray(input->import_lengths, input->import_edge_count + 1, sizeof(int));
+  input->import_from[input->import_edge_count] = z_strdup(from ? from : "");
+  input->import_to[input->import_edge_count] = z_strdup(to ? to : "");
+  input->import_paths[input->import_edge_count] = z_strdup(path ? path : "");
+  input->import_source_paths[input->import_edge_count] = z_strdup(source_path ? source_path : "");
+  input->import_lines[input->import_edge_count] = line > 0 ? line : 1;
+  input->import_columns[input->import_edge_count] = column > 0 ? column : 1;
+  input->import_lengths[input->import_edge_count] = length > 0 ? length : 1;
+  input->import_edge_count++;
+}
+
 static void direct_input_add_source_metadata(SourceInput *input) {
   direct_input_push_string(&input->source_files, &input->source_file_count, input->source_file);
   char *module_name = direct_module_name_from_path(input->source_file);
-  input->module_names = z_checked_reallocarray(input->module_names, input->module_count + 1, sizeof(char *));
-  input->module_paths = z_checked_reallocarray(input->module_paths, input->module_count + 1, sizeof(char *));
-  input->module_names[input->module_count] = z_strdup(module_name);
-  input->module_paths[input->module_count] = z_strdup(input->source_file);
-  input->module_count++;
+  direct_input_push_module(input, module_name, input->source_file);
   free(module_name);
 
   int line = 1;
@@ -3749,8 +3824,7 @@ static const char *direct_row_symbol_kind(const ZRowTokenVec *tokens, size_t ind
   return NULL;
 }
 
-static void direct_input_add_row_symbols(SourceInput *input, const ZRowTokenVec *tokens, const ZRowTree *tree) {
-  const char *module = input && input->module_count > 0 ? input->module_names[0] : "main";
+static void direct_input_add_row_symbols(SourceInput *input, const ZRowTokenVec *tokens, const ZRowTree *tree, const char *module) {
   for (size_t i = 0; input && tokens && tree && i < tree->len; i++) {
     const ZRowNode *node = &tree->items[i];
     if (node->parent != Z_ROW_NO_PARENT) continue;
@@ -3774,7 +3848,7 @@ static void direct_input_add_row_symbols(SourceInput *input, const ZRowTokenVec 
   }
 }
 
-static bool parse_row_source_text_ex(const char *source, Program *program, ZDiag *diag, SourceInput *input) {
+static bool parse_row_source_text(const char *source, Program *program, ZDiag *diag) {
   ZRowTokenVec tokens = z_row_tokenize(source, diag);
   if (diag->code != 0) {
     z_free_row_tokens(&tokens);
@@ -3787,24 +3861,181 @@ static bool parse_row_source_text_ex(const char *source, Program *program, ZDiag
     return false;
   }
   *program = z_parse_row(&tokens, &tree, diag);
-  if (diag->code == 0 && input) direct_input_add_row_symbols(input, &tokens, &tree);
   z_free_row_tree(&tree);
   z_free_row_tokens(&tokens);
   return diag->code == 0;
 }
 
-static bool parse_row_source_text(const char *source, Program *program, ZDiag *diag) {
-  return parse_row_source_text_ex(source, program, diag, NULL);
+static char *direct_row_join_module(const ZRowTokenVec *tokens, size_t start, size_t end) {
+  ZBuf buf;
+  zbuf_init(&buf);
+  for (size_t i = start; tokens && i < end && i < tokens->len; i++) zbuf_append(&buf, tokens->items[i].text);
+  return buf.data ? buf.data : z_strdup("");
+}
+
+static char *direct_row_module_path(const char *root, const char *module) {
+  ZBuf relative;
+  zbuf_init(&relative);
+  for (const char *cursor = module ? module : ""; *cursor; cursor++) {
+    zbuf_append_char(&relative, *cursor == '.' ? '/' : *cursor);
+  }
+  zbuf_append(&relative, ".row");
+  char *file_path = direct_join_path(root, relative.data);
+  if (direct_file_exists(file_path)) {
+    zbuf_free(&relative);
+    return file_path;
+  }
+  free(file_path);
+  if (relative.len >= 4 && strcmp(relative.data + relative.len - 4, ".row") == 0) {
+    relative.data[relative.len - 4] = 0;
+    relative.len -= 4;
+  }
+  char *dir_path = direct_join_path(root, relative.data);
+  char *mod_path = direct_join_path(dir_path, "mod.row");
+  free(dir_path);
+  zbuf_free(&relative);
+  if (direct_file_exists(mod_path)) return mod_path;
+  free(mod_path);
+  return NULL;
+}
+
+static bool direct_row_stack_contains(char **stack, size_t len, const char *path) {
+  for (size_t i = 0; i < len; i++) {
+    if (strcmp(stack[i], path) == 0) return true;
+  }
+  return false;
+}
+
+static void direct_row_append_source(SourceInput *input, ZBuf *combined, const char *path, const char *source) {
+  const char *line = source ? source : "";
+  int original_line = 1;
+  if (!*line) {
+    zbuf_append_char(combined, '\n');
+    direct_input_push_source_line(input, path, original_line);
+    return;
+  }
+  while (*line) {
+    const char *end = strchr(line, '\n');
+    size_t len = end ? (size_t)(end - line) : strlen(line);
+    zbuf_appendf(combined, "%.*s\n", (int)len, line);
+    direct_input_push_source_line(input, path, original_line++);
+    if (!end) break;
+    line = end + 1;
+  }
+  zbuf_append_char(combined, '\n');
+  direct_input_push_source_line(input, path, original_line);
+}
+
+static bool direct_row_resolve_file(const char *path, const char *root, SourceInput *input, ZBuf *combined, ZDiag *diag, char ***stack, size_t *stack_len) {
+  if (direct_input_has_file(input, path)) return true;
+  if (direct_row_stack_contains(*stack, *stack_len, path)) {
+    diag->code = 7002;
+    diag->path = z_strdup(path);
+    diag->line = 1;
+    diag->column = 1;
+    diag->length = 1;
+    snprintf(diag->message, sizeof(diag->message), "import cycle detected");
+    snprintf(diag->help, sizeof(diag->help), "break the module cycle by moving shared declarations into a third module");
+    return false;
+  }
+
+  char *source = z_read_file(path, diag);
+  if (!source) return false;
+  char *module = direct_row_module_name_from_path(root, path);
+  *stack = z_checked_reallocarray(*stack, *stack_len + 1, sizeof(char *));
+  (*stack)[(*stack_len)++] = z_strdup(path);
+
+  ZRowTokenVec tokens = z_row_tokenize(source, diag);
+  ZRowTree tree = {0};
+  if (diag->code == 0) z_row_parse_layout(&tokens, &tree, diag);
+  if (diag->code != 0) {
+    if (!diag->path) diag->path = z_strdup(path);
+    z_free_row_tree(&tree);
+    z_free_row_tokens(&tokens);
+    free((*stack)[--(*stack_len)]);
+    free(module);
+    free(source);
+    return false;
+  }
+
+  for (size_t i = 0; i < tree.len && diag->code == 0; i++) {
+    const ZRowNode *node = &tree.items[i];
+    if (node->parent != Z_ROW_NO_PARENT) continue;
+    size_t pos = node->first_token;
+    size_t end = node->first_token + node->token_count;
+    if (!direct_row_token_text(&tokens, pos, "use")) continue;
+    size_t module_start = pos + 1;
+    size_t module_end = module_start;
+    while (module_end < end && !direct_row_token_text(&tokens, module_end, "as")) module_end++;
+    char *import_name = direct_row_join_module(&tokens, module_start, module_end);
+    if (strncmp(import_name, "std.", 4) == 0) {
+      free(import_name);
+      continue;
+    }
+    direct_input_push_import(input, import_name);
+    char *import_path = direct_row_module_path(root, import_name);
+    if (!import_path) {
+      const ZRowToken *token = module_start < end ? &tokens.items[module_start] : &tokens.items[pos];
+      diag->code = 7001;
+      diag->path = z_strdup(path);
+      diag->line = token->line;
+      diag->column = token->column;
+      diag->length = module_end > module_start ? (int)(tokens.items[module_end - 1].column + tokens.items[module_end - 1].length - token->column) : 1;
+      snprintf(diag->message, sizeof(diag->message), "unknown package-local import '%s'", import_name);
+      snprintf(diag->expected, sizeof(diag->expected), "%s.row or %s/mod.row", import_name, import_name);
+      snprintf(diag->actual, sizeof(diag->actual), "missing source file");
+      snprintf(diag->help, sizeof(diag->help), "create the module source file or remove the import");
+      free(import_name);
+      break;
+    }
+    int import_length = module_end > module_start
+      ? (int)(tokens.items[module_end - 1].column + tokens.items[module_end - 1].length - tokens.items[pos].column)
+      : (int)tokens.items[pos].length;
+    direct_input_push_import_edge(input, module, import_name, import_path, path, tokens.items[pos].line, tokens.items[pos].column, import_length);
+    bool ok = direct_row_resolve_file(import_path, root, input, combined, diag, stack, stack_len);
+    free(import_path);
+    free(import_name);
+    if (!ok) break;
+  }
+
+  if (diag->code == 0) {
+    direct_input_push_string(&input->source_files, &input->source_file_count, path);
+    direct_input_push_module(input, module, path);
+    direct_input_add_row_symbols(input, &tokens, &tree, module);
+    direct_row_append_source(input, combined, path, source);
+  }
+
+  z_free_row_tree(&tree);
+  z_free_row_tokens(&tokens);
+  free((*stack)[--(*stack_len)]);
+  free(module);
+  free(source);
+  return diag->code == 0;
+}
+
+static bool resolve_direct_row_source(const char *path, SourceInput *input, ZDiag *diag) {
+  input->source_file = z_strdup(path);
+  char *root = direct_dirname_of(path);
+  ZBuf combined;
+  zbuf_init(&combined);
+  char **stack = NULL;
+  size_t stack_len = 0;
+  bool ok = direct_row_resolve_file(path, root, input, &combined, diag, &stack, &stack_len);
+  free(stack);
+  free(root);
+  input->source = ok ? combined.data : NULL;
+  if (!ok) zbuf_free(&combined);
+  return ok;
 }
 
 static bool compile_input(const char *input_path, const ZTargetInfo *target, SourceInput *input, Program *program, ZDiag *diag) {
   long long phase_started = now_ms();
   if (is_row_source_path(input_path)) {
-    if (!load_direct_row_source(input_path, input, diag)) return false;
+    if (!resolve_direct_row_source(input_path, input, diag)) return false;
     input->resolve_ms = now_ms() - phase_started;
     diag->path = input->source_file;
     phase_started = now_ms();
-    if (!parse_row_source_text_ex(input->source, program, diag, input)) {
+    if (!parse_row_source_text(input->source, program, diag)) {
       z_map_source_diag(input, diag);
       return false;
     }

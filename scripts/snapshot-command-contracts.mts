@@ -369,6 +369,29 @@ assert(rowGraph.sourceFiles.includes(rowCommandFixture));
 assert(rowGraph.symbols.some((symbol) => symbol.name === "inc" && symbol.kind === "function"));
 assert(rowGraph.functions.some((fun) => fun.name === "main"));
 
+const rowHelperFixture = join(outDir, "row_helper.row");
+writeFileSync(
+  rowHelperFixture,
+  "pub fn double i32 value i32\n" +
+    "  ret + value value\n",
+);
+const rowImportFixture = join(outDir, "row_import_main.row");
+writeFileSync(
+  rowImportFixture,
+  "use row_helper\n" +
+    "pub fn main Void\n" +
+    "  let total i32 double 21\n",
+);
+const rowImportCheck = json(["check", "--json", rowImportFixture]).body;
+assert.equal(rowImportCheck.ok, true);
+assert(rowImportCheck.incrementalInvalidation.changedInputs.sourceFiles.includes(rowHelperFixture));
+const rowImportGraph = json(["graph", "--json", rowImportFixture]).body;
+assert(rowImportGraph.sourceFiles.includes(rowImportFixture));
+assert(rowImportGraph.sourceFiles.includes(rowHelperFixture));
+assert(rowImportGraph.imports.includes("row_helper"));
+assert(rowImportGraph.importEdges.some((edge) => edge.from === "row_import_main" && edge.to === "row_helper" && edge.path === rowHelperFixture));
+assert(rowImportGraph.functions.some((fun) => fun.name === "double"));
+
 const rowMetadataFixture = join(outDir, "row_metadata.row");
 const rowMetadataSource =
   "pub enum Mode\n" +
