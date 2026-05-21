@@ -4144,23 +4144,190 @@ static bool direct_row_resolve_file(const char *path, const char *root, SourceIn
   return diag->code == 0;
 }
 
-static bool resolve_direct_row_source(const char *path, SourceInput *input, ZDiag *diag) {
+static bool resolve_direct_row_source_at_root(const char *path, const char *root, SourceInput *input, ZDiag *diag) {
   input->source_file = z_strdup(path);
-  char *root = direct_dirname_of(path);
   ZBuf combined;
   zbuf_init(&combined);
   char **stack = NULL;
   size_t stack_len = 0;
   bool ok = direct_row_resolve_file(path, root, input, &combined, diag, &stack, &stack_len);
   free(stack);
-  free(root);
   input->source = ok ? combined.data : NULL;
   if (!ok) zbuf_free(&combined);
   return ok;
 }
 
+static bool resolve_direct_row_source(const char *path, SourceInput *input, ZDiag *diag) {
+  char *root = direct_dirname_of(path);
+  bool ok = resolve_direct_row_source_at_root(path, root, input, diag);
+  free(root);
+  return ok;
+}
+
+static char *direct_manifest_path_for_input(const char *input_path) {
+  if (strcmp(input_path, "zero.json") == 0 || has_suffix(input_path, "/zero.json")) return z_strdup(input_path);
+  char *manifest_path = direct_join_path(input_path, "zero.json");
+  if (direct_file_exists(manifest_path)) return manifest_path;
+  free(manifest_path);
+  return NULL;
+}
+
+static bool direct_row_write_package_lockfile(SourceInput *input) {
+  ZBuf lock;
+  zbuf_init(&lock);
+  zbuf_append(&lock, "{\n  \"schemaVersion\": 1,\n  \"format\": \"zero-lock-v1\",\n  \"package\": {\"name\": \"");
+  zbuf_append(&lock, input && input->package_name ? input->package_name : "");
+  zbuf_append(&lock, "\", \"version\": \"");
+  zbuf_append(&lock, input && input->package_version ? input->package_version : "");
+  zbuf_append(&lock, "\"},\n  \"dependencyGraphHash\": \"");
+  zbuf_appendf(&lock, "%016llx", (unsigned long long)(input ? input->dependency_graph_hash : 0));
+  zbuf_append(&lock, "\",\n  \"dependencies\": []\n}\n");
+  input->lockfile_hash = fnv1a_text(lock.data ? lock.data : "");
+  char path[256];
+  snprintf(path, sizeof(path), ".zero/package-locks/%016llx.lock.json", (unsigned long long)input->dependency_graph_hash);
+  input->lockfile_path = z_strdup(path);
+  ZDiag ignored = {0};
+  bool ok = z_write_file(input->lockfile_path, lock.data ? lock.data : "", &ignored);
+  zbuf_free(&lock);
+  return ok;
+}
+
+static bool resolve_direct_row_package_source(const char *input_path, SourceInput *input, ZDiag *diag, bool *handled) {
+  *handled = false;
+  char *manifest_path = direct_manifest_path_for_input(input_path);
+  if (!manifest_path) return false;
+
+  char *manifest = z_read_file(manifest_path, diag);
+  if (!manifest) {
+    free(manifest_path);
+    return false;
+  }
+  ZManifest parsed_manifest = {0};
+  if (!z_parse_manifest_json(manifest, &parsed_manifest, diag)) {
+    diag->path = manifest_path;
+    free(manifest);
+    *handled = true;
+    return false;
+  }
+  if (!parsed_manifest.main_path || !is_row_source_path(parsed_manifest.main_path)) {
+    z_free_manifest(&parsed_manifest);
+    free(manifest);
+    free(manifest_path);
+    return false;
+  }
+
+  *handled = true;
+  input->manifest_path = z_strdup(manifest_path);
+  char *package_root = direct_dirname_of(manifest_path);
+  input->package_root = z_strdup(package_root);
+  input->package_name = z_strdup(parsed_manifest.package_name ? parsed_manifest.package_name : "");
+  input->package_version = z_strdup(parsed_manifest.package_version ? parsed_manifest.package_version : "");
+  input->manifest_hash = fnv1a_text(manifest);
+  input->dependency_graph_hash = fnv1a_text("zero-row-dependency-graph-v1");
+  input->dependency_graph_hash = mix_hash_text(input->dependency_graph_hash, input->package_name);
+  input->dependency_graph_hash = mix_hash_text(input->dependency_graph_hash, input->package_version);
+  input->dependency_graph_hash = mix_hash_text(input->dependency_graph_hash, input->manifest_path);
+
+  bool ok = true;
+  if (parsed_manifest.kind && strcmp(parsed_manifest.kind, "exe") != 0) {
+    diag->code = 2002;
+    diag->path = input->manifest_path;
+    diag->line = 1;
+    diag->column = 1;
+    diag->length = 1;
+    snprintf(diag->message, sizeof(diag->message), "unsupported target kind '%s'", parsed_manifest.kind);
+    snprintf(diag->expected, sizeof(diag->expected), "targets.cli.kind = \"exe\"");
+    snprintf(diag->actual, sizeof(diag->actual), "%s", parsed_manifest.kind);
+    snprintf(diag->help, sizeof(diag->help), "use an exe target for the native bootstrap compiler");
+    ok = false;
+  } else if (parsed_manifest.dependency_count > 0) {
+    diag->code = 2002;
+    diag->path = input->manifest_path;
+    diag->line = 1;
+    diag->column = 1;
+    diag->length = 1;
+    snprintf(diag->message, sizeof(diag->message), "row package dependencies are unsupported");
+    snprintf(diag->expected, sizeof(diag->expected), "row package with no dependencies");
+    snprintf(diag->actual, sizeof(diag->actual), "dependencies in zero.json");
+    snprintf(diag->help, sizeof(diag->help), "remove dependencies or use direct file-local row imports for this source");
+    ok = false;
+  } else {
+    char *source_file = direct_join_path(package_root, parsed_manifest.main_path);
+    if (!direct_file_exists(source_file)) {
+      diag->code = 2002;
+      diag->path = input->manifest_path;
+      diag->line = 1;
+      diag->column = 1;
+      diag->length = 1;
+      snprintf(diag->message, sizeof(diag->message), "target main source does not exist");
+      snprintf(diag->expected, sizeof(diag->expected), "%s", source_file);
+      snprintf(diag->actual, sizeof(diag->actual), "missing source file");
+      snprintf(diag->help, sizeof(diag->help), "create the main source file or update targets.cli.main");
+      ok = false;
+    } else {
+      char *src_root = direct_join_path(package_root, "src");
+      ok = resolve_direct_row_source_at_root(source_file, src_root, input, diag);
+      if (ok) direct_row_write_package_lockfile(input);
+      free(src_root);
+    }
+    free(source_file);
+  }
+
+  free(package_root);
+  z_free_manifest(&parsed_manifest);
+  free(manifest);
+  free(manifest_path);
+  return ok;
+}
+
+static bool load_command_source(const char *input_path, SourceInput *input, bool *row_source, ZDiag *diag) {
+  *row_source = false;
+  if (is_row_source_path(input_path)) {
+    *row_source = true;
+    return load_direct_row_source(input_path, input, diag);
+  }
+  bool handled_row_package = false;
+  if (resolve_direct_row_package_source(input_path, input, diag, &handled_row_package)) {
+    *row_source = true;
+    return true;
+  }
+  if (handled_row_package) return false;
+  if (has_suffix(input_path, ".0")) {
+    input->source_file = z_strdup(input_path);
+    input->source = z_read_file(input_path, diag);
+    return input->source != NULL;
+  }
+  return z_resolve_source(input_path, input, diag);
+}
+
 static bool compile_input(const char *input_path, const ZTargetInfo *target, SourceInput *input, Program *program, ZDiag *diag) {
   long long phase_started = now_ms();
+  bool handled_row_package = false;
+  if (resolve_direct_row_package_source(input_path, input, diag, &handled_row_package)) {
+    input->resolve_ms = now_ms() - phase_started;
+    diag->path = input->source_file;
+    phase_started = now_ms();
+    if (!parse_row_source_text(input->source, program, diag)) {
+      z_map_source_diag(input, diag);
+      return false;
+    }
+    input->parse_ms = now_ms() - phase_started;
+    input->interface_ms = input->resolve_ms;
+    input->parse_cache_hit = compiler_cache_touch("parse-tree", compile_cache_key(input, NULL, NULL, "parse-tree"));
+    input->interface_cache_hit = compiler_cache_touch("interface", source_interface_hash(input));
+    input->check_cache_hit = compiler_cache_touch("checked-body", compile_cache_key(input, target, NULL, "checked-body"));
+    input->specialization_cache_hit = compiler_cache_touch("specialization", compile_cache_key(input, target, "release", "specialization"));
+    z_set_check_target(target);
+    phase_started = now_ms();
+    if (!z_check_program(program, diag)) {
+      z_map_source_diag(input, diag);
+      return false;
+    }
+    input->check_ms = now_ms() - phase_started;
+    return true;
+  }
+  if (handled_row_package) return false;
+
   if (is_row_source_path(input_path)) {
     if (!resolve_direct_row_source(input_path, input, diag)) return false;
     input->resolve_ms = now_ms() - phase_started;
@@ -9701,17 +9868,8 @@ int main(int argc, char **argv) {
 
   if (strcmp(command.command, "fmt") == 0) {
     SourceInput fmt_input = {0};
-    bool row_source = is_row_source_path(command.input);
-    if (row_source) {
-      if (!load_direct_row_source(command.input, &fmt_input, &diag)) {
-        if (command.json) print_diag_json(command.input, &diag);
-        else print_diag(diag.path ? diag.path : command.input, &diag);
-        return 1;
-      }
-    } else if (has_suffix(command.input, ".0")) {
-      fmt_input.source_file = z_strdup(command.input);
-      fmt_input.source = z_read_file(command.input, &diag);
-    } else if (!z_resolve_source(command.input, &fmt_input, &diag)) {
+    bool row_source = false;
+    if (!load_command_source(command.input, &fmt_input, &row_source, &diag)) {
       if (command.json) print_diag_json(command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       return 1;
@@ -9751,17 +9909,8 @@ int main(int argc, char **argv) {
 
   if (strcmp(command.command, "tokens") == 0) {
     SourceInput token_input = {0};
-    bool row_source = is_row_source_path(command.input);
-    if (row_source) {
-      if (!load_direct_row_source(command.input, &token_input, &diag)) {
-        if (command.json) print_diag_json(command.input, &diag);
-        else print_diag(diag.path ? diag.path : command.input, &diag);
-        return 1;
-      }
-    } else if (has_suffix(command.input, ".0")) {
-      token_input.source_file = z_strdup(command.input);
-      token_input.source = z_read_file(command.input, &diag);
-    } else if (!z_resolve_source(command.input, &token_input, &diag)) {
+    bool row_source = false;
+    if (!load_command_source(command.input, &token_input, &row_source, &diag)) {
       if (command.json) print_diag_json(command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       return 1;
@@ -9825,17 +9974,8 @@ int main(int argc, char **argv) {
 
   if (strcmp(command.command, "parse") == 0) {
     SourceInput parse_input = {0};
-    bool row_source = is_row_source_path(command.input);
-    if (row_source) {
-      if (!load_direct_row_source(command.input, &parse_input, &diag)) {
-        if (command.json) print_diag_json(command.input, &diag);
-        else print_diag(diag.path ? diag.path : command.input, &diag);
-        return 1;
-      }
-    } else if (has_suffix(command.input, ".0")) {
-      parse_input.source_file = z_strdup(command.input);
-      parse_input.source = z_read_file(command.input, &diag);
-    } else if (!z_resolve_source(command.input, &parse_input, &diag)) {
+    bool row_source = false;
+    if (!load_command_source(command.input, &parse_input, &row_source, &diag)) {
       if (command.json) print_diag_json(command.input, &diag);
       else print_diag(diag.path ? diag.path : command.input, &diag);
       return 1;

@@ -392,6 +392,87 @@ assert(rowImportGraph.imports.includes("row_helper"));
 assert(rowImportGraph.importEdges.some((edge) => edge.from === "row_import_main" && edge.to === "row_helper" && edge.path === rowHelperFixture));
 assert(rowImportGraph.functions.some((fun) => fun.name === "double"));
 
+const rowPackage = join(outDir, "row-package");
+mkdirSync(join(rowPackage, "src"), { recursive: true });
+writeFileSync(
+  join(rowPackage, "zero.json"),
+  JSON.stringify(
+    {
+      package: { name: "row-package", version: "0.1.0" },
+      targets: { cli: { kind: "exe", main: "src/main.row" } },
+    },
+    null,
+    2,
+  ) + "\n",
+);
+const rowPackageMain = join(rowPackage, "src", "main.row");
+const rowPackageHelper = join(rowPackage, "src", "helper.row");
+writeFileSync(
+  rowPackageHelper,
+  "pub fn double i32 value i32\n" +
+    "  ret + value value\n",
+);
+writeFileSync(
+  rowPackageMain,
+  "use helper\n" +
+    "pub fn main Void\n" +
+    "  let total i32 double 21\n",
+);
+assert.match(zero(["fmt", "--check", rowPackage]).stdout, /fmt ok/);
+const rowPackageTokens = json(["tokens", "--json", rowPackage]).body;
+assert.equal(rowPackageTokens.syntax, "row");
+assert.equal(rowPackageTokens.sourceFile, rowPackageMain);
+const rowPackageParse = json(["parse", "--json", rowPackage]).body;
+assert.equal(rowPackageParse.root.functionCount, 2);
+assert(rowPackageParse.functions.some((fun) => fun.name === "double"));
+const rowPackageCheck = json(["check", "--json", rowPackage]).body;
+assert.equal(rowPackageCheck.ok, true);
+assert.equal(rowPackageCheck.package.name, "row-package");
+assert(rowPackageCheck.incrementalInvalidation.changedInputs.sourceFiles.includes(rowPackageHelper));
+const rowPackageGraph = json(["graph", "--json", rowPackage]).body;
+assert(rowPackageGraph.sourceFiles.includes(rowPackageMain));
+assert(rowPackageGraph.sourceFiles.includes(rowPackageHelper));
+assert(rowPackageGraph.importEdges.some((edge) => edge.from === "main" && edge.to === "helper" && edge.path === rowPackageHelper));
+assert(rowPackageGraph.functions.some((fun) => fun.name === "double"));
+
+const rowMissingMainPackage = join(outDir, "row-missing-main-package");
+mkdirSync(join(rowMissingMainPackage, "src"), { recursive: true });
+writeFileSync(
+  join(rowMissingMainPackage, "zero.json"),
+  JSON.stringify(
+    {
+      package: { name: "row-missing-main-package", version: "0.1.0" },
+      targets: { cli: { kind: "exe", main: "src/missing.row" } },
+    },
+    null,
+    2,
+  ) + "\n",
+);
+const rowMissingMainCheck = json(["check", "--json", rowMissingMainPackage], { allowFailure: true });
+assert.notEqual(rowMissingMainCheck.code, 0);
+assert.equal(rowMissingMainCheck.body.diagnostics[0].code, "BLD002");
+assert.match(rowMissingMainCheck.body.diagnostics[0].message, /target main source does not exist/);
+
+const rowDependencyPackage = join(outDir, "row-dependency-package");
+mkdirSync(join(rowDependencyPackage, "src"), { recursive: true });
+writeFileSync(
+  join(rowDependencyPackage, "zero.json"),
+  JSON.stringify(
+    {
+      package: { name: "row-dependency-package", version: "0.1.0" },
+      targets: { cli: { kind: "exe", main: "src/main.row" } },
+      dependencies: { helper: "0.1.0" },
+    },
+    null,
+    2,
+  ) + "\n",
+);
+writeFileSync(join(rowDependencyPackage, "src", "main.row"), "pub fn main Void\n");
+const rowDependencyCheck = json(["check", "--json", rowDependencyPackage], { allowFailure: true });
+assert.notEqual(rowDependencyCheck.code, 0);
+assert.equal(rowDependencyCheck.body.diagnostics[0].code, "BLD002");
+assert.match(rowDependencyCheck.body.diagnostics[0].message, /row package dependencies are unsupported/);
+
 const rowMalformedImportFixture = join(outDir, "row_malformed_import.row");
 writeFileSync(
   rowMalformedImportFixture,
