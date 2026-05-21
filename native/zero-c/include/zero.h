@@ -853,6 +853,7 @@ bool z_resolve_source(const char *input, SourceInput *out, ZDiag *diag);
 bool z_map_source_diag(const SourceInput *input, ZDiag *diag);
 void z_free_source(SourceInput *input);
 bool z_parse_manifest_json(const char *manifest, ZManifest *out, ZDiag *diag);
+bool z_resolve_package_metadata(const char *manifest_path, const char *manifest, const ZManifest *parsed_manifest, SourceInput *out, ZDiag *diag);
 void z_free_manifest(ZManifest *manifest);
 char *z_default_out_path(const char *source_file);
 ZToolchainPlan z_plan_toolchain(const char *cc, const char *profile, const ZTargetInfo *target);

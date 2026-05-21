@@ -4172,26 +4172,6 @@ static char *direct_manifest_path_for_input(const char *input_path) {
   return NULL;
 }
 
-static bool direct_row_write_package_lockfile(SourceInput *input) {
-  ZBuf lock;
-  zbuf_init(&lock);
-  zbuf_append(&lock, "{\n  \"schemaVersion\": 1,\n  \"format\": \"zero-lock-v1\",\n  \"package\": {\"name\": \"");
-  zbuf_append(&lock, input && input->package_name ? input->package_name : "");
-  zbuf_append(&lock, "\", \"version\": \"");
-  zbuf_append(&lock, input && input->package_version ? input->package_version : "");
-  zbuf_append(&lock, "\"},\n  \"dependencyGraphHash\": \"");
-  zbuf_appendf(&lock, "%016llx", (unsigned long long)(input ? input->dependency_graph_hash : 0));
-  zbuf_append(&lock, "\",\n  \"dependencies\": []\n}\n");
-  input->lockfile_hash = fnv1a_text(lock.data ? lock.data : "");
-  char path[256];
-  snprintf(path, sizeof(path), ".zero/package-locks/%016llx.lock.json", (unsigned long long)input->dependency_graph_hash);
-  input->lockfile_path = z_strdup(path);
-  ZDiag ignored = {0};
-  bool ok = z_write_file(input->lockfile_path, lock.data ? lock.data : "", &ignored);
-  zbuf_free(&lock);
-  return ok;
-}
-
 static bool resolve_direct_row_package_source(const char *input_path, SourceInput *input, ZDiag *diag, bool *handled) {
   *handled = false;
   char *manifest_path = direct_manifest_path_for_input(input_path);
@@ -4217,42 +4197,9 @@ static bool resolve_direct_row_package_source(const char *input_path, SourceInpu
   }
 
   *handled = true;
-  input->manifest_path = z_strdup(manifest_path);
-  char *package_root = direct_dirname_of(manifest_path);
-  input->package_root = z_strdup(package_root);
-  input->package_name = z_strdup(parsed_manifest.package_name ? parsed_manifest.package_name : "");
-  input->package_version = z_strdup(parsed_manifest.package_version ? parsed_manifest.package_version : "");
-  input->manifest_hash = fnv1a_text(manifest);
-  input->dependency_graph_hash = fnv1a_text("zero-row-dependency-graph-v1");
-  input->dependency_graph_hash = mix_hash_text(input->dependency_graph_hash, input->package_name);
-  input->dependency_graph_hash = mix_hash_text(input->dependency_graph_hash, input->package_version);
-  input->dependency_graph_hash = mix_hash_text(input->dependency_graph_hash, input->manifest_path);
-
-  bool ok = true;
-  if (parsed_manifest.kind && strcmp(parsed_manifest.kind, "exe") != 0) {
-    diag->code = 2002;
-    diag->path = input->manifest_path;
-    diag->line = 1;
-    diag->column = 1;
-    diag->length = 1;
-    snprintf(diag->message, sizeof(diag->message), "unsupported target kind '%s'", parsed_manifest.kind);
-    snprintf(diag->expected, sizeof(diag->expected), "targets.cli.kind = \"exe\"");
-    snprintf(diag->actual, sizeof(diag->actual), "%s", parsed_manifest.kind);
-    snprintf(diag->help, sizeof(diag->help), "use an exe target for the native bootstrap compiler");
-    ok = false;
-  } else if (parsed_manifest.dependency_count > 0) {
-    diag->code = 2002;
-    diag->path = input->manifest_path;
-    diag->line = 1;
-    diag->column = 1;
-    diag->length = 1;
-    snprintf(diag->message, sizeof(diag->message), "row package dependencies are unsupported");
-    snprintf(diag->expected, sizeof(diag->expected), "row package with no dependencies");
-    snprintf(diag->actual, sizeof(diag->actual), "dependencies in zero.json");
-    snprintf(diag->help, sizeof(diag->help), "remove dependencies or use direct file-local row imports for this source");
-    ok = false;
-  } else {
-    char *source_file = direct_join_path(package_root, parsed_manifest.main_path);
+  bool ok = z_resolve_package_metadata(manifest_path, manifest, &parsed_manifest, input, diag);
+  if (ok) {
+    char *source_file = direct_join_path(input->package_root, parsed_manifest.main_path);
     if (!direct_file_exists(source_file)) {
       diag->code = 2002;
       diag->path = input->manifest_path;
@@ -4265,15 +4212,13 @@ static bool resolve_direct_row_package_source(const char *input_path, SourceInpu
       snprintf(diag->help, sizeof(diag->help), "create the main source file or update targets.cli.main");
       ok = false;
     } else {
-      char *src_root = direct_join_path(package_root, "src");
+      char *src_root = direct_join_path(input->package_root, "src");
       ok = resolve_direct_row_source_at_root(source_file, src_root, input, diag);
-      if (ok) direct_row_write_package_lockfile(input);
       free(src_root);
     }
     free(source_file);
   }
 
-  free(package_root);
   z_free_manifest(&parsed_manifest);
   free(manifest);
   free(manifest_path);

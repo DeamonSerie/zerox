@@ -453,6 +453,21 @@ assert.notEqual(rowMissingMainCheck.code, 0);
 assert.equal(rowMissingMainCheck.body.diagnostics[0].code, "BLD002");
 assert.match(rowMissingMainCheck.body.diagnostics[0].message, /target main source does not exist/);
 
+const rowDependencyLib = join(outDir, "row-dependency-lib");
+mkdirSync(join(rowDependencyLib, "src"), { recursive: true });
+writeFileSync(
+  join(rowDependencyLib, "zero.json"),
+  JSON.stringify(
+    {
+      package: { name: "row-dependency-lib", version: "0.1.0" },
+      targets: { cli: { kind: "exe", main: "src/main.row" } },
+    },
+    null,
+    2,
+  ) + "\n",
+);
+writeFileSync(join(rowDependencyLib, "src", "main.row"), "pub fn main Void\n");
+
 const rowDependencyPackage = join(outDir, "row-dependency-package");
 mkdirSync(join(rowDependencyPackage, "src"), { recursive: true });
 writeFileSync(
@@ -461,17 +476,17 @@ writeFileSync(
     {
       package: { name: "row-dependency-package", version: "0.1.0" },
       targets: { cli: { kind: "exe", main: "src/main.row" } },
-      dependencies: { helper: "0.1.0" },
+      dependencies: { helper: { path: "../row-dependency-lib", version: "0.1.0" } },
     },
     null,
     2,
   ) + "\n",
 );
 writeFileSync(join(rowDependencyPackage, "src", "main.row"), "pub fn main Void\n");
-const rowDependencyCheck = json(["check", "--json", rowDependencyPackage], { allowFailure: true });
-assert.notEqual(rowDependencyCheck.code, 0);
-assert.equal(rowDependencyCheck.body.diagnostics[0].code, "BLD002");
-assert.match(rowDependencyCheck.body.diagnostics[0].message, /row package dependencies are unsupported/);
+const rowDependencyCheck = json(["check", "--json", rowDependencyPackage]).body;
+assert.equal(rowDependencyCheck.ok, true);
+assert(rowDependencyCheck.package.dependencies.some((dep) => dep.name === "helper" && dep.resolvedName === "row-dependency-lib" && dep.status === "path-resolved"));
+assert(rowDependencyCheck.package.lockfile.generated);
 
 const rowMalformedImportFixture = join(outDir, "row_malformed_import.row");
 writeFileSync(

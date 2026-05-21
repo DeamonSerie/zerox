@@ -1206,6 +1206,8 @@ static unsigned long long source_dependency_graph_hash(const SourceInput *input)
   return hash;
 }
 
+static bool resolve_manifest_dependencies(const char *manifest_path, const ZManifest *manifest, SourceInput *out, ZDiag *diag, char ***stack, size_t *stack_len, bool direct);
+
 static bool write_package_lockfile(SourceInput *input) {
   input->dependency_graph_hash = source_dependency_graph_hash(input);
   ZBuf lock;
@@ -1244,6 +1246,51 @@ static bool write_package_lockfile(SourceInput *input) {
   bool ok = z_write_file(input->lockfile_path, lock.data ? lock.data : "", &ignored);
   zbuf_free(&lock);
   return ok;
+}
+
+bool z_resolve_package_metadata(const char *manifest_path, const char *manifest, const ZManifest *parsed_manifest, SourceInput *out, ZDiag *diag) {
+  if (!manifest_path || !parsed_manifest || !out) return false;
+  if (parsed_manifest->kind && strcmp(parsed_manifest->kind, "exe") != 0) {
+    diag->code = 2002;
+    diag->path = z_strdup(manifest_path);
+    diag->line = 1;
+    diag->column = 1;
+    snprintf(diag->message, sizeof(diag->message), "unsupported target kind '%s'", parsed_manifest->kind);
+    snprintf(diag->expected, sizeof(diag->expected), "targets.cli.kind = \"exe\"");
+    snprintf(diag->actual, sizeof(diag->actual), "%s", parsed_manifest->kind);
+    snprintf(diag->help, sizeof(diag->help), "use an exe target for the native bootstrap compiler");
+    return false;
+  }
+  if (!parsed_manifest->main_path) {
+    diag->code = 2;
+    diag->path = z_strdup(manifest_path);
+    diag->line = 1;
+    diag->column = 1;
+    snprintf(diag->message, sizeof(diag->message), "zero.json is missing targets.cli.main");
+    return false;
+  }
+
+  SourceInput metadata = {0};
+  metadata.manifest_path = z_strdup(manifest_path);
+  metadata.package_root = dirname_of(manifest_path);
+  metadata.package_name = z_strdup(parsed_manifest->package_name ? parsed_manifest->package_name : "");
+  metadata.package_version = z_strdup(parsed_manifest->package_version ? parsed_manifest->package_version : "");
+  metadata.manifest_hash = fs_fnv1a_text(manifest);
+
+  char **dependency_stack = NULL;
+  size_t dependency_stack_len = 0;
+  dependency_stack = z_checked_reallocarray(dependency_stack, 1, sizeof(char *));
+  dependency_stack[dependency_stack_len++] = z_strdup(manifest_path);
+  bool deps_ok = resolve_manifest_dependencies(manifest_path, parsed_manifest, &metadata, diag, &dependency_stack, &dependency_stack_len, true);
+  while (dependency_stack_len > 0) free(dependency_stack[--dependency_stack_len]);
+  free(dependency_stack);
+  if (!deps_ok) {
+    z_free_source(&metadata);
+    return false;
+  }
+  write_package_lockfile(&metadata);
+  *out = metadata;
+  return true;
 }
 
 static bool resolve_manifest_dependencies(const char *manifest_path, const ZManifest *manifest, SourceInput *out, ZDiag *diag, char ***stack, size_t *stack_len, bool direct) {
@@ -1326,71 +1373,30 @@ bool z_resolve_source(const char *input, SourceInput *out, ZDiag *diag) {
       // Keep manifest_path alive for the diagnostic; callers print it after return.
       return false;
     }
-    if (parsed_manifest.kind && strcmp(parsed_manifest.kind, "exe") != 0) {
-      diag->code = 2002;
-      diag->path = manifest_path;
-      diag->line = 1;
-      diag->column = 1;
-      snprintf(diag->message, sizeof(diag->message), "unsupported target kind '%s'", parsed_manifest.kind);
-      snprintf(diag->expected, sizeof(diag->expected), "targets.cli.kind = \"exe\"");
-      snprintf(diag->actual, sizeof(diag->actual), "%s", parsed_manifest.kind);
-      snprintf(diag->help, sizeof(diag->help), "use an exe target for the native bootstrap compiler");
+    if (!z_resolve_package_metadata(manifest_path, manifest, &parsed_manifest, out, diag)) {
       z_free_manifest(&parsed_manifest);
       free(manifest);
-      // Keep manifest_path alive for the diagnostic; callers print it after return.
+      free(manifest_path);
       return false;
     }
-    if (!parsed_manifest.main_path) {
-      diag->code = 2;
-      diag->path = manifest_path;
-      diag->line = 1;
-      diag->column = 1;
-      snprintf(diag->message, sizeof(diag->message), "zero.json is missing targets.cli.main");
-      z_free_manifest(&parsed_manifest);
-      free(manifest);
-      // Keep manifest_path alive for the diagnostic; callers print it after return.
-      return false;
-    }
-    char *dir = dirname_of(manifest_path);
-    out->manifest_path = z_strdup(manifest_path);
-    out->package_root = z_strdup(dir);
-    out->package_name = z_strdup(parsed_manifest.package_name ? parsed_manifest.package_name : "");
-    out->package_version = z_strdup(parsed_manifest.package_version ? parsed_manifest.package_version : "");
-    out->manifest_hash = fs_fnv1a_text(manifest);
-    char **dependency_stack = NULL;
-    size_t dependency_stack_len = 0;
-    dependency_stack = z_checked_reallocarray(dependency_stack, 1, sizeof(char *));
-    dependency_stack[dependency_stack_len++] = z_strdup(manifest_path);
-    bool deps_ok = resolve_manifest_dependencies(manifest_path, &parsed_manifest, out, diag, &dependency_stack, &dependency_stack_len, true);
-    while (dependency_stack_len > 0) free(dependency_stack[--dependency_stack_len]);
-    free(dependency_stack);
-    if (!deps_ok) {
-      free(dir);
-      z_free_manifest(&parsed_manifest);
-      free(manifest);
-      // Keep manifest_path alive for the diagnostic; callers print it after return.
-      return false;
-    }
-    write_package_lockfile(out);
-    out->source_file = join_path(dir, parsed_manifest.main_path);
+    out->source_file = join_path(out->package_root, parsed_manifest.main_path);
     if (!file_exists(out->source_file)) {
       diag->code = 2002;
-      diag->path = manifest_path;
+      diag->path = out->manifest_path ? out->manifest_path : manifest_path;
       diag->line = 1;
       diag->column = 1;
       snprintf(diag->message, sizeof(diag->message), "target main source does not exist");
       snprintf(diag->expected, sizeof(diag->expected), "%s", out->source_file);
       snprintf(diag->actual, sizeof(diag->actual), "missing source file");
       snprintf(diag->help, sizeof(diag->help), "create the main source file or update targets.cli.main");
-      free(dir);
       z_free_manifest(&parsed_manifest);
       free(manifest);
-      // Keep manifest_path alive for the diagnostic; callers print it after return.
+      free(manifest_path);
       return false;
     }
     ZBuf source;
     zbuf_init(&source);
-    char *src_dir = join_path(dir, "src");
+    char *src_dir = join_path(out->package_root, "src");
     char **stack = NULL;
     size_t stack_len = 0;
     resolve_imported_source(out->source_file, src_dir, out, &source, diag, &stack, &stack_len);
@@ -1399,7 +1405,6 @@ bool z_resolve_source(const char *input, SourceInput *out, ZDiag *diag) {
     free(src_dir);
     out->source = diag->code == 0 ? source.data : NULL;
     if (diag->code != 0) zbuf_free(&source);
-    free(dir);
     z_free_manifest(&parsed_manifest);
     free(manifest);
     free(manifest_path);
