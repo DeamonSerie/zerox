@@ -111,6 +111,38 @@ static void tracks_nested_dedents(void) {
   z_free_row_tokens(&tokens);
 }
 
+static void accepts_trailing_whitespace_only_rows(void) {
+  ZDiag diag = {0};
+  ZRowTokenVec top_tokens = z_row_tokenize("pub fn main Void\n ", &diag);
+  expect(diag.code == 0, diag.message);
+  expect(count_kind(&top_tokens, Z_ROW_TOKEN_INDENT) == 0, "expected no indent for trailing blank row");
+  expect(count_kind(&top_tokens, Z_ROW_TOKEN_DEDENT) == 0, "expected no dedent for trailing blank row");
+  ZRowSyntaxFacts facts = {0};
+  expect(z_row_analyze_layout(&top_tokens, &facts, &diag), diag.message);
+  expect(facts.row_count == 1, "expected trailing blank row not to count as a source row");
+  z_free_row_tokens(&top_tokens);
+
+  diag = (ZDiag){0};
+  const char *nested_source =
+    "pub fn main Void\n"
+    "  check world.out.write \"ok\\n\"\n"
+    "  ";
+  ZRowTokenVec nested_tokens = z_row_tokenize(nested_source, &diag);
+  expect(diag.code == 0, diag.message);
+  expect(count_kind(&nested_tokens, Z_ROW_TOKEN_INDENT) == 1, "expected nested row indent");
+  expect(count_kind(&nested_tokens, Z_ROW_TOKEN_DEDENT) == 1, "expected EOF dedent after trailing blank row");
+  facts = (ZRowSyntaxFacts){0};
+  expect(z_row_analyze_layout(&nested_tokens, &facts, &diag), diag.message);
+  expect(facts.row_count == 2, "expected two source rows with trailing blank row");
+
+  ZRowTree tree = {0};
+  expect(z_row_parse_layout(&nested_tokens, &tree, &diag), diag.message);
+  expect(tree.len == 2, "expected two row nodes with trailing blank row");
+  expect(tree.items[1].parent == 0, "expected nested row parent after trailing blank row");
+  z_free_row_tree(&tree);
+  z_free_row_tokens(&nested_tokens);
+}
+
 static void rejects_tabs(void) {
   const char *source =
     "pub fn main Void\n"
@@ -148,6 +180,7 @@ static void rejects_indent_jump(void) {
 int main(void) {
   tokenizes_layout_and_trivia();
   tracks_nested_dedents();
+  accepts_trailing_whitespace_only_rows();
   rejects_tabs();
   rejects_odd_indent();
   rejects_indent_jump();

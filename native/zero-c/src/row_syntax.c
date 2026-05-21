@@ -237,6 +237,8 @@ ZRowTokenVec z_row_tokenize(const char *source, ZDiag *diag) {
         continue;
       }
 
+      if (source[offset] == 0) break;
+
       if (indent % 2 != 0) {
         row_diag(diag, line, 1, (int)(offset - indent_start), "row indentation must use two-space steps", "a multiple of two spaces", NULL);
         free(indents.items);
