@@ -458,8 +458,7 @@ static bool elf_emit_fs_basic_value(ZBuf *code, const IrFunction *fun, const IrV
     case IR_VALUE_FS_HOST:
       z_x64_emit_xor_eax_eax(code);
       return true;
-    case IR_VALUE_FS_OPEN:
-    case IR_VALUE_FS_CREATE: {
+    case IR_VALUE_FS_OPEN: case IR_VALUE_FS_CREATE: {
       bool create = value->kind == IR_VALUE_FS_CREATE;
       if (!elf_emit_openat_path(code, fun, value->left, create ? 577 : 0, create ? 0644 : 0, ctx, diag)) return false;
       if (value->type == IR_TYPE_I64) {
@@ -478,8 +477,7 @@ static bool elf_emit_fs_basic_value(ZBuf *code, const IrFunction *fun, const IrV
       elf_emit_load_local_rax(code, fun, value->local_index);
       elf_emit_close_rax_fd(code);
       return true;
-    case IR_VALUE_FS_EXISTS:
-    case IR_VALUE_FS_IS_DIR: {
+    case IR_VALUE_FS_EXISTS: case IR_VALUE_FS_IS_DIR: {
       unsigned flags = value->kind == IR_VALUE_FS_IS_DIR ? 65536u : 0u;
       if (!elf_emit_openat_path(code, fun, value->left, flags, 0, ctx, diag)) return false;
       z_x64_emit_test_rax_rax(code, true);
@@ -704,8 +702,7 @@ static bool elf_emit_fs_file_handle_value(ZBuf *code, const IrFunction *fun, con
 
 static bool elf_emit_fs_path_io_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
   switch (value->kind) {
-    case IR_VALUE_FS_READ_PATH:
-    case IR_VALUE_FS_READ_BYTES_PATH: {
+    case IR_VALUE_FS_READ_PATH: case IR_VALUE_FS_READ_BYTES_PATH: {
       if (!elf_emit_openat_path(code, fun, value->left, 0, 0, ctx, diag)) return false;
       z_x64_emit_test_rax_rax(code, true);
       size_t open_fail = elf_emit_js_placeholder(code);
@@ -728,8 +725,7 @@ static bool elf_emit_fs_path_io_value(ZBuf *code, const IrFunction *fun, const I
       z_x64_patch_rel32(code, end, code->len);
       return true;
     }
-    case IR_VALUE_FS_WRITE_PATH:
-    case IR_VALUE_FS_WRITE_BYTES_PATH: {
+    case IR_VALUE_FS_WRITE_PATH: case IR_VALUE_FS_WRITE_BYTES_PATH: {
       if (!elf_emit_openat_path(code, fun, value->left, 577, 0644, ctx, diag)) return false;
       z_x64_emit_test_rax_rax(code, true);
       size_t open_fail = elf_emit_js_placeholder(code);
@@ -798,22 +794,15 @@ static bool elf_emit_http_value(ZBuf *code, const IrFunction *fun, const IrValue
       size_t patch = z_x64_emit_call32_placeholder(code);
       return z_elf_record_value_runtime_patch(ctx, ELF_RUNTIME_HTTP_FETCH, patch, diag, value);
     }
-    case IR_VALUE_HTTP_RESULT_OK:
-    case IR_VALUE_HTTP_RESULT_STATUS:
-    case IR_VALUE_HTTP_RESULT_BODY_LEN:
-    case IR_VALUE_HTTP_RESULT_ERROR:
-    case IR_VALUE_HTTP_HEADER_FOUND:
-    case IR_VALUE_HTTP_HEADER_OFFSET:
-    case IR_VALUE_HTTP_HEADER_LEN: {
+    case IR_VALUE_HTTP_RESULT_OK: case IR_VALUE_HTTP_RESULT_STATUS: case IR_VALUE_HTTP_RESULT_BODY_LEN: case IR_VALUE_HTTP_RESULT_ERROR:
+    case IR_VALUE_HTTP_HEADER_FOUND: case IR_VALUE_HTTP_HEADER_OFFSET: case IR_VALUE_HTTP_HEADER_LEN: {
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
       elf_emit_push_rax(code);
       z_x64_emit_pop_reg64(code, 7);
       size_t patch = z_x64_emit_call32_placeholder(code);
       return z_elf_record_value_runtime_patch(ctx, elf_runtime_helper_for_value(value->kind), patch, diag, value);
     }
-    case IR_VALUE_HTTP_RESPONSE_LEN:
-    case IR_VALUE_HTTP_RESPONSE_HEADERS_LEN:
-    case IR_VALUE_HTTP_RESPONSE_BODY_OFFSET: {
+    case IR_VALUE_HTTP_RESPONSE_LEN: case IR_VALUE_HTTP_RESPONSE_HEADERS_LEN: case IR_VALUE_HTTP_RESPONSE_BODY_OFFSET: {
       if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
       elf_emit_push_rax(code);
       if (!elf_emit_byte_view_len(code, fun, value->left, ctx, diag)) return false;
@@ -843,30 +832,16 @@ static bool elf_emit_http_value(ZBuf *code, const IrFunction *fun, const IrValue
   }
 }
 
-static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
-  if (!value) return elf_diag(diag, "direct ELF64 expression is missing", 1, 1, "missing expression");
-  if (!elf_type_is_supported_scalar(value->type) && !((value->kind == IR_VALUE_CALL || value->kind == IR_VALUE_CHECK) && value->type == IR_TYPE_VOID) &&
-      value->kind != IR_VALUE_MAYBE_HAS && value->kind != IR_VALUE_VEC_LEN && value->kind != IR_VALUE_VEC_CAPACITY &&
-      value->kind != IR_VALUE_VEC_PUSH && value->kind != IR_VALUE_ARGS_LEN &&
-      value->type != IR_TYPE_MAYBE_SCALAR && value->kind != IR_VALUE_FS_CLOSE_FILE) {
-    return elf_diag(diag, "direct ELF64 object backend currently supports only primitive integer values", value->line, value->column, elf_type_name(value->type));
-  }
+static bool elf_emit_core_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
   switch (value->kind) {
     case IR_VALUE_BOOL:
     case IR_VALUE_INT:
-      if (elf_type_is_i64(value->type)) {
-        z_x64_emit_mov_rax_u64(code, (uint64_t)value->int_value);
-      } else {
-        z_x64_emit_mov_eax_u32(code, (uint32_t)value->int_value);
-      }
+      if (elf_type_is_i64(value->type)) z_x64_emit_mov_rax_u64(code, (uint64_t)value->int_value);
+      else z_x64_emit_mov_eax_u32(code, (uint32_t)value->int_value);
       return true;
     case IR_VALUE_LOCAL:
-      if (value->local_index >= fun->local_len) {
-        return elf_diag(diag, "direct ELF64 local index is out of range", value->line, value->column, "invalid local");
-      }
-      if (fun->locals[value->local_index].is_array) {
-        return elf_diag(diag, "direct ELF64 cannot use fixed array locals as scalar values", value->line, value->column, "array local");
-      }
+      if (value->local_index >= fun->local_len) return elf_diag(diag, "direct ELF64 local index is out of range", value->line, value->column, "invalid local");
+      if (fun->locals[value->local_index].is_array) return elf_diag(diag, "direct ELF64 cannot use fixed array locals as scalar values", value->line, value->column, "array local");
       elf_emit_load_local_rax(code, fun, value->local_index);
       return true;
     case IR_VALUE_BINARY: {
@@ -896,9 +871,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       return true;
     }
     case IR_VALUE_COMPARE: {
-      if (!value->left || !value->right || !elf_type_is_supported_scalar(value->left->type) || value->left->type != value->right->type) {
-        return elf_diag(diag, "direct ELF64 comparison operands must have the same supported integer type", value->line, value->column, "unsupported comparison");
-      }
+      if (!value->left || !value->right || !elf_type_is_supported_scalar(value->left->type) || value->left->type != value->right->type) return elf_diag(diag, "direct ELF64 comparison operands must have the same supported integer type", value->line, value->column, "unsupported comparison");
       bool wide = elf_type_is_i64(value->left->type);
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
       z_x64_emit_push_rax(code);
@@ -915,29 +888,16 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
         if (!elf_emit_value(code, fun, value->args[i], ctx, diag)) return false;
         elf_emit_push_rax(code);
       }
-      for (size_t i = value->arg_len; i > 0; i--) {
-        z_x64_emit_pop_reg64(code, param_regs[i - 1]);
-      }
+      for (size_t i = value->arg_len; i > 0; i--) z_x64_emit_pop_reg64(code, param_regs[i - 1]);
       size_t patch = z_x64_emit_call32_placeholder(code);
       return z_elf_record_call_patch(ctx, patch, value->callee_index, diag, value);
     }
-    case IR_VALUE_JSON_PARSE_BYTES:
-    case IR_VALUE_JSON_VALIDATE_BYTES:
-    case IR_VALUE_JSON_STREAM_TOKENS_BYTES:
-      return elf_emit_json_value(code, fun, value, ctx, diag);
-    case IR_VALUE_HTTP_FETCH:
-    case IR_VALUE_HTTP_RESULT_OK:
-    case IR_VALUE_HTTP_RESULT_STATUS:
-    case IR_VALUE_HTTP_RESULT_BODY_LEN:
-    case IR_VALUE_HTTP_RESULT_ERROR:
-    case IR_VALUE_HTTP_HEADER_FOUND:
-    case IR_VALUE_HTTP_HEADER_OFFSET:
-    case IR_VALUE_HTTP_HEADER_LEN:
-    case IR_VALUE_HTTP_RESPONSE_LEN:
-    case IR_VALUE_HTTP_RESPONSE_HEADERS_LEN:
-    case IR_VALUE_HTTP_RESPONSE_BODY_OFFSET:
-    case IR_VALUE_HTTP_HEADER_VALUE:
-      return elf_emit_http_value(code, fun, value, ctx, diag);
+    default: return elf_diag(diag, "direct ELF64 core value kind is invalid for this helper", value->line, value->column, "invalid core value");
+  }
+}
+
+static bool elf_emit_host_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
+  switch (value->kind) {
     case IR_VALUE_ARGS_LEN:
       if (ctx && ctx->seed_main_process_args) {
         z_x64_emit_push_reg64(code, 14);
@@ -981,30 +941,12 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       z_x64_append_u8(code, 0x35);
       z_x64_append_u32(code, 0x9e3779b9u);
       return true;
-    case IR_VALUE_FS_HOST:
-    case IR_VALUE_FS_OPEN:
-    case IR_VALUE_FS_CREATE:
-    case IR_VALUE_FS_CLOSE_FILE:
-    case IR_VALUE_FS_EXISTS:
-    case IR_VALUE_FS_IS_DIR:
-    case IR_VALUE_FS_REMOVE:
-    case IR_VALUE_FS_REMOVE_DIR:
-    case IR_VALUE_FS_MAKE_DIR:
-    case IR_VALUE_FS_RENAME:
-      return elf_emit_fs_basic_value(code, fun, value, ctx, diag);
-    case IR_VALUE_FS_DIR_ENTRY_COUNT:
-      return elf_emit_fs_dir_entry_count_value(code, fun, value, ctx, diag);
-    case IR_VALUE_FS_ATOMIC_WRITE:
-      return elf_emit_fs_atomic_write_value(code, fun, value, ctx, diag);
-    case IR_VALUE_FS_FILE_LEN:
-    case IR_VALUE_FS_READ_FILE:
-    case IR_VALUE_FS_WRITE_ALL_FILE:
-      return elf_emit_fs_file_handle_value(code, fun, value, ctx, diag);
-    case IR_VALUE_FS_READ_PATH:
-    case IR_VALUE_FS_READ_BYTES_PATH:
-    case IR_VALUE_FS_WRITE_PATH:
-    case IR_VALUE_FS_WRITE_BYTES_PATH:
-      return elf_emit_fs_path_io_value(code, fun, value, ctx, diag);
+    default: return elf_diag(diag, "direct ELF64 host value kind is invalid for this helper", value->line, value->column, "invalid host value");
+  }
+}
+
+static bool elf_emit_stateful_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
+  switch (value->kind) {
     case IR_VALUE_MAYBE_HAS:
       if (value->local_index >= fun->local_len ||
           (fun->locals[value->local_index].type != IR_TYPE_MAYBE_BYTE_VIEW && fun->locals[value->local_index].type != IR_TYPE_MAYBE_SCALAR)) {
@@ -1016,8 +958,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       if (value->local_index >= fun->local_len || fun->locals[value->local_index].type != IR_TYPE_MAYBE_SCALAR) return elf_diag(diag, "direct ELF64 maybe scalar value requires a Maybe scalar local", value->line, value->column, "invalid maybe value");
       elf_emit_load_local_slot_rax(code, &fun->locals[value->local_index], 8);
       return true;
-    case IR_VALUE_VEC_LEN:
-    case IR_VALUE_VEC_CAPACITY:
+    case IR_VALUE_VEC_LEN: case IR_VALUE_VEC_CAPACITY:
       if (value->local_index >= fun->local_len || fun->locals[value->local_index].type != IR_TYPE_VEC) return elf_diag(diag, "direct ELF64 Vec helper requires a Vec local", value->line, value->column, "invalid Vec local");
       elf_emit_load_local_slot_reg(code, &fun->locals[value->local_index], value->kind == IR_VALUE_VEC_LEN ? 8 : 12, 0, false);
       return true;
@@ -1077,6 +1018,12 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       z_x64_patch_rel32(code, end_patch, code->len);
       return true;
     }
+    default: return elf_diag(diag, "direct ELF64 stateful value kind is invalid for this helper", value->line, value->column, "invalid stateful value");
+  }
+}
+
+static bool elf_emit_memory_access_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
+  switch (value->kind) {
     case IR_VALUE_INDEX_LOAD: {
       if (value->array_index >= fun->local_len) return elf_diag(diag, "direct ELF64 indexed load array is out of range", value->line, value->column, "invalid array local");
       const IrLocal *local = &fun->locals[value->array_index];
@@ -1100,6 +1047,12 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
     case IR_VALUE_BYTE_VIEW_LEN: {
       return elf_emit_byte_view_len(code, fun, value->left, ctx, diag);
     }
+    default: return elf_diag(diag, "direct ELF64 memory value kind is invalid for this helper", value->line, value->column, "invalid memory value");
+  }
+}
+
+static bool elf_emit_byte_bulk_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
+  switch (value->kind) {
     case IR_VALUE_CRC32_BYTES: {
       if (!value->left) return elf_diag(diag, "direct ELF64 CRC32 requires a byte view", value->line, value->column, "missing byte view");
       if (!elf_emit_byte_view_ptr(code, fun, value->left, ctx, diag)) return false;
@@ -1198,6 +1151,12 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       z_x64_patch_rel32(code, end, code->len);
       return true;
     }
+    default: return elf_diag(diag, "direct ELF64 byte value kind is invalid for this helper", value->line, value->column, "invalid byte value");
+  }
+}
+
+static bool elf_emit_byte_index_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
+  switch (value->kind) {
     case IR_VALUE_BYTE_VIEW_INDEX_LOAD: {
       unsigned const_index = 0;
       unsigned char byte = 0;
@@ -1222,6 +1181,50 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       z_x64_emit_movzx_reg32_ptr_reg_u8(code, 0, 0);
       return true;
     }
+    default: return elf_diag(diag, "direct ELF64 byte-index value kind is invalid for this helper", value->line, value->column, "invalid byte-index value");
+  }
+}
+
+static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *value, ElfEmitContext *ctx, ZDiag *diag) {
+  if (!value) return elf_diag(diag, "direct ELF64 expression is missing", 1, 1, "missing expression");
+  if (!elf_type_is_supported_scalar(value->type) && !((value->kind == IR_VALUE_CALL || value->kind == IR_VALUE_CHECK) && value->type == IR_TYPE_VOID) &&
+      value->kind != IR_VALUE_MAYBE_HAS && value->kind != IR_VALUE_VEC_LEN && value->kind != IR_VALUE_VEC_CAPACITY &&
+      value->kind != IR_VALUE_VEC_PUSH && value->kind != IR_VALUE_ARGS_LEN &&
+      value->type != IR_TYPE_MAYBE_SCALAR && value->kind != IR_VALUE_FS_CLOSE_FILE) {
+    return elf_diag(diag, "direct ELF64 object backend currently supports only primitive integer values", value->line, value->column, elf_type_name(value->type));
+  }
+  switch (value->kind) {
+    case IR_VALUE_BOOL: case IR_VALUE_INT: case IR_VALUE_LOCAL: case IR_VALUE_BINARY: case IR_VALUE_COMPARE: case IR_VALUE_CALL:
+      return elf_emit_core_value(code, fun, value, ctx, diag);
+    case IR_VALUE_JSON_PARSE_BYTES: case IR_VALUE_JSON_VALIDATE_BYTES: case IR_VALUE_JSON_STREAM_TOKENS_BYTES:
+      return elf_emit_json_value(code, fun, value, ctx, diag);
+    case IR_VALUE_HTTP_FETCH: case IR_VALUE_HTTP_RESULT_OK: case IR_VALUE_HTTP_RESULT_STATUS: case IR_VALUE_HTTP_RESULT_BODY_LEN: case IR_VALUE_HTTP_RESULT_ERROR:
+    case IR_VALUE_HTTP_HEADER_FOUND: case IR_VALUE_HTTP_HEADER_OFFSET: case IR_VALUE_HTTP_HEADER_LEN: case IR_VALUE_HTTP_RESPONSE_LEN:
+    case IR_VALUE_HTTP_RESPONSE_HEADERS_LEN: case IR_VALUE_HTTP_RESPONSE_BODY_OFFSET: case IR_VALUE_HTTP_HEADER_VALUE:
+      return elf_emit_http_value(code, fun, value, ctx, diag);
+    case IR_VALUE_ARGS_LEN: case IR_VALUE_TIME_WALL_SECONDS: case IR_VALUE_TIME_MONOTONIC: case IR_VALUE_TIME_AS_MS:
+    case IR_VALUE_RAND_NEXT_U32: case IR_VALUE_RAND_ENTROPY_U32:
+      return elf_emit_host_value(code, fun, value, ctx, diag);
+    case IR_VALUE_FS_HOST: case IR_VALUE_FS_OPEN: case IR_VALUE_FS_CREATE: case IR_VALUE_FS_CLOSE_FILE: case IR_VALUE_FS_EXISTS:
+    case IR_VALUE_FS_IS_DIR: case IR_VALUE_FS_REMOVE: case IR_VALUE_FS_REMOVE_DIR: case IR_VALUE_FS_MAKE_DIR: case IR_VALUE_FS_RENAME:
+      return elf_emit_fs_basic_value(code, fun, value, ctx, diag);
+    case IR_VALUE_FS_DIR_ENTRY_COUNT:
+      return elf_emit_fs_dir_entry_count_value(code, fun, value, ctx, diag);
+    case IR_VALUE_FS_ATOMIC_WRITE:
+      return elf_emit_fs_atomic_write_value(code, fun, value, ctx, diag);
+    case IR_VALUE_FS_FILE_LEN: case IR_VALUE_FS_READ_FILE: case IR_VALUE_FS_WRITE_ALL_FILE:
+      return elf_emit_fs_file_handle_value(code, fun, value, ctx, diag);
+    case IR_VALUE_FS_READ_PATH: case IR_VALUE_FS_READ_BYTES_PATH: case IR_VALUE_FS_WRITE_PATH: case IR_VALUE_FS_WRITE_BYTES_PATH:
+      return elf_emit_fs_path_io_value(code, fun, value, ctx, diag);
+    case IR_VALUE_MAYBE_HAS: case IR_VALUE_MAYBE_VALUE: case IR_VALUE_VEC_LEN: case IR_VALUE_VEC_CAPACITY:
+    case IR_VALUE_VEC_PUSH: case IR_VALUE_CHECK: case IR_VALUE_RESCUE:
+      return elf_emit_stateful_value(code, fun, value, ctx, diag);
+    case IR_VALUE_INDEX_LOAD: case IR_VALUE_FIELD_LOAD: case IR_VALUE_BYTE_VIEW_LEN:
+      return elf_emit_memory_access_value(code, fun, value, ctx, diag);
+    case IR_VALUE_CRC32_BYTES: case IR_VALUE_BYTE_COPY: case IR_VALUE_BYTE_VIEW_EQ:
+      return elf_emit_byte_bulk_value(code, fun, value, ctx, diag);
+    case IR_VALUE_BYTE_VIEW_INDEX_LOAD:
+      return elf_emit_byte_index_value(code, fun, value, ctx, diag);
     default:
       return elf_diag(diag, "direct ELF64 value kind is unsupported", value->line, value->column, "unsupported value");
   }
