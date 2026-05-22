@@ -1092,8 +1092,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       z_x64_emit_movzx_reg32_base_index_u8(code, 2, 6, 1);
       z_x64_append_u8(code, 0x31);
       z_x64_append_u8(code, 0xd0);
-      z_x64_append_u8(code, 0x41);
-      z_x64_emit_mov_eax_u32(code, 8);
+      z_x64_emit_mov_reg_u32(code, 8, 8);
       size_t bit_loop = code->len;
       z_x64_emit_mov_reg_from_reg(code, 2, 0, false);
       z_x64_append_u8(code, 0x83);

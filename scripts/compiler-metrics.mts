@@ -803,8 +803,11 @@ const coffX64Source = cCodeText(texts.get("native/zero-c/src/emit_coff.c") ?? ""
 const machoArm64Source = cCodeText(texts.get("native/zero-c/src/emit_macho64.c") ?? "");
 const rawX64RegisterImmediateOpcode = /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xb[8-9a-f]\s*\)/i;
 const rawX64RegisterImmediateC7 = /(?:\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*)?\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xc7\s*\)\s*;\s*\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0xc[0-7]\s*\)\s*;\s*\bz_x64_append_u32\s*\(/is;
+const rawX64RegisterImmediateHelperPrefix = /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x4[0-9a-f]\s*\)\s*;\s*\bz_x64_emit_mov_eax_u32\s*\(/is;
 const hasRawX64RegisterImmediateBytes = (text: string) =>
-  rawX64RegisterImmediateOpcode.test(text) || rawX64RegisterImmediateC7.test(text);
+  rawX64RegisterImmediateOpcode.test(text) ||
+  rawX64RegisterImmediateC7.test(text) ||
+  rawX64RegisterImmediateHelperPrefix.test(text);
 const backendFormats = {
   elf: {
     sharedWriter: /\bz_elf_write_object64\s*\(/.test(elfFormatSource) && /\bz_elf_write_executable64\s*\(/.test(elfFormatSource),
