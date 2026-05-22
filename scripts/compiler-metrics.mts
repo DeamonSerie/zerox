@@ -1045,7 +1045,7 @@ const backendFormats = {
       ["native/zero-c/src/emit_elf64.c", elfX64Source],
       ["native/zero-c/src/emit_coff.c", coffX64Source],
     ]
-      .filter(([, text]) => /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x5[089a-f]\s*\)/i.test(text))
+      .filter(([, text]) => /\bz_x64_append_u8\s*\(\s*(?:code|text)\s*,\s*0x5[0-9a-f]\s*\)/i.test(text))
       .map(([path]) => path),
   },
   aarch64: {
