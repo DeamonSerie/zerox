@@ -590,6 +590,8 @@ assert.equal(compilerMetricsBody.schema, 1);
 assert(compilerMetricsBody.files["native/zero-c/src/checker.c"].lines > 0);
 assert(compilerMetricsBody.largeFunctions.length > 0);
 assert(compilerMetricsBody.stdlib.mainHelperCount > 0);
+assert.equal(compilerMetricsBody.budget.ok, true);
+assert.deepEqual(compilerMetricsBody.budget.violations, []);
 
 const agentSurfaceBorrowLifetime = await execFileAsync(zero, ["check", "--json", "conformance/agent-surface/fixtures/borrow-lexical-lifetime.0"]).catch((error) => error);
 assert.notEqual(agentSurfaceBorrowLifetime.code, 0);
