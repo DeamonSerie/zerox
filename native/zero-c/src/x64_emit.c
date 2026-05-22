@@ -605,7 +605,7 @@ void z_x64_emit_shr_rcx_imm8(ZBuf *buf, unsigned amount) {
   z_x64_emit_shr_reg_imm8(buf, 1, amount, true);
 }
 
-static void z_x64_emit_ptr_reg_op(ZBuf *buf, unsigned escape, unsigned opcode, unsigned reg, unsigned base_reg, bool wide, bool reg_is_byte) {
+static void z_x64_emit_ptr_reg_disp_op(ZBuf *buf, unsigned escape, unsigned opcode, unsigned reg, unsigned base_reg, unsigned disp, bool wide, bool reg_is_byte) {
   z_x64_require_reg(reg);
   z_x64_require_reg(base_reg);
   bool force_rex = !wide && reg_is_byte && reg >= 4 && reg < 8;
@@ -616,31 +616,33 @@ static void z_x64_emit_ptr_reg_op(ZBuf *buf, unsigned escape, unsigned opcode, u
   if (escape) z_x64_append_u8(buf, escape);
   z_x64_append_u8(buf, opcode);
   bool sib = (base_reg & 7u) == 4;
-  bool disp0 = (base_reg & 7u) == 5;
-  z_x64_append_u8(buf, (disp0 ? 0x40 : 0x00) | ((reg & 7u) << 3) | (sib ? 0x04 : (base_reg & 7u)));
+  bool needs_base_disp = (base_reg & 7u) == 5;
+  unsigned mod = 0x80;
+  if (disp == 0 && !needs_base_disp) mod = 0x00;
+  else if (disp <= 127) mod = 0x40;
+  z_x64_append_u8(buf, mod | ((reg & 7u) << 3) | (sib ? 0x04 : (base_reg & 7u)));
   if (sib) z_x64_append_u8(buf, 0x20 | (base_reg & 7u));
-  if (disp0) z_x64_append_u8(buf, 0);
+  if (mod == 0x40) z_x64_append_u8(buf, disp);
+  else if (mod == 0x80) z_x64_append_u32(buf, disp);
 }
 
-void z_x64_emit_movzx_reg32_ptr_reg_u8(ZBuf *buf, unsigned dst_reg, unsigned base_reg) {
-  z_x64_emit_ptr_reg_op(buf, 0x0f, 0xb6, dst_reg, base_reg, false, false);
+void z_x64_emit_movzx_reg32_ptr_reg_u8(ZBuf *buf, unsigned dst_reg, unsigned base_reg) { z_x64_emit_ptr_reg_disp_op(buf, 0x0f, 0xb6, dst_reg, base_reg, 0, false, false); }
+
+void z_x64_emit_movzx_reg32_ptr_reg_disp_u16(ZBuf *buf, unsigned dst_reg, unsigned base_reg, unsigned disp) { z_x64_emit_ptr_reg_disp_op(buf, 0x0f, 0xb7, dst_reg, base_reg, disp, false, false); }
+
+void z_x64_emit_load_reg_ptr_reg(ZBuf *buf, unsigned dst_reg, unsigned base_reg, bool wide) { z_x64_emit_ptr_reg_disp_op(buf, 0, 0x8b, dst_reg, base_reg, 0, wide, false); }
+
+void z_x64_emit_mov_ptr_reg_disp_u8(ZBuf *buf, unsigned base_reg, unsigned disp, unsigned value) {
+  if (value > 0xff) abort();
+  z_x64_emit_ptr_reg_disp_op(buf, 0, 0xc6, 0, base_reg, disp, false, false);
+  z_x64_append_u8(buf, value);
 }
 
-void z_x64_emit_load_reg_ptr_reg(ZBuf *buf, unsigned dst_reg, unsigned base_reg, bool wide) {
-  z_x64_emit_ptr_reg_op(buf, 0, 0x8b, dst_reg, base_reg, wide, false);
-}
+void z_x64_emit_store_ptr_reg8_from_reg(ZBuf *buf, unsigned base_reg, unsigned src_reg) { z_x64_emit_ptr_reg_disp_op(buf, 0, 0x88, src_reg, base_reg, 0, false, true); }
 
-void z_x64_emit_store_ptr_reg8_from_reg(ZBuf *buf, unsigned base_reg, unsigned src_reg) {
-  z_x64_emit_ptr_reg_op(buf, 0, 0x88, src_reg, base_reg, false, true);
-}
+void z_x64_emit_store_ptr_reg_from_reg(ZBuf *buf, unsigned base_reg, unsigned src_reg, bool wide) { z_x64_emit_ptr_reg_disp_op(buf, 0, 0x89, src_reg, base_reg, 0, wide, false); }
 
-void z_x64_emit_store_ptr_reg_from_reg(ZBuf *buf, unsigned base_reg, unsigned src_reg, bool wide) {
-  z_x64_emit_ptr_reg_op(buf, 0, 0x89, src_reg, base_reg, wide, false);
-}
-
-void z_x64_emit_cmp_reg_ptr_reg(ZBuf *buf, unsigned lhs_reg, unsigned base_reg, bool wide) {
-  z_x64_emit_ptr_reg_op(buf, 0, 0x3b, lhs_reg, base_reg, wide, false);
-}
+void z_x64_emit_cmp_reg_ptr_reg(ZBuf *buf, unsigned lhs_reg, unsigned base_reg, bool wide) { z_x64_emit_ptr_reg_disp_op(buf, 0, 0x3b, lhs_reg, base_reg, 0, wide, false); }
 
 void z_x64_emit_div_rax_rcx(ZBuf *buf, bool wide, bool uns, bool keep_remainder) {
   if (uns) {

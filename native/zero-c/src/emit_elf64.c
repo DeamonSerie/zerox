@@ -740,11 +740,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       z_x64_emit_cmp_reg_reg(code, 9, 8, true);
       size_t scan_done = z_x64_emit_jcc32_placeholder(code, 0x83);
       z_x64_emit_inc_rsp_offset64(code, 1032);
-      z_x64_append_u8(code, 0x41);
-      z_x64_append_u8(code, 0x0f);
-      z_x64_append_u8(code, 0xb7);
-      z_x64_append_u8(code, 0x41);
-      z_x64_append_u8(code, 0x10);
+      z_x64_emit_movzx_reg32_ptr_reg_disp_u16(code, 0, 9, 16);
       z_x64_emit_add_reg_reg(code, 9, 0, true);
       size_t scan_back = z_x64_emit_jmp32_placeholder(code, 0xe9);
       z_x64_patch_rel32(code, scan_back, scan_loop);
@@ -1462,17 +1458,11 @@ static bool elf_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *ins
           if (!elf_byte_view_const_byte(ctx ? ctx->ir : NULL, fun, prefix, i, &byte)) {
             return elf_diag(diag, "direct ELF64 std.fs.tempName prefix byte is unavailable", instr->line, instr->column, "unavailable prefix");
           }
-          z_x64_append_u8(text, 0xc6);
-          z_x64_append_u8(text, 0x80);
-          z_x64_append_u32(text, i);
-          z_x64_append_u8(text, byte);
+          z_x64_emit_mov_ptr_reg_disp_u8(text, 0, i, byte);
         }
         const unsigned char suffix[] = {'-', 't', 'm', 'p', 0};
         for (unsigned i = 0; i < sizeof(suffix); i++) {
-          z_x64_append_u8(text, 0xc6);
-          z_x64_append_u8(text, 0x80);
-          z_x64_append_u32(text, prefix_len + i);
-          z_x64_append_u8(text, suffix[i]);
+          z_x64_emit_mov_ptr_reg_disp_u8(text, 0, prefix_len + i, suffix[i]);
         }
         z_x64_emit_push_rax(text);
         z_x64_emit_mov_eax_u32(text, 1);
