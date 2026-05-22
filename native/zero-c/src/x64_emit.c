@@ -109,6 +109,50 @@ void z_x64_emit_mov_rcx_from_rax(ZBuf *buf, bool wide) {
   z_x64_append_u8(buf, 0xc1);
 }
 
+void z_x64_emit_mov_r9_from_rax(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x49);
+  z_x64_append_u8(buf, 0x89);
+  z_x64_append_u8(buf, 0xc1);
+}
+
+void z_x64_emit_mov_rax_from_rcx(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0x89);
+  z_x64_append_u8(buf, 0xc8);
+}
+
+void z_x64_emit_mov_eax_from_ecx(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x89);
+  z_x64_append_u8(buf, 0xc8);
+}
+
+size_t z_x64_emit_mov_rax_u64_patchable(ZBuf *buf, uint64_t value) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_append_u8(buf, 0xb8);
+  size_t patch = buf->len;
+  z_x64_append_u64(buf, value);
+  return patch;
+}
+
+void z_x64_emit_mov_rax_u64(ZBuf *buf, uint64_t value) {
+  (void)z_x64_emit_mov_rax_u64_patchable(buf, value);
+}
+
+void z_x64_emit_xor_eax_eax(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x31);
+  z_x64_append_u8(buf, 0xc0);
+}
+
+void z_x64_emit_xor_ecx_ecx(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x31);
+  z_x64_append_u8(buf, 0xc9);
+}
+
+void z_x64_emit_xor_rax_rax(ZBuf *buf) {
+  z_x64_append_u8(buf, 0x48);
+  z_x64_emit_xor_eax_eax(buf);
+}
+
 void z_x64_emit_add_rax_rcx(ZBuf *buf, bool wide) {
   z_x64_emit_wide_prefix(buf, wide);
   z_x64_append_u8(buf, 0x01);
@@ -138,6 +182,12 @@ void z_x64_emit_or_rax_rcx(ZBuf *buf, bool wide) {
   z_x64_emit_wide_prefix(buf, wide);
   z_x64_append_u8(buf, 0x09);
   z_x64_append_u8(buf, 0xc8);
+}
+
+void z_x64_emit_add_rdx_rcx(ZBuf *buf, bool wide) {
+  z_x64_emit_wide_prefix(buf, wide);
+  z_x64_append_u8(buf, 0x01);
+  z_x64_append_u8(buf, 0xca);
 }
 
 void z_x64_emit_div_rax_rcx(ZBuf *buf, bool wide, bool uns, bool keep_remainder) {

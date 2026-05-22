@@ -39,9 +39,9 @@ const fileBudgets = {
   "native/zero-c/src/emit_macho64.c": { maxLines: 1400, maxStrcmpCalls: 2 },
   "native/zero-c/src/macho_emit_state.c": { maxLines: 210, maxStrcmpCalls: 0 },
   "native/zero-c/src/macho_emit_state.h": { maxLines: 90, maxStrcmpCalls: 0 },
-  "native/zero-c/src/emit_elf64.c": { maxLines: 2420, maxStrcmpCalls: 3 },
+  "native/zero-c/src/emit_elf64.c": { maxLines: 2360, maxStrcmpCalls: 3 },
   "native/zero-c/src/emit_elf_aarch64.c": { maxLines: 205, maxStrcmpCalls: 1 },
-  "native/zero-c/src/emit_coff.c": { maxLines: 970, maxStrcmpCalls: 1 },
+  "native/zero-c/src/emit_coff.c": { maxLines: 950, maxStrcmpCalls: 1 },
   "native/zero-c/src/fs.c": { maxLines: 1250, maxStrcmpCalls: 32 },
   "native/zero-c/src/mir_verify.c": { maxLines: 1300, maxStrcmpCalls: 0 },
   "native/zero-c/src/mir_verify.h": { maxLines: 50, maxStrcmpCalls: 0 },
@@ -54,8 +54,8 @@ const fileBudgets = {
   "native/zero-c/src/type_core.h": { maxLines: 150, maxStrcmpCalls: 0 },
   "native/zero-c/src/unify.c": { maxLines: 500, maxStrcmpCalls: 14 },
   "native/zero-c/src/unify.h": { maxLines: 75, maxStrcmpCalls: 0 },
-  "native/zero-c/src/x64_emit.c": { maxLines: 270, maxStrcmpCalls: 0 },
-  "native/zero-c/src/x64_emit.h": { maxLines: 45, maxStrcmpCalls: 0 },
+  "native/zero-c/src/x64_emit.c": { maxLines: 320, maxStrcmpCalls: 0 },
+  "native/zero-c/src/x64_emit.h": { maxLines: 55, maxStrcmpCalls: 0 },
 };
 
 const knownLargeFunctionLimits = new Map([
@@ -868,11 +868,20 @@ const backendFormats = {
       /\bz_x64_emit_push_rax\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_pop_rax\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_mov_rcx_from_rax\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_mov_r9_from_rax\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_mov_rax_from_rcx\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_mov_eax_from_ecx\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_mov_rax_u64_patchable\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_mov_rax_u64\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_xor_eax_eax\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_xor_ecx_ecx\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_xor_rax_rax\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_add_rax_rcx\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_sub_rax_rcx\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_imul_rax_rcx\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_and_rax_rcx\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_or_rax_rcx\s*\(/.test(x64EmitSource) &&
+      /\bz_x64_emit_add_rdx_rcx\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_div_rax_rcx\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_test_rax_rax\s*\(/.test(x64EmitSource) &&
       /\bz_x64_emit_test_ecx_ecx\s*\(/.test(x64EmitSource) &&
@@ -892,11 +901,20 @@ const backendFormats = {
       /\bz_x64_emit_push_rax\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_pop_rax\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_mov_rcx_from_rax\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_mov_r9_from_rax\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_mov_rax_from_rcx\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_mov_eax_from_ecx\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_mov_rax_u64_patchable\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_mov_rax_u64\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_xor_eax_eax\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_xor_ecx_ecx\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_xor_rax_rax\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_add_rax_rcx\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_sub_rax_rcx\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_imul_rax_rcx\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_and_rax_rcx\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_or_rax_rcx\s*\(/.test(elfX64Source) &&
+      /\bz_x64_emit_add_rdx_rcx\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_div_rax_rcx\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_test_rax_rax\s*\(/.test(elfX64Source) &&
       /\bz_x64_emit_test_ecx_ecx\s*\(/.test(elfX64Source) &&
@@ -916,9 +934,13 @@ const backendFormats = {
       /\bz_x64_emit_push_rax\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_pop_rax\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_mov_rcx_from_rax\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_mov_eax_from_ecx\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_mov_rax_u64_patchable\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_xor_eax_eax\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_add_rax_rcx\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_sub_rax_rcx\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_imul_rax_rcx\s*\(/.test(coffX64Source) &&
+      /\bz_x64_emit_add_rdx_rcx\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_test_rax_rax\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_cmp_rax_rcx\s*\(/.test(coffX64Source) &&
       /\bz_x64_emit_cmp_rax_rcx_to_bool\s*\(/.test(coffX64Source) &&
