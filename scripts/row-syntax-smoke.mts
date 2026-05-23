@@ -49,6 +49,7 @@ try {
     "native/zero-c/src/call_resolve.c",
     "native/zero-c/src/std_sig.c",
     "native/zero-c/src/target.c",
+    "native/zero-c/src/target_backend.c",
     "native/zero-c/tests/row_syntax_check_smoke.c",
     "-o",
     checkOut,
