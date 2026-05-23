@@ -771,7 +771,7 @@ static const IrFunction *coff_find_executable_main(const IrProgram *program, ZDi
     return NULL;
   }
   if (fun->return_type != IR_TYPE_VOID && !coff_type_is_scalar32(fun->return_type)) {
-    coff_diag_at(diag, "direct COFF x64 executable main must return Void, i32, or u32", fun->line, fun->column, fun->name);
+    coff_diag_at(diag, "direct COFF x64 executable main must return Void or a 32-bit-or-smaller scalar", fun->line, fun->column, fun->name);
     return NULL;
   }
   if (out_index) *out_index = index;

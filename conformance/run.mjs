@@ -342,6 +342,7 @@ for (const fixture of [
   "conformance/native/pass/generic-spans.0",
   "conformance/native/pass/open-ended-slices.0",
   "conformance/native/pass/string-slices.0",
+  "conformance/native/pass/coff-dynamic-byte-slice-blocked.0",
   "conformance/native/pass/string-byte-ergonomics.0",
   "conformance/native/pass/indexed-mutation.0",
   "conformance/native/pass/nested-lvalues.0",
@@ -796,6 +797,75 @@ for (const key of ["code", "path", "line", "column", "length", "expected", "actu
   assert.equal(directCallExeGraphBody.targetReadiness.diagnostics[0][key], directCallReadinessDiag[key]);
 }
 assert.equal(directCallExeGraphBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+
+const directStringMachOExe = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "exe",
+  "--target",
+  "darwin-arm64",
+  "examples/direct-string-literal.0",
+  "--out",
+  `${outDir}/direct-string-literal-darwin`,
+]);
+const directStringMachOExeBody = JSON.parse(directStringMachOExe.stdout);
+assert.equal(directStringMachOExeBody.compiler, "zero-macho64");
+assert.equal(directStringMachOExeBody.generatedCBytes, 0);
+const directStringCoffExe = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "exe",
+  "--target",
+  "win32-x64.exe",
+  "examples/direct-string-literal.0",
+  "--out",
+  `${outDir}/direct-string-literal-win`,
+]);
+const directStringCoffExeBody = JSON.parse(directStringCoffExe.stdout);
+assert.equal(directStringCoffExeBody.compiler, "zero-coff-x64");
+assert.equal(directStringCoffExeBody.generatedCBytes, 0);
+
+const coffDynamicSliceFixture = "conformance/native/pass/coff-dynamic-byte-slice-blocked.0";
+const coffDynamicSliceReadiness = await execFileAsync(zero, [
+  "check",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "win32-x64.exe",
+  coffDynamicSliceFixture,
+]);
+const coffDynamicSliceReadinessBody = JSON.parse(coffDynamicSliceReadiness.stdout);
+assert.equal(coffDynamicSliceReadinessBody.ok, true);
+assert.equal(coffDynamicSliceReadinessBody.diagnostics.length, 0);
+assert.equal(coffDynamicSliceReadinessBody.targetReadiness.ok, false);
+assert.equal(coffDynamicSliceReadinessBody.targetReadiness.buildable, false);
+assert.equal(coffDynamicSliceReadinessBody.targetReadiness.diagnostics[0].code, "BLD004");
+assert.equal(coffDynamicSliceReadinessBody.targetReadiness.diagnostics[0].backendBlocker.backend, "zero-coff-x64");
+assert.equal(coffDynamicSliceReadinessBody.targetReadiness.diagnostics[0].backendBlocker.stage, "buildability");
+assert.match(coffDynamicSliceReadinessBody.targetReadiness.diagnostics[0].message, /constant start/);
+const coffDynamicSliceBuild = await execFileAsync(zero, [
+  "build",
+  "--json",
+  "--emit",
+  "obj",
+  "--target",
+  "win32-x64.exe",
+  coffDynamicSliceFixture,
+  "--out",
+  `${outDir}/coff-dynamic-byte-slice.obj`,
+]).catch((error) => error);
+assert.notEqual(coffDynamicSliceBuild.code, 0);
+const coffDynamicSliceBuildBody = JSON.parse(coffDynamicSliceBuild.stdout);
+const coffDynamicSliceReadinessDiag = coffDynamicSliceReadinessBody.targetReadiness.diagnostics[0];
+const coffDynamicSliceBuildDiag = coffDynamicSliceBuildBody.diagnostics[0];
+for (const key of ["code", "path", "line", "column", "length", "expected", "actual", "help"]) {
+  assert.equal(coffDynamicSliceBuildDiag[key], coffDynamicSliceReadinessDiag[key]);
+}
+assert.equal(coffDynamicSliceBuildDiag.backendBlocker.backend, "zero-coff-x64");
+assert.equal(coffDynamicSliceBuildDiag.backendBlocker.stage, "buildability");
 
 const directCallArm64ObjReadiness = await execFileAsync(zero, [
   "check",

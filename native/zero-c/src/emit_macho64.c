@@ -1242,7 +1242,7 @@ static const IrFunction *macho_find_executable_main(const IrProgram *program, ZD
     return NULL;
   }
   if (fun->return_type != IR_TYPE_VOID && !macho_type_is_scalar32(fun->return_type)) {
-    macho_diag_at(diag, "direct AArch64 Mach-O executable main must return Void, i32, or u32", fun->line, fun->column, fun->name);
+    macho_diag_at(diag, "direct AArch64 Mach-O executable main must return Void or a 32-bit-or-smaller scalar", fun->line, fun->column, fun->name);
     return NULL;
   }
   if (out_index) *out_index = index;

@@ -1964,7 +1964,7 @@ static const IrFunction *elf_find_executable_main(const IrProgram *ir, ZDiag *di
     return NULL;
   }
   if (!elf_type_is_scalar(fun->return_type) || elf_type_is_i64(fun->return_type)) {
-    elf_diag(diag, "direct ELF64 executable main must return i32 or u32", fun->line, fun->column, elf_type_name(fun->return_type));
+    elf_diag(diag, "direct ELF64 executable main must return a 32-bit-or-smaller scalar", fun->line, fun->column, elf_type_name(fun->return_type));
     return NULL;
   }
   if (!elf_validate_function(fun, diag)) return NULL;

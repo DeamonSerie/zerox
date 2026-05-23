@@ -1,5 +1,6 @@
 #include "buildability.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -130,6 +131,32 @@ static bool build_is_scalar32(IrTypeKind type) {
          type == IR_TYPE_I32 || type == IR_TYPE_U32;
 }
 
+static bool build_const_u32_value(const IrValue *value, unsigned *out) {
+  if (!value || value->kind != IR_VALUE_INT || value->int_value > UINT32_MAX) return false;
+  if (out) *out = (unsigned)value->int_value;
+  return true;
+}
+
+static bool build_coff_byte_view_const_len(const IrValue *view, unsigned *out) {
+  if (!view) return false;
+  if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
+    if (out) *out = view->data_len;
+    return true;
+  }
+  if (view->kind == IR_VALUE_BYTE_SLICE) {
+    unsigned base_len = 0;
+    if (!build_coff_byte_view_const_len(view->left, &base_len)) return false;
+    unsigned start = 0;
+    unsigned end = base_len;
+    if (view->index && !build_const_u32_value(view->index, &start)) return false;
+    if (view->right && !build_const_u32_value(view->right, &end)) return false;
+    if (start > end || end > base_len) return false;
+    if (out) *out = end - start;
+    return true;
+  }
+  return false;
+}
+
 static bool build_diag(const ZBuildability *ctx, ZDiag *diag, const char *message, int line, int column, const char *actual) {
   if (!diag) return false;
   memset(diag, 0, sizeof(*diag));
@@ -200,6 +227,45 @@ static bool build_select(const IrProgram *ir, const ZTargetInfo *target, const c
   return true;
 }
 
+static bool build_check_coff_byte_view_ptr(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
+  if (!view) return build_diag(ctx, diag, "direct COFF byte view is missing", 1, 1, "missing byte view");
+  if (view->kind == IR_VALUE_LOCAL && fun && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_BYTE_VIEW) return true;
+  if (view->kind == IR_VALUE_MAYBE_VALUE && fun && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_MAYBE_BYTE_VIEW) return true;
+  if (view->kind == IR_VALUE_ARRAY_BYTE_VIEW && fun && view->array_index < fun->local_len) {
+    const IrLocal *local = &fun->locals[view->array_index];
+    if (!local->is_array || local->element_type != IR_TYPE_U8) {
+      return build_diag(ctx, diag, "direct COFF byte-view array requires [N]u8", view->line, view->column, "unsupported array view");
+    }
+    return true;
+  }
+  if (view->kind == IR_VALUE_STRING_LITERAL) return true;
+  if (view->kind == IR_VALUE_BYTE_SLICE) {
+    unsigned start = 0;
+    if (!build_const_u32_value(view->index, &start)) {
+      return build_diag(ctx, diag, "direct COFF byte slice currently requires a constant start", view->line, view->column, "unsupported byte slice");
+    }
+    return build_check_coff_byte_view_ptr(ctx, fun, view->left, diag);
+  }
+  return build_diag(ctx, diag, "direct COFF value is not a supported byte view", view->line, view->column, "unsupported byte view");
+}
+
+static bool build_check_coff_byte_view_len(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
+  unsigned len = 0;
+  if (build_coff_byte_view_const_len(view, &len)) return true;
+  if (view && view->kind == IR_VALUE_LOCAL && fun && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_BYTE_VIEW) return true;
+  if (view && view->kind == IR_VALUE_MAYBE_VALUE && fun && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_MAYBE_BYTE_VIEW) return true;
+  if (view && view->kind == IR_VALUE_BYTE_SLICE && view->index && view->right) {
+    unsigned start = 0;
+    unsigned end = 0;
+    if (build_const_u32_value(view->index, &start) && build_const_u32_value(view->right, &end) && start <= end) return true;
+  }
+  return build_diag(ctx, diag, "direct COFF byte-view length currently requires a literal, constant slice, or byte-view local", view ? view->line : 1, view ? view->column : 1, "unsupported byte view length");
+}
+
+static bool build_check_coff_byte_view(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
+  return build_check_coff_byte_view_ptr(ctx, fun, view, diag) && build_check_coff_byte_view_len(ctx, fun, view, diag);
+}
+
 static bool build_value_supported(const ZBuildability *ctx, const IrValue *value, bool local_set_value) {
   if (!ctx || !value) return false;
   if (ctx->backend == Z_BUILD_BACKEND_ELF_AARCH64) return true;
@@ -248,6 +314,11 @@ static bool build_check_value(const ZBuildability *ctx, const IrFunction *fun, c
   if (!value) return build_diag(ctx, diag, "direct backend buildability found a missing expression", 1, 1, "missing expression");
   if (!build_value_supported(ctx, value, local_set_value)) {
     return build_diag(ctx, diag, "direct backend buildability does not support this MIR value", value->line, value->column, build_value_kind_name(value->kind));
+  }
+  if (ctx->backend == Z_BUILD_BACKEND_COFF_X64) {
+    if (value->kind == IR_VALUE_BYTE_VIEW_LEN && !build_check_coff_byte_view_len(ctx, fun, value->left, diag)) return false;
+    if (value->kind == IR_VALUE_BYTE_VIEW_INDEX_LOAD && !build_check_coff_byte_view(ctx, fun, value->left, diag)) return false;
+    if ((value->kind == IR_VALUE_FIXED_BUF_ALLOC || value->kind == IR_VALUE_VEC_INIT) && !build_check_coff_byte_view(ctx, fun, value->left, diag)) return false;
   }
   if (value->kind == IR_VALUE_BINARY) {
     bool supported = true;
@@ -305,11 +376,20 @@ static bool build_check_instr(const ZBuildability *ctx, const IrFunction *fun, c
   if (ctx->backend == Z_BUILD_BACKEND_ELF_AARCH64) return true;
   switch (instr->kind) {
     case IR_INSTR_LOCAL_SET:
+      if (ctx->backend == Z_BUILD_BACKEND_COFF_X64 && instr->value && fun && instr->local_index < fun->local_len &&
+          fun->locals[instr->local_index].type == IR_TYPE_BYTE_VIEW && !build_check_coff_byte_view(ctx, fun, instr->value, diag)) return false;
       if (instr->value && !build_check_value(ctx, fun, instr->value, true, diag)) return false;
       return true;
     case IR_INSTR_INDEX_STORE:
     case IR_INSTR_FIELD_STORE:
+      if (instr->value && !build_check_value(ctx, fun, instr->value, false, diag)) return false;
+      if (instr->index && !build_check_value(ctx, fun, instr->index, false, diag)) return false;
+      return true;
     case IR_INSTR_WORLD_WRITE:
+      if (ctx->backend == Z_BUILD_BACKEND_COFF_X64 && instr->value && !build_check_coff_byte_view(ctx, fun, instr->value, diag)) return false;
+      if (instr->value && !build_check_value(ctx, fun, instr->value, false, diag)) return false;
+      if (instr->index && !build_check_value(ctx, fun, instr->index, false, diag)) return false;
+      return true;
     case IR_INSTR_EXPR:
     case IR_INSTR_RETURN:
       if (instr->value && !build_check_value(ctx, fun, instr->value, false, diag)) return false;
@@ -388,11 +468,11 @@ static bool build_check_executable_shape(const ZBuildability *ctx, const IrProgr
     return build_diag(ctx, diag, message, main_fun->line, main_fun->column, main_fun->name);
   }
   bool return_ok = ctx->backend == Z_BUILD_BACKEND_ELF64 ? build_is_scalar32(main_fun->return_type)
-                                                         : (main_fun->return_type == IR_TYPE_VOID || main_fun->return_type == IR_TYPE_I32 || main_fun->return_type == IR_TYPE_U32);
+                                                         : (main_fun->return_type == IR_TYPE_VOID || build_is_scalar32(main_fun->return_type));
   if (!return_ok) {
     const char *message = ctx->backend == Z_BUILD_BACKEND_ELF64 ? "direct ELF64 executable main must return a 32-bit-or-smaller scalar" :
-                          (ctx->backend == Z_BUILD_BACKEND_COFF_X64 ? "direct COFF x64 executable main must return Void, i32, or u32" :
-                           "direct AArch64 Mach-O executable main must return Void, i32, or u32");
+                          (ctx->backend == Z_BUILD_BACKEND_COFF_X64 ? "direct COFF x64 executable main must return Void or a 32-bit-or-smaller scalar" :
+                           "direct AArch64 Mach-O executable main must return Void or a 32-bit-or-smaller scalar");
     return build_diag(ctx, diag, message, main_fun->line, main_fun->column, build_type_name(main_fun->return_type));
   }
   return true;
