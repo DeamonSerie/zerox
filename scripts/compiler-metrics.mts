@@ -15,10 +15,10 @@ type CScanState = {
 };
 
 const fileBudgets = {
-  "native/zero-c/include/zero.h": { maxLines: 900, maxStrcmpCalls: 0 },
+  "native/zero-c/include/zero.h": { maxLines: 905, maxStrcmpCalls: 0 },
   "native/zero-c/include/zero_runtime.h": { maxLines: 100, maxStrcmpCalls: 0 },
   "native/zero-c/src/checker.c": { maxLines: 9395, maxStrcmpCalls: 403 },
-  "native/zero-c/src/main.c": { maxLines: 10040, maxStrcmpCalls: 535 },
+  "native/zero-c/src/main.c": { maxLines: 10000, maxStrcmpCalls: 473 },
   "native/zero-c/src/ir.c": { maxLines: 3700, maxStrcmpCalls: 224 },
   "native/zero-c/src/row_syntax.c": { maxLines: 2150, maxStrcmpCalls: 11 },
   "native/zero-c/src/ast.c": { maxLines: 250, maxStrcmpCalls: 0 },
@@ -54,7 +54,8 @@ const fileBudgets = {
   "native/zero-c/src/specialize.h": { maxLines: 50, maxStrcmpCalls: 0 },
   "native/zero-c/src/std_sig.c": { maxLines: 180, maxStrcmpCalls: 2 },
   "native/zero-c/src/std_sig.h": { maxLines: 40, maxStrcmpCalls: 0 },
-  "native/zero-c/src/target.c": { maxLines: 535, maxStrcmpCalls: 37 },
+  "native/zero-c/src/target_backend.c": { maxLines: 160, maxStrcmpCalls: 10 },
+  "native/zero-c/src/target.c": { maxLines: 465, maxStrcmpCalls: 15 },
   "native/zero-c/src/type_core.c": { maxLines: 900, maxStrcmpCalls: 8 },
   "native/zero-c/src/type_core.h": { maxLines: 150, maxStrcmpCalls: 0 },
   "native/zero-c/src/unify.c": { maxLines: 500, maxStrcmpCalls: 14 },
@@ -594,6 +595,15 @@ function budgetViolations(files, allLargeFunctions, stdlib, backendFormats) {
       names: staleArgTypeAllowlist,
     });
   }
+  if (!backendFormats.directTarget.ruleMatrix ||
+      !backendFormats.directTarget.executableUsesRuleMatrix ||
+      backendFormats.directTarget.executableTargetNameChecks > 0 ||
+      backendFormats.directTarget.mainExecutableEmitterStringChecks > 0) {
+    violations.push({
+      kind: "direct-target-backend-matrix",
+      directTarget: backendFormats.directTarget,
+    });
+  }
   if (!backendFormats.elf.sharedWriter ||
       !backendFormats.elf.x86ObjectUsesSharedWriter ||
       !backendFormats.elf.x86ExecutableUsesSharedWriter ||
@@ -760,6 +770,9 @@ const checker = texts.get("native/zero-c/src/checker.c") ?? "";
 const main = texts.get("native/zero-c/src/main.c") ?? "";
 const ir = texts.get("native/zero-c/src/ir.c") ?? "";
 const stdSig = texts.get("native/zero-c/src/std_sig.c") ?? "";
+const targetBackendRaw = texts.get("native/zero-c/src/target_backend.c") ?? "";
+const targetBackendSource = cCodeText(targetBackendRaw);
+const directExeBackendBody = cCodeText(cBlock(targetBackendRaw, "ZDirectBackend z_direct_exe_backend"));
 
 const stdHelpers = parseStdHelpers(stdSig);
 const checkerReturnTypeInfo = parseCheckerReturnTypes(checker);
@@ -873,6 +886,12 @@ const hasRawX64PointerMemoryBytes = (text: string) =>
   rawX64PointerMemoryReg.test(text) ||
   rawX64PointerMemoryMovzx.test(text);
 const backendFormats = {
+  directTarget: {
+    ruleMatrix: /\bdirect_backend_rules\[\]/.test(targetBackendSource),
+    executableUsesRuleMatrix: /return\s+direct_backend_for_target\s*\(\s*target\s*,\s*true\s*\)/.test(targetBackendSource),
+    executableTargetNameChecks: countMatches(directExeBackendBody, /target\s*->\s*name/g),
+    mainExecutableEmitterStringChecks: countMatches(cCodeText(main), /zero-(?:elf64|elf-aarch64|macho64|coff-x64)-exe/g),
+  },
   elf: {
     sharedWriter: /\bz_elf_write_object64\s*\(/.test(elfFormatSource) && /\bz_elf_write_executable64\s*\(/.test(elfFormatSource),
     x86ObjectUsesSharedWriter: /\bz_elf_write_object64\s*\(\s*out\s*,\s*&image\s*\)/.test(elfX64Source),

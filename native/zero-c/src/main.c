@@ -4870,25 +4870,14 @@ static const char *direct_emit_emitter(const ZTargetInfo *target, const Command 
 }
 
 static const char *direct_linker_flavor_for_emitter(const char *emitter) {
-  if (!emitter || strcmp(emitter, "none") == 0) return "none";
-  if (strcmp(emitter, "zero-elf64") == 0 || strcmp(emitter, "zero-elf64-exe") == 0) return "elf64";
-  if (strcmp(emitter, "zero-elf-aarch64") == 0 || strcmp(emitter, "zero-elf-aarch64-exe") == 0) return "elf64";
-  if (strcmp(emitter, "zero-macho64") == 0 || strcmp(emitter, "zero-macho64-exe") == 0) return "macho64";
-  if (strcmp(emitter, "zero-coff-x64") == 0 || strcmp(emitter, "zero-coff-x64-exe") == 0) return "coff";
-  return "none";
+  return z_direct_backend_linker_flavor(z_direct_backend_from_emitter(emitter));
 }
 
 static const char *direct_object_path_for_emitter(const char *emitter) {
-  if (!emitter || strcmp(emitter, "none") == 0) return "unsupported";
-  if (strcmp(emitter, "zero-elf64") == 0) return "direct-elf64-object";
-  if (strcmp(emitter, "zero-elf64-exe") == 0) return "direct-elf64-exe";
-  if (strcmp(emitter, "zero-elf-aarch64") == 0) return "direct-elf-aarch64-object";
-  if (strcmp(emitter, "zero-elf-aarch64-exe") == 0) return "direct-elf-aarch64-exe";
-  if (strcmp(emitter, "zero-macho64") == 0) return "direct-macho64-object";
-  if (strcmp(emitter, "zero-macho64-exe") == 0) return "direct-macho64-exe";
-  if (strcmp(emitter, "zero-coff-x64") == 0) return "direct-coff-x64-object";
-  if (strcmp(emitter, "zero-coff-x64-exe") == 0) return "direct-coff-x64-exe";
-  return "direct-backend";
+  ZDirectBackend backend = z_direct_backend_from_emitter(emitter);
+  if (backend == Z_DIRECT_BACKEND_NONE) return "unsupported";
+  bool executable = z_direct_backend_emitter_is_executable(emitter);
+  return z_direct_backend_artifact_path(backend, executable);
 }
 
 static const char *release_artifact_kind_for_emit(const ZTargetInfo *target, const char *emit_kind) {
@@ -5358,19 +5347,12 @@ static void print_build_json(const Command *command, const SourceInput *input, c
   printf(",\n  \"warnings\": []");
   printf(",\n  \"compiler\": ");
   const char *direct_emitter = direct_emit_emitter(target, command, emit_kind);
-  if (direct_emitter && strcmp(direct_emitter, "zero-elf64-exe") == 0) print_json_string("zero-elf64");
-  else if (direct_emitter && strcmp(direct_emitter, "zero-elf-aarch64-exe") == 0) print_json_string("zero-elf-aarch64");
-  else if (direct_emitter && strcmp(direct_emitter, "zero-macho64-exe") == 0) print_json_string("zero-macho64");
-  else if (direct_emitter && strcmp(direct_emitter, "zero-coff-x64-exe") == 0) print_json_string("zero-coff-x64");
-  else if (direct_emitter && strcmp(direct_emitter, "none") != 0) print_json_string(direct_emitter);
+  ZDirectBackend direct_backend = z_direct_backend_from_emitter(direct_emitter);
+  const char *driver_kind = z_direct_backend_object_emitter(direct_backend);
+  if (direct_backend != Z_DIRECT_BACKEND_NONE) print_json_string(driver_kind);
   else print_json_string(build_compiler_label(command, target));
   printf(",\n  \"toolchain\": ");
-  if (direct_emitter && strcmp(direct_emitter, "none") != 0) {
-    const char *driver_kind = direct_emitter;
-    if (strcmp(direct_emitter, "zero-elf64-exe") == 0) driver_kind = "zero-elf64";
-    else if (strcmp(direct_emitter, "zero-elf-aarch64-exe") == 0) driver_kind = "zero-elf-aarch64";
-    else if (strcmp(direct_emitter, "zero-macho64-exe") == 0) driver_kind = "zero-macho64";
-    else if (strcmp(direct_emitter, "zero-coff-x64-exe") == 0) driver_kind = "zero-coff-x64";
+  if (direct_backend != Z_DIRECT_BACKEND_NONE) {
     ZBuf direct_toolchain;
     zbuf_init(&direct_toolchain);
     zbuf_append(&direct_toolchain, "{\"driverKind\":");
@@ -8465,14 +8447,6 @@ static void init_lowering_backend_diag(ZDiag *diag, const SourceInput *input, co
   complete_backend_blocker_diag(diag, target, command, emit_kind_name(command ? command->emit : EMIT_EXE), "lower");
 }
 
-static bool requested_exe_backend_matches(const Command *command, const char *emitter) {
-  if (!command || !command->backend || !command->backend[0]) return true;
-  return (strcmp(command->backend, "zero-elf64") == 0 && strcmp(emitter, "zero-elf64-exe") == 0) ||
-         (strcmp(command->backend, "zero-elf-aarch64") == 0 && strcmp(emitter, "zero-elf-aarch64-exe") == 0) ||
-         (strcmp(command->backend, "zero-macho64") == 0 && strcmp(emitter, "zero-macho64-exe") == 0) ||
-         (strcmp(command->backend, "zero-coff-x64") == 0 && strcmp(emitter, "zero-coff-x64-exe") == 0);
-}
-
 static bool target_readiness_select_emit_target(const Command *command, const SourceInput *input, const ZTargetInfo *target, ZDiag *diag) {
   EmitKind emit = command ? command->emit : EMIT_EXE;
   const char *emit_kind = emit_kind_name(emit);
@@ -8509,9 +8483,8 @@ static bool target_readiness_select_diag(const Command *command, const SourceInp
   if (ir && ir_needs_zero_runtime_object(ir)) {
     RuntimeImportAudit audit = runtime_import_audit_from_ir(ir);
     bool needs_http_runtime = runtime_import_audit_uses_http_provider(&audit);
-    const char *object_emitter = z_direct_object_emitter(target);
-    bool runtime_object_emitter_supported = object_emitter && (strcmp(object_emitter, "zero-macho64") == 0 || strcmp(object_emitter, "zero-elf64") == 0);
-    if (!runtime_object_emitter_supported) {
+    ZDirectBackend object_backend = z_direct_object_backend(target);
+    if (!z_direct_backend_supports_runtime_object(object_backend)) {
       init_direct_backend_diag(diag, command, input, target, emit_kind, "runtime helpers currently require the Mach-O or ELF64 object link plan");
       return false;
     }
@@ -8522,8 +8495,8 @@ static bool target_readiness_select_diag(const Command *command, const SourceInp
     return target_readiness_buildability_check(command, target, ir, diag);
   }
 
-  const char *emitter = z_direct_exe_emitter(target);
-  bool supported_exe = emitter && strcmp(emitter, "none") != 0 && requested_exe_backend_matches(command, emitter);
+  ZDirectBackend exe_backend = z_direct_exe_backend(target);
+  bool supported_exe = exe_backend != Z_DIRECT_BACKEND_NONE && z_direct_requested_backend_matches(command ? command->backend : NULL, exe_backend);
   CapabilitySummary caps = program_capabilities(program);
   bool default_direct_exe = supported_exe && (!command || !command->backend) && self_host_subset_compatible(program, &caps);
   bool requested_direct_exe = supported_exe && command && command->backend && command->backend[0];
@@ -9602,7 +9575,6 @@ int main(int argc, char **argv) {
     z_free_source(&input);
     return 0;
   }
-  const char *direct_exe_emitter = command.emit == EMIT_EXE ? z_direct_exe_emitter(target) : "none";
   CapabilitySummary direct_exe_caps = program_capabilities(&program);
   bool build_command = strcmp(command.command, "build") == 0;
   bool run_command = strcmp(command.command, "run") == 0;
@@ -9612,8 +9584,8 @@ int main(int argc, char **argv) {
   if (needs_zero_runtime) {
     RuntimeImportAudit runtime_audit = runtime_import_audit_from_ir(&ir);
     bool needs_http_runtime = runtime_import_audit_uses_http_provider(&runtime_audit);
-    const char *object_emitter = z_direct_object_emitter(target);
-    bool runtime_object_emitter_supported = object_emitter && (strcmp(object_emitter, "zero-macho64") == 0 || strcmp(object_emitter, "zero-elf64") == 0);
+    ZDirectBackend object_backend = z_direct_object_backend(target);
+    bool runtime_object_emitter_supported = z_direct_backend_supports_runtime_object(object_backend);
     if (ship_command) {
       int rc = return_direct_backend_error(&command, &input, target, "exe", "host runtime link plan is not wired into ship yet; use zero build or zero run", &ir, &program);
       z_free_source(&input);
@@ -9633,7 +9605,7 @@ int main(int argc, char **argv) {
     ZBuf object;
     zbuf_init(&object);
     phase_started = now_ms();
-    bool emitted_object = strcmp(object_emitter, "zero-macho64") == 0
+    bool emitted_object = object_backend == Z_DIRECT_BACKEND_MACHO64
                             ? z_emit_macho64_object_from_ir(&ir, &object, &diag)
                             : z_emit_elf64_object_from_ir(&ir, &object, &diag);
     input.codegen_ms = now_ms() - phase_started;
@@ -9659,7 +9631,7 @@ int main(int argc, char **argv) {
     ZToolchainPlan runtime_toolchain = z_plan_toolchain(command.cc, command.profile, target);
 
     phase_started = now_ms();
-    input.emitted_object_cache_hit = compiler_cache_touch("emitted-object", compile_cache_key(&input, target, command.profile, strcmp(object_emitter, "zero-macho64") == 0 ? "direct-macho64-object-runtime-link" : "direct-elf64-object-runtime-link"));
+    input.emitted_object_cache_hit = compiler_cache_touch("emitted-object", compile_cache_key(&input, target, command.profile, object_backend == Z_DIRECT_BACKEND_MACHO64 ? "direct-macho64-object-runtime-link" : "direct-elf64-object-runtime-link"));
     bool wrote_object = z_write_binary_file(object_file, (const unsigned char *)object.data, object.len, &diag);
     if (wrote_object) wrote_object = compile_zero_runtime_object(runtime_object_file, &runtime_toolchain, &command, target, &diag);
     if (wrote_object && needs_http_runtime) wrote_object = compile_zero_http_curl_object(http_object_file, &runtime_toolchain, &command, target, &diag);
@@ -9725,39 +9697,32 @@ int main(int argc, char **argv) {
     z_free_source(&input);
     return 0;
   }
-  bool default_direct_exe = artifact_command && command.emit == EMIT_EXE && direct_exe_emitter && strcmp(direct_exe_emitter, "none") != 0 && !command.backend && self_host_subset_compatible(&program, &direct_exe_caps);
+  ZDirectBackend direct_exe_backend = command.emit == EMIT_EXE ? z_direct_exe_backend(target) : Z_DIRECT_BACKEND_NONE;
+  bool direct_exe_available = direct_exe_backend != Z_DIRECT_BACKEND_NONE;
+  bool default_direct_exe = artifact_command && command.emit == EMIT_EXE && direct_exe_available && !command.backend && self_host_subset_compatible(&program, &direct_exe_caps);
   bool requested_direct_exe = artifact_command && command.emit == EMIT_EXE && command.backend &&
-                              (strcmp(command.backend, "zero-elf64") == 0 ||
-                               strcmp(command.backend, "zero-elf-aarch64") == 0 ||
-                               strcmp(command.backend, "zero-macho64") == 0 ||
-                               strcmp(command.backend, "zero-coff-x64") == 0);
+                              z_direct_backend_is_request_name(command.backend);
   if (default_direct_exe || requested_direct_exe) {
-    const char *emitter = direct_exe_emitter;
-    bool supported_exe = emitter && strcmp(emitter, "none") != 0 &&
-                         (!command.backend ||
-                          (strcmp(command.backend, "zero-elf64") == 0 && strcmp(emitter, "zero-elf64-exe") == 0) ||
-                          (strcmp(command.backend, "zero-elf-aarch64") == 0 && strcmp(emitter, "zero-elf-aarch64-exe") == 0) ||
-                          (strcmp(command.backend, "zero-macho64") == 0 && strcmp(emitter, "zero-macho64-exe") == 0) ||
-                          (strcmp(command.backend, "zero-coff-x64") == 0 && strcmp(emitter, "zero-coff-x64-exe") == 0));
+    ZDirectBackend exe_backend = direct_exe_backend;
+    const char *emitter = z_direct_backend_exe_emitter(exe_backend);
+    bool supported_exe = direct_exe_available && z_direct_requested_backend_matches(command.backend, exe_backend);
     if (!supported_exe) {
       int rc = return_direct_backend_error(&command, &input, target, "exe", "direct executable backend is not implemented for this target/backend pair; use --emit obj for direct target objects or choose a supported direct executable target", &ir, &program);
       z_free_source(&input);
       return rc;
     }
-    if (!command.backend) {
-      if (strcmp(emitter, "zero-elf-aarch64-exe") == 0) command.backend = "zero-elf-aarch64";
-      else if (strcmp(emitter, "zero-macho64-exe") == 0) command.backend = "zero-macho64";
-      else if (strcmp(emitter, "zero-coff-x64-exe") == 0) command.backend = "zero-coff-x64";
-      else command.backend = "zero-elf64";
-    }
+    if (!command.backend) command.backend = z_direct_backend_object_emitter(exe_backend);
     if (!direct_buildability_preflight(&command, &input, target, "exe", &ir, &diag)) { int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); return rc; }
     ZBuf exe;
     phase_started = now_ms();
     bool emitted_exe = false;
-    if (strcmp(emitter, "zero-elf-aarch64-exe") == 0) emitted_exe = z_emit_elf_aarch64_exe_from_ir(&ir, &exe, &diag);
-    else if (strcmp(emitter, "zero-macho64-exe") == 0) emitted_exe = z_emit_macho64_exe_from_ir(&ir, &exe, &diag);
-    else if (strcmp(emitter, "zero-coff-x64-exe") == 0) emitted_exe = z_emit_coff_x64_exe_from_ir(&ir, &exe, &diag);
-    else emitted_exe = z_emit_elf64_exe_from_ir(&ir, &exe, &diag);
+    switch (exe_backend) {
+      case Z_DIRECT_BACKEND_ELF_AARCH64: emitted_exe = z_emit_elf_aarch64_exe_from_ir(&ir, &exe, &diag); break;
+      case Z_DIRECT_BACKEND_MACHO64: emitted_exe = z_emit_macho64_exe_from_ir(&ir, &exe, &diag); break;
+      case Z_DIRECT_BACKEND_COFF_X64: emitted_exe = z_emit_coff_x64_exe_from_ir(&ir, &exe, &diag); break;
+      case Z_DIRECT_BACKEND_ELF64: emitted_exe = z_emit_elf64_exe_from_ir(&ir, &exe, &diag); break;
+      case Z_DIRECT_BACKEND_NONE: emitted_exe = false; break;
+    }
     input.codegen_ms = now_ms() - phase_started;
     if (!emitted_exe) {
       z_map_source_diag(&input, &diag);
