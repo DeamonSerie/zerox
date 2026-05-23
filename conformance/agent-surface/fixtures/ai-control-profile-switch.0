@@ -1,0 +1,8 @@
+// AI Control: profile switch test
+// Compiler should accept set-profile from AI control file
+
+use "std"
+
+fn main() raises std::io::error {
+    std::out::print("hello from zero\n")
+}

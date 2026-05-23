@@ -657,6 +657,47 @@ static void parses_core_function_program(void) {
   z_free_row_tokens(&tokens);
 }
 
+static void parses_not_prefix_operator(void) {
+  const char *source =
+    "pub fn main Void\n"
+    "  let a Bool not true\n"
+    "  let b Bool not false\n"
+    "  let c Bool (not (== 1 2))\n";
+  ZRowTokenVec tokens = {0};
+  ZRowTree tree = {0};
+  Program program = parse_row_program(source, &tokens, &tree);
+
+  Function *main_fun = &program.functions.items[0];
+  expect(main_fun->body.len == 3, "expected three function statements");
+
+  Expr *a_expr = main_fun->body.items[0]->expr;
+  expect(a_expr->kind == EXPR_BINARY, "expected binary expression for not true");
+  expect(strcmp(a_expr->text, "==") == 0, "expected == desugaring");
+  expect(a_expr->left->kind == EXPR_BOOL, "expected bool operand");
+  expect(a_expr->left->bool_value == true, "expected true operand");
+  expect(a_expr->right->kind == EXPR_BOOL, "expected false literal");
+  expect(a_expr->right->bool_value == false, "expected false value");
+
+  Expr *b_expr = main_fun->body.items[1]->expr;
+  expect(b_expr->kind == EXPR_BINARY, "expected binary expression for not false");
+  expect(strcmp(b_expr->text, "==") == 0, "expected == desugaring");
+  expect(b_expr->left->kind == EXPR_BOOL, "expected bool operand");
+  expect(b_expr->left->bool_value == false, "expected false operand");
+  expect(b_expr->right->kind == EXPR_BOOL, "expected false literal");
+  expect(b_expr->right->bool_value == false, "expected false value");
+
+  Expr *c_expr = main_fun->body.items[2]->expr;
+  expect(c_expr->kind == EXPR_BINARY, "expected binary expression for nested not");
+  expect(strcmp(c_expr->text, "==") == 0, "expected == desugaring");
+  expect(c_expr->left->kind == EXPR_BINARY, "expected nested binary expression");
+  expect(c_expr->right->kind == EXPR_BOOL, "expected false literal");
+  expect(c_expr->right->bool_value == false, "expected false value");
+
+  z_free_program(&program);
+  z_free_row_tree(&tree);
+  z_free_row_tokens(&tokens);
+}
+
 static void parses_shape_literal_inside_array_literal(void) {
   const char *source =
     "type Point\n"
@@ -1180,6 +1221,7 @@ int main(void) {
   rejects_escaped_string_newline();
   rejects_short_hex_character_escape();
   parses_core_function_program();
+  parses_not_prefix_operator();
   parses_shape_literal_inside_array_literal();
   parses_control_flow_statements();
   parses_match_statement();

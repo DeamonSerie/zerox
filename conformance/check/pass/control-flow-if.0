@@ -1,0 +1,18 @@
+pub fn main Void world World !
+  if true
+    check world.out.write "if ok\n"
+  else
+    check world.out.write "else unexpected\n"
+
+  if false
+    check world.out.write "if unexpected\n"
+  else
+    check world.out.write "else ok\n"
+
+  # test else if chain
+  if false
+    check world.out.write "if unexpected\n"
+  else if true
+    check world.out.write "else if ok\n"
+  else
+    check world.out.write "else after else if unexpected\n"

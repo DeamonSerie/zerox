@@ -39,6 +39,7 @@ where they will run.
 - Keep examples runnable and docs copyable.
 - Prefer small, direct changes over broad refactors.
 - Use direct emitters for compiler output.
+- AI control uses `--ai-control <path>`; see `docs/ai-control.md`.
 
 ## Useful Checks
 

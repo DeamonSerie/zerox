@@ -1,0 +1,16 @@
+fn is_even Bool x i32
+  ret == (% x 2) 0
+
+pub fn main Void world World !
+  let x i32 42
+  let y i32 7
+
+  if && (== (% x 2) 0) (! (== (% y 2) 0))
+    let sum i32 + x y
+    let diff i32 - x y
+    let prod i32 * x y
+    let quot i32 / x 2
+
+    let checks Bool && (&& (&& (== sum 49) (== diff 35)) (== prod 294)) (== quot 21)
+    if checks
+      check world.out.write "combined ok\n"

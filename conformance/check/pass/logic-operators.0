@@ -1,0 +1,11 @@
+pub fn main Void world World !
+  let t Bool true
+  let f Bool false
+
+  let and_ok Bool && t t
+  let or_ok Bool || f t
+  let not_ok Bool ! f
+
+  let all_ok Bool && (&& and_ok or_ok) not_ok
+  if all_ok
+    check world.out.write "logic ok\n"

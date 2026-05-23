@@ -3,6 +3,7 @@
 #endif
 
 #include "zero.h"
+#include "zero_ai.h"
 #include "buildability.h"
 #include "std_sig.h"
 
@@ -27,6 +28,9 @@
 
 #include "embedded_runtime_sources.inc"
 #include "embedded_skills.inc"
+
+/* Cleanup helper for AI control returns */
+#define AI_RETURN(val) do { z_ai_destroy(&ai_state); return (val); } while(0)
 
 typedef enum {
   EMIT_C,
@@ -56,6 +60,8 @@ typedef struct {
   bool fmt_check;
   bool legacy_backend;
   bool trace;
+  bool ai_control;
+  const char *ai_control_path;
   EmitKind emit;
 } Command;
 
@@ -3158,8 +3164,8 @@ static void print_help(void) {
   printf("  zero check <file.0|file.row|project|zero.json>\n");
   printf("  zero test <file.0|file.row|project|zero.json>\n");
   printf("  zero fmt <file.0|file.row|project|zero.json>\n");
-  printf("  zero build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <file.0|file.row|project|zero.json>\n");
-  printf("  zero run [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] <file.0|file.row|project|zero.json> [-- args...]\n");
+  printf("  zero build [--json] [--emit exe|obj] [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] [--ai-control <path>] <file.0|file.row|project|zero.json>\n");
+  printf("  zero run [--target <target>] [--profile debug|dev|release-fast|release-small|tiny|audit] [--release <profile>] [--out <file>] [--ai-control <path>] <file.0|file.row|project|zero.json> [-- args...]\n");
   printf("  zero ship [--json] [--target <target>] [--profile release-small|tiny|audit] [--out <file>] <file.0|file.row|project|zero.json>\n");
   printf("  zero tokens --json <file.0|file.row|project|zero.json>\n");
   printf("  zero parse --json <file.0|file.row|project|zero.json>\n");
@@ -3329,6 +3335,11 @@ static bool parse_common_option(int argc, char **argv, int *index, Command *comm
     return true;
   } else if (strcmp(arg, "--trace") == 0) {
     command->trace = true;
+    return true;
+  } else if (strcmp(arg, "--ai-control") == 0) {
+    command->ai_control = true;
+    if (*index + 1 >= argc) command->unknown_flag = arg;
+    else command->ai_control_path = argv[++(*index)];
     return true;
   } else if (strcmp(arg, "--legacy-backend") == 0) {
     command->legacy_backend = true;
@@ -9345,6 +9356,30 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+  ZAIControlState ai_state = {0};
+  z_ai_init(&ai_state, command.ai_control_path);
+
+  /* AI hook: resolve phase */
+  if (command.ai_control && !z_ai_process_commands(&ai_state, Z_AI_PHASE_RESOLVE, "resolve")) {
+    if (command.json) printf("{\"schemaVersion\":1,\"ok\":false,\"reason\":\"ai-abort\"}\n");
+    else fprintf(stderr, "compilation aborted by AI control\n");
+    AI_RETURN(1);
+  }
+  /* Apply AI override profile, if set */
+  if (ai_state.override_profile) {
+    command.profile = ai_state.override_profile;
+  }
+  if (ai_state.override_target) {
+    target = z_find_target(ai_state.override_target);
+    if (!target) {
+      diag.code = 6001;
+      snprintf(diag.message, sizeof(diag.message), "AI override target '%s' is unknown", ai_state.override_target);
+      if (command.json) print_diag_json(command.input, &diag);
+      else print_diag(command.input, &diag);
+      AI_RETURN(1);
+    }
+  }
+
   SourceInput input = {0};
   Program program = {0};
   if (!compile_input(command.input, target, &input, &program, &diag)) {
@@ -9365,6 +9400,26 @@ int main(int argc, char **argv) {
     z_free_program(&program);
     z_free_source(&input);
     return 1;
+  }
+
+  /* AI hook: check phase complete */
+  if (command.ai_control) {
+    ZAIFeedback fb = {
+      .phase = Z_AI_PHASE_CHECK,
+      .phase_name = "check",
+      .elapsed_ms = input.check_ms,
+      .accumulated_ms = input.resolve_ms + input.parse_ms + input.check_ms,
+      .diag_count = diag.code != 0 ? 1 : 0,
+      .phase_completed = diag.code == 0,
+      .has_error = diag.code != 0
+    };
+    snprintf(fb.message, sizeof(fb.message), "check %s", diag.code == 0 ? "passed" : "failed");
+    z_ai_send_feedback(&ai_state, &fb);
+    if (!z_ai_process_commands(&ai_state, Z_AI_PHASE_CHECK, "check")) {
+      z_free_program(&program);
+      z_free_source(&input);
+      AI_RETURN(1);
+    }
   }
 
   if (strcmp(command.command, "graph") != 0 && !validate_target_capabilities(&program, target, &diag, input.source_file)) {
@@ -9498,9 +9553,31 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+  /* AI hook: lower phase */
+  if (command.ai_control) {
+    ZAIFeedback fb = {
+      .phase = Z_AI_PHASE_LOWER,
+      .phase_name = "lower",
+      .accumulated_ms = input.resolve_ms + input.parse_ms + input.check_ms,
+      .phase_completed = true,
+    };
+    snprintf(fb.message, sizeof(fb.message), "ready to lower %s", command.input ? command.input : "");
+    z_ai_send_feedback(&ai_state, &fb);
+    if (!z_ai_process_commands(&ai_state, Z_AI_PHASE_LOWER, "lower")) {
+      z_free_program(&program);
+      z_free_source(&input);
+      AI_RETURN(1);
+    }
+  }
+
   long long phase_started = now_ms();
-  IrProgram ir = z_lower_program_with_source(&program, &input);
-  input.lower_ms = now_ms() - phase_started;
+  IrProgram ir = {0};
+  if (ai_state.skip_remaining) {
+    input.lower_ms = 0;
+  } else {
+    ir = z_lower_program_with_source(&program, &input);
+    input.lower_ms = now_ms() - phase_started;
+  }
   apply_ir_metrics_to_input(&input, &ir, target);
   if (strcmp(command.command, "mem") == 0) {
     ZBuf mem_json;
@@ -9528,7 +9605,26 @@ int main(int argc, char **argv) {
       z_free_source(&input);
       return rc;
     }
-    if (!direct_buildability_preflight(&command, &input, target, "obj", &ir, &diag)) { int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); return rc; }
+    if (!direct_buildability_preflight(&command, &input, target, "obj", &ir, &diag)) { int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); AI_RETURN(rc); }
+
+    /* AI hook: codegen phase */
+    if (command.ai_control) {
+      ZAIFeedback fb = {
+        .phase = Z_AI_PHASE_CODEGEN,
+        .phase_name = "codegen",
+        .accumulated_ms = input.resolve_ms + input.parse_ms + input.check_ms + input.lower_ms,
+        .phase_completed = true,
+      };
+      snprintf(fb.message, sizeof(fb.message), "codegen start: emit=obj backend=%s", emitter ? emitter : "unknown");
+      z_ai_send_feedback(&ai_state, &fb);
+      if (!z_ai_process_commands(&ai_state, Z_AI_PHASE_CODEGEN, "codegen")) {
+        z_free_ir_program(&ir);
+        z_free_program(&program);
+        z_free_source(&input);
+        AI_RETURN(1);
+      }
+    }
+
     ZBuf object;
     phase_started = now_ms();
     bool emitted_object = false;
@@ -9549,7 +9645,7 @@ int main(int argc, char **argv) {
       z_free_ir_program(&ir);
       z_free_program(&program);
       z_free_source(&input);
-      return 1;
+      AI_RETURN(1);
     }
     char *base_object_file = command.out ? z_strdup(command.out) : z_default_out_path(input.source_file);
     char *object_file = base_object_file;
@@ -9565,7 +9661,7 @@ int main(int argc, char **argv) {
       z_free_ir_program(&ir);
       z_free_program(&program);
       z_free_source(&input);
-      return 1;
+      AI_RETURN(1);
     }
 
     long long elapsed_ms = now_ms() - command_started_ms;
@@ -9592,19 +9688,38 @@ int main(int argc, char **argv) {
     if (ship_command) {
       int rc = return_direct_backend_error(&command, &input, target, "exe", "host runtime link plan is not wired into ship yet; use zero build or zero run", &ir, &program);
       z_free_source(&input);
-      return rc;
+      AI_RETURN(rc);
     }
     if (!runtime_object_emitter_supported) {
       int rc = return_direct_backend_error(&command, &input, target, "exe", "runtime helpers currently require the Mach-O or ELF64 object link plan", &ir, &program);
       z_free_source(&input);
-      return rc;
+      AI_RETURN(rc);
     }
     if (needs_http_runtime && !z_target_is_host(target)) {
       int rc = return_direct_backend_error(&command, &input, target, "exe", "HTTP runtime provider is host-only for direct executable links", &ir, &program);
       z_free_source(&input);
-      return rc;
+      AI_RETURN(rc);
     }
-    if (!direct_buildability_preflight(&command, &input, target, "obj", &ir, &diag)) { int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); return rc; }
+    if (!direct_buildability_preflight(&command, &input, target, "obj", &ir, &diag)) { int rc = return_buildability_error(&command, &input, &diag, &ir, &program); z_free_source(&input); AI_RETURN(rc); }
+
+    /* AI hook: codegen phase */
+    if (command.ai_control) {
+      ZAIFeedback fb = {
+        .phase = Z_AI_PHASE_CODEGEN,
+        .phase_name = "codegen",
+        .accumulated_ms = input.resolve_ms + input.parse_ms + input.check_ms + input.lower_ms,
+        .phase_completed = true,
+      };
+      snprintf(fb.message, sizeof(fb.message), "codegen start: emit=exe (runtime link)");
+      z_ai_send_feedback(&ai_state, &fb);
+      if (!z_ai_process_commands(&ai_state, Z_AI_PHASE_CODEGEN, "codegen")) {
+        z_free_ir_program(&ir);
+        z_free_program(&program);
+        z_free_source(&input);
+        AI_RETURN(1);
+      }
+    }
+
     ZBuf object;
     zbuf_init(&object);
     phase_started = now_ms();
@@ -9622,7 +9737,7 @@ int main(int argc, char **argv) {
       z_free_ir_program(&ir);
       z_free_program(&program);
       z_free_source(&input);
-      return 1;
+      AI_RETURN(1);
     }
 
     char *base_exe_file = command.out ? z_strdup(command.out) : z_default_out_path(input.source_file);
@@ -9650,7 +9765,30 @@ int main(int argc, char **argv) {
       z_free_ir_program(&ir);
       z_free_program(&program);
       z_free_source(&input);
-      return 1;
+      AI_RETURN(1);
+    }
+
+    /* AI hook: link phase */
+    if (command.ai_control) {
+      ZAIFeedback fb = {
+        .phase = Z_AI_PHASE_LINK,
+        .phase_name = "link",
+        .accumulated_ms = input.resolve_ms + input.parse_ms + input.check_ms + input.lower_ms + input.codegen_ms + input.object_ms,
+        .phase_completed = true,
+      };
+      snprintf(fb.message, sizeof(fb.message), "link start: exe=%s", exe_file ? exe_file : "");
+      z_ai_send_feedback(&ai_state, &fb);
+      if (!z_ai_process_commands(&ai_state, Z_AI_PHASE_LINK, "link")) {
+        free(http_object_file);
+        free(runtime_object_file);
+        free(object_file);
+        free(exe_file);
+        zbuf_free(&object);
+        z_free_ir_program(&ir);
+        z_free_program(&program);
+        z_free_source(&input);
+        AI_RETURN(1);
+      }
     }
 
     phase_started = now_ms();
@@ -9671,7 +9809,7 @@ int main(int argc, char **argv) {
       z_free_ir_program(&ir);
       z_free_program(&program);
       z_free_source(&input);
-      return 1;
+      AI_RETURN(1);
     }
 
     if (run_command) {
@@ -9795,6 +9933,7 @@ int main(int argc, char **argv) {
     z_free_ir_program(&ir);
     z_free_program(&program);
     z_free_source(&input);
+    z_ai_destroy(&ai_state);
     return 0;
   }
   if (strcmp(command.command, "size") == 0) {
@@ -9992,9 +10131,10 @@ int main(int argc, char **argv) {
     z_free_ir_program(&ir);
     z_free_program(&program);
     z_free_source(&input);
+    z_ai_destroy(&ai_state);
     return 0;
   }
   int rc = return_direct_backend_error(&command, &input, target, "exe", "direct executable backend is not implemented for this target/backend pair; use --emit obj for direct target objects or choose a supported direct executable target", &ir, &program);
   z_free_source(&input);
-  return rc;
+  AI_RETURN(rc);
 }

@@ -1,0 +1,37 @@
+pub fn main Void world World !
+  let t Bool true
+  let f Bool false
+
+  # basic not
+  let not_true Bool ! t
+  if == not_true false
+    check world.out.write "not true -> false ok\n"
+
+  let not_false Bool ! f
+  if == not_false true
+    check world.out.write "not false -> true ok\n"
+
+  # double not
+  let double_not Bool ! (! f)
+  if == double_not false
+    check world.out.write "double not ok\n"
+
+  # not with and
+  let and_not Bool && (! f) (! t)
+  if == and_not false
+    check world.out.write "not and ok\n"
+
+  # not with or
+  let or_not Bool || (! f) (! t)
+  if == or_not true
+    check world.out.write "not or ok\n"
+
+  # not with comparison
+  let cmp_not Bool ! (== 5 5)
+  if == cmp_not false
+    check world.out.write "not comparison ok\n"
+
+  # not with arithmetic comparison
+  let arith_cmp Bool ! (< 3 10)
+  if == arith_cmp false
+    check world.out.write "not arith comparison ok\n"

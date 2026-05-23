@@ -721,8 +721,8 @@ static bool row_is_reserved_word(const char *text) {
   const char *keywords[] = {
     "as", "break", "check", "choice", "const", "continue", "defer", "else", "enum", "export", "extern", "false",
     "fn", "for", "fun", "if", "import", "in", "let", "match", "meta", "mut", "null", "packed", "pub",
-    "raise", "raises", "rescue", "ret", "return", "shape", "static", "test", "true", "type",
-    "use", "var", "while", NULL
+    "not", "raise", "raises", "rescue", "ret", "return", "shape", "static", "test", "true", "type",
+        "use", "var", "while", NULL
   };
   for (int i = 0; keywords[i]; i++) {
     if (strcmp(text, keywords[i]) == 0) return true;
@@ -1128,6 +1128,28 @@ static Expr *row_parse_expr_atom(RowExprParser *parser) {
     }
     expr->left = row_parse_expr_atom(parser);
     return expr;
+  }
+  if (parser->pos < parser->end && row_token_text(parser->tokens, parser->pos, "!")) {
+    const ZRowToken *token = &parser->tokens->items[parser->pos++];
+    Expr *operand = row_parse_expr_atom(parser);
+    Expr *false_lit = row_new_expr(EXPR_BOOL, NULL);
+    false_lit->bool_value = false;
+    Expr *result = row_new_expr(EXPR_BINARY, token);
+    result->text = z_strdup("==");
+    result->left = operand;
+    result->right = false_lit;
+    return result;
+  }
+  if (parser->pos < parser->end && strcmp(parser->tokens->items[parser->pos].text, "not") == 0) {
+    const ZRowToken *token = &parser->tokens->items[parser->pos++];
+    Expr *operand = row_parse_expr_atom(parser);
+    Expr *false_lit = row_new_expr(EXPR_BOOL, NULL);
+    false_lit->bool_value = false;
+    Expr *result = row_new_expr(EXPR_BINARY, token);
+    result->text = z_strdup("==");
+    result->left = operand;
+    result->right = false_lit;
+    return result;
   }
   if (parser->pos < parser->end && row_is_binary_operator(parser->tokens->items[parser->pos].text)) {
     const ZRowToken *op = &parser->tokens->items[parser->pos++];
