@@ -17,15 +17,26 @@ function run(command, args, options = {}) {
 
 const target = targetByHost[`${process.platform}:${process.arch}`];
 if (!target) {
-  console.error(`native smoke does not know a runnable target for ${process.platform}/${process.arch}`);
+  console.error(
+    `native smoke does not know a runnable target for ${process.platform}/${process.arch}`,
+  );
   process.exit(1);
 }
 
-const out = ".zero/out/add-native";
+const out = ".zerox/out/add-native";
 const exe = target.startsWith("win32-") ? `${out}.exe` : out;
 
-mkdirSync(".zero/out", { recursive: true });
-run("make", ["-C", "native/zero-c"]);
-run("bin/zero", ["check", "examples/hello.0"]);
-run("bin/zero", ["build", "--emit", "exe", "--target", target, "examples/add.0", "--out", out]);
+mkdirSync(".zerox/out", { recursive: true });
+run("make", ["-C", "native/zerox-c"]);
+run("bin/zerox", ["check", "examples/hello.0"]);
+run("bin/zerox", [
+  "build",
+  "--emit",
+  "exe",
+  "--target",
+  target,
+  "examples/add.0",
+  "--out",
+  out,
+]);
 run(exe, []);

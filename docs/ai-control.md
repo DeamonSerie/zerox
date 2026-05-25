@@ -1,6 +1,6 @@
 # AI Control — Dynamic Compilation Control
 
-Zero supports AI-influenced compilation through an optional `--ai-control` flag.
+Zerox supports AI-influenced compilation through an optional `--ai-control` flag.
 This allows an external AI module to send JSON commands that influence
 compilation parameters mid-process.
 
@@ -16,7 +16,7 @@ identically to before.
 ## Usage
 
 ```sh
-zero build --ai-control /tmp/zero-ai-commands.json examples/hello.0
+zerox build --ai-control /tmp/zerox-ai-commands.json examples/hello.0
 ```
 
 The compiler reads commands from the control file at each phase hook.
@@ -87,9 +87,9 @@ When `--ai-control` is not specified, the compiler runs exactly as before.
 All AI control code paths are conditional on `command.ai_control` being true.
 Existing workflows, scripts, and CI pipelines are unaffected.
 
-## API Reference (zero_ai.h)
+## API Reference (zerox_ai.h)
 
-The public API is defined in `include/zero_ai.h`. Key functions:
+The public API is defined in `include/zerox_ai.h`. Key functions:
 
 - `z_ai_init()` — Initialize AI control state from a control path
 - `z_ai_process_commands()` — Process pending commands at a hook point
@@ -101,4 +101,4 @@ The public API is defined in `include/zero_ai.h`. Key functions:
 
 ## Env Variables
 
-- `ZERO_AI_CONTROL` — Alternative way to specify the control path (not yet implemented, reserved for future use)
+- `ZEROX_AI_CONTROL` — Alternative way to specify the control path (not yet implemented, reserved for future use)

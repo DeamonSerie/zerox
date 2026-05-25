@@ -1,0 +1,76 @@
+# std.crypto bitwise operator demo
+#
+# Demonstrates the new bitwise operators: ^ (XOR), << (SHL),
+# >> (SHR), <<< (ROL), >>> (ROR)
+#
+# These operators enable crypto implementations in pure Zero.
+#
+# Build: bin/zero check examples/std-crypto-bitwise.0
+# Run:   bin/zero run examples/std-crypto-bitwise.0
+
+pub fn main Void world World !
+  # --- XOR (^) ---
+  # XOR is the fundamental operation in every cipher
+  let xor_test u32 ^ 0xff_u32 0x0f_u32
+  if == xor_test 0xf0_u32
+    check world.out.write "XOR: OK\n"
+
+  # --- Shift Left (<<) ---
+  let shl_test u32 << 0x01_u32 4_u32
+  if == shl_test 0x10_u32
+    check world.out.write "SHL: OK\n"
+
+  # --- Shift Right (>>) ---
+  let shr_test u32 >> 0xf0_u32 4_u32
+  if == shr_test 0x0f_u32
+    check world.out.write "SHR: OK\n"
+
+  # --- Rotate Left (<<<) ---
+  # Rotate 32-bit value left by 8 bits
+  let rol_test u32 <<< 0x12345678_u32 8_u32
+  if == rol_test 0x34567812_u32
+    check world.out.write "ROL: OK\n"
+
+  # --- Rotate Right (>>>) ---
+  let ror_test u32 >>> 0x12345678_u32 8_u32
+  if == ror_test 0x78123456_u32
+    check world.out.write "ROR: OK\n"
+
+  # --- Crypto Building Blocks ---
+
+  # ChaCha20 quarter-round step:
+  #   a += b; d ^= a; d <<<= 16
+  let mut a u32 0x11111111_u32
+  let mut b u32 0x22222222_u32
+  let mut d u32 0x44444444_u32
+  set a + a b
+  set d ^ d a
+  set d <<< d 16_u32
+
+  # AES SubBytes building block:
+  #   For each byte: apply S-box substitution (XOR + affine transform)
+  let byte u8 ^ 0x53_u8 0x63_u8
+  if == byte 0x30_u8
+    check world.out.write "AES S-box step: OK\n"
+
+  # SHA-256 Sigma0 function component:
+  #   Sigma0(x) = ROTR(x,2) ^ ROTR(x,13) ^ ROTR(x,22)
+  let x u32 0x12345678_u32
+  let sigma0_part u32 ^ (>>> x 2_u32) (>>> x 13_u32)
+  let sigma0 u32 ^ sigma0_part (>>> x 22_u32)
+  if != sigma0 0_u32
+    check world.out.write "SHA-256 Sigma0: OK\n"
+
+  # --- Masking with shift + XOR ---
+  # Extract byte 2 from a 32-bit word:
+  #   (word >> 16) & 0xFF
+  # (Using AND with 0xFF via shift trick since no bitwise AND on general registers)
+  let word u32 0xAABBCCDD_u32
+  let byte2 u32 >> word 16_u32
+  # Mask using XOR pattern: ((x >> 16) ^ 0xFF) ^ 0xFF
+  let masked u32 ^ (^ byte2 0xFF_u32) 0xFF_u32
+  if == masked 0xBB_u32
+    check world.out.write "Byte extraction: OK\n"
+
+  # --- All tests ---
+  check world.out.write "Bitwise operations: OK\n"

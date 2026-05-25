@@ -12,23 +12,26 @@ export const docs: Doc[] = [
   {
     slug: "install",
     title: "Install Guide",
-    description: "Install the latest compiler release and validate your environment.",
+    description:
+      "Install the latest compiler release and validate your environment.",
     path: "/install",
     sourcePath: "/articles/install.md",
     section: "Learn",
   },
   {
-    slug: "learn-zero",
-    title: "Learn Zero",
-    description: "A practical language tour using the repository's runnable examples.",
+    slug: "learn-zerox",
+    title: "Learn Zerox",
+    description:
+      "A practical language tour using the repository's runnable examples.",
     path: "/learn",
-    sourcePath: "/articles/learn-zero.md",
+    sourcePath: "/articles/learn-zerox.md",
     section: "Learn",
   },
   {
     slug: "language-reference",
     title: "Language Reference",
-    description: "Syntax, program model, types, control flow, packages, stdlib, and tooling.",
+    description:
+      "Syntax, program model, types, control flow, packages, stdlib, and tooling.",
     path: "/reference",
     sourcePath: "/articles/language-reference.md",
     section: "Reference",
@@ -36,7 +39,8 @@ export const docs: Doc[] = [
   {
     slug: "standard-library",
     title: "Standard Library Reference",
-    description: "Runnable modules, allocation behavior, capabilities, and helper metadata.",
+    description:
+      "Runnable modules, allocation behavior, capabilities, and helper metadata.",
     path: "/standard-library",
     sourcePath: "/articles/standard-library.md",
     section: "Reference",
@@ -52,7 +56,8 @@ export const docs: Doc[] = [
   {
     slug: "testing",
     title: "Testing And Reliability",
-    description: "zero test JSON, package tests, expected-fail tests, snapshots, fuzzing, and hardening gates.",
+    description:
+      "zerox test JSON, package tests, expected-fail tests, snapshots, fuzzing, and hardening gates.",
     path: "/testing",
     sourcePath: "/articles/testing.md",
     section: "Reference",
@@ -60,7 +65,8 @@ export const docs: Doc[] = [
   {
     slug: "optimization",
     title: "Optimization And Size Profiles",
-    description: "Profile contracts, size breakdowns, retention reasons, optimization hints, and benchmark trends.",
+    description:
+      "Profile contracts, size breakdowns, retention reasons, optimization hints, and benchmark trends.",
     path: "/optimization",
     sourcePath: "/articles/optimization.md",
     section: "Reference",
@@ -68,7 +74,8 @@ export const docs: Doc[] = [
   {
     slug: "package-manifest",
     title: "Package And Manifest Reference",
-    description: "zero.json schema, package-local imports, targets, dependencies, and profiles.",
+    description:
+      "zerox.json schema, package-local imports, targets, dependencies, and profiles.",
     path: "/package-manifest",
     sourcePath: "/articles/package-manifest.md",
     section: "Reference",
@@ -76,7 +83,8 @@ export const docs: Doc[] = [
   {
     slug: "cross-compilation",
     title: "Cross-Compilation Guide",
-    description: "Targets, capability denial, direct artifacts, and target facts.",
+    description:
+      "Targets, capability denial, direct artifacts, and target facts.",
     path: "/cross-compilation",
     sourcePath: "/articles/cross-compilation.md",
     section: "Reference",
@@ -132,7 +140,8 @@ export const docs: Doc[] = [
   {
     slug: "primitives",
     title: "Primitives",
-    description: "Language and type primitives for values, memory views, ownership, layout, and absence.",
+    description:
+      "Language and type primitives for values, memory views, ownership, layout, and absence.",
     path: "/primitives",
     sourcePath: "/articles/primitives.md",
     section: "Reference",
@@ -148,7 +157,8 @@ export const docs: Doc[] = [
   {
     slug: "module-codec",
     title: "std.codec",
-    description: "Little-endian integer helpers, unsigned varints, and CRC-32 primitives.",
+    description:
+      "Little-endian integer helpers, unsigned varints, and CRC-32 primitives.",
     path: "/modules/codec",
     sourcePath: "/articles/modules/codec.md",
     section: "Modules",
@@ -156,7 +166,8 @@ export const docs: Doc[] = [
   {
     slug: "module-mem",
     title: "std.mem",
-    description: "Span metadata, copy and equality helpers, and the allocator surface.",
+    description:
+      "Span metadata, copy and equality helpers, and the allocator surface.",
     path: "/modules/mem",
     sourcePath: "/articles/modules/mem.md",
     section: "Modules",
@@ -164,7 +175,8 @@ export const docs: Doc[] = [
   {
     slug: "module-args",
     title: "std.args",
-    description: "Process argument count and indexed lookup for hosted command-line programs.",
+    description:
+      "Process argument count and indexed lookup for hosted command-line programs.",
     path: "/modules/args",
     sourcePath: "/articles/modules/args.md",
     section: "Modules",
@@ -172,7 +184,8 @@ export const docs: Doc[] = [
   {
     slug: "module-path",
     title: "std.path",
-    description: "Fixed-buffer path helpers with explicit storage and target-aware limits.",
+    description:
+      "Fixed-buffer path helpers with explicit storage and target-aware limits.",
     path: "/modules/path",
     sourcePath: "/articles/modules/path.md",
     section: "Modules",
@@ -188,7 +201,8 @@ export const docs: Doc[] = [
   {
     slug: "module-fs",
     title: "std.fs",
-    description: "Hosted file reads, writes, and existence checks for CLI programs.",
+    description:
+      "Hosted file reads, writes, and existence checks for CLI programs.",
     path: "/modules/fs",
     sourcePath: "/articles/modules/fs.md",
     section: "Modules",
@@ -196,7 +210,8 @@ export const docs: Doc[] = [
   {
     slug: "module-json",
     title: "std.json",
-    description: "Validation, token counting, explicit-allocator parsing, and caller-buffer string writing.",
+    description:
+      "Validation, token counting, explicit-allocator parsing, and caller-buffer string writing.",
     path: "/modules/json",
     sourcePath: "/articles/modules/json.md",
     section: "Modules",
@@ -212,7 +227,8 @@ export const docs: Doc[] = [
   {
     slug: "module-time",
     title: "std.time",
-    description: "Duration math plus target-gated monotonic and wall-clock helpers.",
+    description:
+      "Duration math plus target-gated monotonic and wall-clock helpers.",
     path: "/modules/time",
     sourcePath: "/articles/modules/time.md",
     section: "Modules",
@@ -220,7 +236,8 @@ export const docs: Doc[] = [
   {
     slug: "module-rand",
     title: "std.rand",
-    description: "Explicit deterministic random sources and target entropy helpers.",
+    description:
+      "Explicit deterministic random sources and target entropy helpers.",
     path: "/modules/rand",
     sourcePath: "/articles/modules/rand.md",
     section: "Modules",
@@ -228,7 +245,8 @@ export const docs: Doc[] = [
   {
     slug: "module-proc",
     title: "std.proc",
-    description: "Host process status helpers behind explicit process capability boundaries.",
+    description:
+      "Host process status helpers behind explicit process capability boundaries.",
     path: "/modules/proc",
     sourcePath: "/articles/modules/proc.md",
     section: "Modules",
@@ -236,7 +254,8 @@ export const docs: Doc[] = [
   {
     slug: "module-crypto",
     title: "std.crypto",
-    description: "Hash, keyed hash, constant-time equality, and target entropy helpers.",
+    description:
+      "Hash, keyed hash, constant-time equality, and target entropy helpers.",
     path: "/modules/crypto",
     sourcePath: "/articles/modules/crypto.md",
     section: "Modules",
@@ -244,7 +263,8 @@ export const docs: Doc[] = [
   {
     slug: "module-net",
     title: "std.net",
-    description: "Network capability metadata and bootstrap connection/listener handles.",
+    description:
+      "Network capability metadata and bootstrap connection/listener handles.",
     path: "/modules/net",
     sourcePath: "/articles/modules/net.md",
     section: "Modules",
@@ -252,7 +272,8 @@ export const docs: Doc[] = [
   {
     slug: "module-http",
     title: "std.http",
-    description: "HTTP method, body-length, client/server metadata, and TLS-boundary helpers.",
+    description:
+      "HTTP method, body-length, client/server metadata, and TLS-boundary helpers.",
     path: "/modules/http",
     sourcePath: "/articles/modules/http.md",
     section: "Modules",
@@ -282,7 +303,10 @@ export function groupBySection(items: Doc[]): DocsGroup[] {
   return groups;
 }
 
-export function getAdjacentDocs(slug: string): { prev: Doc | null; next: Doc | null } {
+export function getAdjacentDocs(slug: string): {
+  prev: Doc | null;
+  next: Doc | null;
+} {
   const index = docs.findIndex((d) => d.slug === slug);
   if (index === -1) return { prev: null, next: null };
   return {

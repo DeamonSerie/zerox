@@ -32,14 +32,14 @@ jobs:
           missing=0
           for asset in \
             CHECKSUMS.txt \
-            zero-darwin-arm64 \
-            zero-darwin-x64 \
-            zero-linux-arm64 \
-            zero-linux-x64 \
-            zero-linux-musl-arm64 \
-            zero-linux-musl-x64 \
-            zero-win32-arm64.exe \
-            zero-win32-x64.exe
+            zerox-darwin-arm64 \
+            zerox-darwin-x64 \
+            zerox-linux-arm64 \
+            zerox-linux-x64 \
+            zerox-linux-musl-arm64 \
+            zerox-linux-musl-x64 \
+            zerox-win32-arm64.exe \
+            zerox-win32-x64.exe
           do
             if ! printf '%s\n' "$EXISTING_ASSETS" | grep -Fx "$asset" >/dev/null; then
               echo "Missing release asset: $asset"
@@ -92,42 +92,42 @@ jobs:
 
       - name: Cross-compile for all targets
         run: |
-          mkdir -p /tmp/zero-release
+          mkdir -p /tmp/zerox-release
           node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/embed-skill-data.mts
 
           build_asset() {
             target="$1"
             name="$2"
             echo "Building $name (target: $target)..."
-            zig cc -target "$target" -std=c11 -D_POSIX_C_SOURCE=200809L -Os -Inative/zero-c/include native/zero-c/src/*.c -o "/tmp/zero-release/$name"
-            chmod 755 "/tmp/zero-release/$name"
+            zig cc -target "$target" -std=c11 -D_POSIX_C_SOURCE=200809L -Os -Inative/zerox-c/include native/zerox-c/src/*.c -o "/tmp/zerox-release/$name"
+            chmod 755 "/tmp/zerox-release/$name"
           }
 
-          build_asset aarch64-macos        zero-darwin-arm64
-          build_asset x86_64-macos         zero-darwin-x64
-          build_asset aarch64-linux-gnu    zero-linux-arm64
-          build_asset x86_64-linux-gnu     zero-linux-x64
-          build_asset aarch64-linux-musl   zero-linux-musl-arm64
-          build_asset x86_64-linux-musl    zero-linux-musl-x64
-          build_asset aarch64-windows-gnu  zero-win32-arm64.exe
-          build_asset x86_64-windows-gnu   zero-win32-x64.exe
+          build_asset aarch64-macos        zerox-darwin-arm64
+          build_asset x86_64-macos         zerox-darwin-x64
+          build_asset aarch64-linux-gnu    zerox-linux-arm64
+          build_asset x86_64-linux-gnu     zerox-linux-x64
+          build_asset aarch64-linux-musl   zerox-linux-musl-arm64
+          build_asset x86_64-linux-musl    zerox-linux-musl-x64
+          build_asset aarch64-windows-gnu  zerox-win32-arm64.exe
+          build_asset x86_64-windows-gnu   zerox-win32-x64.exe
 
-          (cd /tmp/zero-release && shasum -a 256 zero-* > CHECKSUMS.txt)
+          (cd /tmp/zerox-release && shasum -a 256 zerox-* > CHECKSUMS.txt)
 
       - name: Smoke test release assets
         run: |
           set -eu
-          cd /tmp/zero-release
+          cd /tmp/zerox-release
 
           for asset in \
-            zero-darwin-arm64 \
-            zero-darwin-x64 \
-            zero-linux-arm64 \
-            zero-linux-x64 \
-            zero-linux-musl-arm64 \
-            zero-linux-musl-x64 \
-            zero-win32-arm64.exe \
-            zero-win32-x64.exe
+            zerox-darwin-arm64 \
+            zerox-darwin-x64 \
+            zerox-linux-arm64 \
+            zerox-linux-x64 \
+            zerox-linux-musl-arm64 \
+            zerox-linux-musl-x64 \
+            zerox-win32-arm64.exe \
+            zerox-win32-x64.exe
           do
             test -s "$asset"
           done
@@ -137,12 +137,12 @@ jobs:
           if [ "$(uname -s)" = "Darwin" ]; then
             case "$(uname -m)" in
               arm64)
-                ./zero-darwin-arm64 --version
-                ./zero-darwin-arm64 skills list --json
+                ./zerox-darwin-arm64 --version
+                ./zerox-darwin-arm64 skills list --json
                 ;;
               x86_64)
-                ./zero-darwin-x64 --version
-                ./zero-darwin-x64 skills list --json
+                ./zerox-darwin-x64 --version
+                ./zerox-darwin-x64 skills list --json
                 ;;
               *) echo "Skipping host binary smoke for unsupported macOS arch $(uname -m)" ;;
             esac
@@ -163,8 +163,8 @@ jobs:
           fi
 
           gh release upload "$TAG" \
-            /tmp/zero-release/zero-* \
-            /tmp/zero-release/CHECKSUMS.txt \
+            /tmp/zerox-release/zerox-* \
+            /tmp/zerox-release/CHECKSUMS.txt \
             --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,4 @@
+fn mix i32 value i32
+  if == (% value 2) 0
+    ret + value 1
+  ret - value 1

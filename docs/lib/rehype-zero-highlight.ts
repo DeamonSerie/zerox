@@ -11,7 +11,7 @@ type HastNode = {
 type NodePredicate = (node: HastNode) => boolean;
 type NodeCallback = (node: HastNode) => void;
 
-const ZERO_TOKEN_COLORS: Record<string, { light: string; dark: string }> = {
+const ZEROX_TOKEN_COLORS: Record<string, { light: string; dark: string }> = {
   comment: { light: "#6A737D", dark: "#6A737D" },
   string: { light: "#032F62", dark: "#9ECBFF" },
   char: { light: "#032F62", dark: "#9ECBFF" },
@@ -24,7 +24,11 @@ const ZERO_TOKEN_COLORS: Record<string, { light: string; dark: string }> = {
   operator: { light: "#D73A49", dark: "#F97583" },
 };
 
-function visit(node: HastNode | undefined, predicate: NodePredicate, callback: NodeCallback): void {
+function visit(
+  node: HastNode | undefined,
+  predicate: NodePredicate,
+  callback: NodeCallback,
+): void {
   if (!node) return;
   if (predicate(node)) callback(node);
   if (Array.isArray(node.children)) {
@@ -32,8 +36,8 @@ function visit(node: HastNode | undefined, predicate: NodePredicate, callback: N
   }
 }
 
-function highlightZeroToHast(code: string): HastNode[] {
-  const parts = highlight(code, "zero").split("\n");
+function highlightZeroxToHast(code: string): HastNode[] {
+  const parts = highlight(code, "zerox").split("\n");
   const lines = [];
   for (let li = 0; li < parts.length; li++) {
     const lineHtml = parts[li];
@@ -42,13 +46,15 @@ function highlightZeroToHast(code: string): HastNode[] {
     let match: RegExpExecArray | null;
     while ((match = tokenRegex.exec(lineHtml)) !== null) {
       if (match[1]) {
-        const color = ZERO_TOKEN_COLORS[match[1]];
+        const color = ZEROX_TOKEN_COLORS[match[1]];
         const text = decodeEntities(match[2]);
         tokens.push({
           type: "element",
           tagName: "span",
           properties: color
-            ? { style: `--shiki-light:${color.light};--shiki-dark:${color.dark}` }
+            ? {
+                style: `--shiki-light:${color.light};--shiki-dark:${color.dark}`,
+              }
             : {},
           children: [{ type: "text", value: text }],
         });
@@ -82,18 +88,18 @@ function getNodeText(node: HastNode | undefined): string {
   return node.children.map(getNodeText).join("");
 }
 
-export function rehypeZeroHighlight(): (tree: HastNode) => void {
+export function rehypeZeroxHighlight(): (tree: HastNode) => void {
   return (tree: HastNode) => {
     visit(
       tree,
       (node) =>
         node.type === "element" &&
         node.tagName === "code" &&
-        (node.properties?.dataLanguage === "zero" ||
-          node.properties?.["data-language"] === "zero"),
+        (node.properties?.dataLanguage === "zerox" ||
+          node.properties?.["data-language"] === "zerox"),
       (codeNode) => {
         const text = getNodeText(codeNode).replace(/\n$/, "");
-        codeNode.children = highlightZeroToHast(text);
+        codeNode.children = highlightZeroxToHast(text);
         codeNode.properties = {
           ...codeNode.properties,
           style: "display:grid",

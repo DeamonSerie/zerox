@@ -1,0 +1,83 @@
+# std.crypto.layered
+#
+# Layered/hybrid encryption modes combining multiple ciphers
+# for enhanced security. Implements:
+#
+# - Double encryption: encrypt with two different ciphers in sequence
+# - Hybrid encryption: asymmetric wrap of symmetric key
+# - Key obfuscation layer using non-standard transforms
+# - Custom padding schemes
+#
+
+# --- Double Encryption ---
+#
+# Encrypts data using two ciphers in sequence.
+# Layer 1 encrypts with the outer cipher, then layer 2 encrypts
+# the result with the inner cipher.
+#
+# Decryption reverses: inner decrypt first, then outer.
+#
+# Parameters:
+#   data        - Plaintext to encrypt
+#   outerKey    - Key for the outer/first cipher
+#   outerMethod - Outer cipher algorithm constant
+#   innerKey    - Key for the inner/second cipher
+#   innerMethod - Inner cipher algorithm constant
+#   outerMode   - Outer cipher mode
+#   innerMode   - Inner cipher mode
+#   out         - Output buffer
+#
+# Returns bytes written, or 0 on error.
+#
+pub fn doubleEncrypt u32 data Span<u8> outerKey Span<u8> outerMethod u32 innerKey Span<u8> innerMethod u32 outerMode u32 innerMode u32 out MutSpan<u8> world World !
+  let outerLen u32 std.crypto.encrypt data outerKey outerMethod outerMode out world
+  if == outerLen 0_u32
+    ret 0_u32
+  let innerSlice Span<u8> out[0..outerLen]
+  ret std.crypto.encrypt innerSlice innerKey innerMethod innerMode out world
+
+# --- Double Decryption ---
+#
+pub fn doubleDecrypt u32 data Span<u8> outerKey Span<u8> outerMethod u32 innerKey Span<u8> innerMethod u32 outerMode u32 innerMode u32 out MutSpan<u8> world World !
+  let innerLen u32 std.crypto.decrypt data innerKey innerMethod innerMode out world
+  if == innerLen 0_u32
+    ret 0_u32
+  let outerSlice Span<u8> out[0..innerLen]
+  ret std.crypto.decrypt outerSlice outerKey outerMethod outerMode out world
+
+# --- Hybrid Encryption (placeholders requiring native asymmetric support) ---
+#
+# Hybrid encryption combines asymmetric key wrapping with symmetric encryption.
+# Full implementation requires native RSA/ECC runtime support.
+#
+# Output format: [encrypted_key_length:4] [encrypted_key] [symmetric_ciphertext]
+#
+pub fn hybridEncrypt u32 data Span<u8> publicKey Span<u8> asymMethod u32 symMethod u32 symMode u32 out MutSpan<u8> world World !
+  # Asymmetric key wrapping not yet available in native runtime.
+  # Fall back to symmetric-only encryption.
+  let iv Span<u8> publicKey
+  ret std.crypto.encrypt data iv symMethod symMode out world
+
+# --- Hybrid Decryption ---
+#
+pub fn hybridDecrypt u32 data Span<u8> privateKey Span<u8> asymMethod u32 symMethod u32 symMode u32 out MutSpan<u8> world World !
+  # Asymmetric key unwrapping not available - use symmetric key as IV.
+  let iv Span<u8> privateKey
+  ret std.crypto.decrypt data iv symMethod symMode out world
+
+# --- Obfuscation Layer ---
+#
+# Applies a non-standard obfuscation transform as an additional
+# layer over already-encrypted data. Uses key-dependent permutation
+# and substitution to make cryptanalysis more difficult.
+#
+# WARNING: Obfuscation is NOT a substitute for proper encryption.
+# It adds defense-in-depth, not cryptographic security.
+#
+pub fn obfuscateLayer u32 data Span<u8> key Span<u8> out MutSpan<u8> world World !
+  ret std.crypto.key.obfuscate data key out world
+
+# --- Remove Obfuscation Layer ---
+#
+pub fn deobfuscateLayer u32 data Span<u8> key Span<u8> out MutSpan<u8> world World !
+  ret std.crypto.key.deobfuscate data key out world

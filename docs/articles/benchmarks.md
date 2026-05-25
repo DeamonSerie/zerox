@@ -1,6 +1,6 @@
 ## Benchmarks
 
-The benchmark suite is a regression signal for Zero's goals: small artifacts,
+The benchmark suite is a regression signal for Zerox's goals: small artifacts,
 fast builds, predictable output, and low overhead.
 
 Run it locally:
@@ -12,14 +12,14 @@ pnpm run bench
 The report is written to:
 
 ```sh
-.zero/bench/latest.json
+.zerox/bench/latest.json
 ```
 
 Trend artifacts are written to:
 
 ```sh
-.zero/bench/trends/latest.json
-.zero/bench/trends/summary.md
+.zerox/bench/trends/latest.json
+.zerox/bench/trends/summary.md
 ```
 
 ## Cases
@@ -36,9 +36,9 @@ The current cases include:
 - `parse`: scanner-style digit parsing
 - `slices`, `arena`, `fallibility`, `branches`: memory views, fixed-buffer allocation style, explicit fallible branching, and branch-heavy loops
 - `module-package`, `rescue`: package graph overhead and local rescue lowering
-- `fs-resource`, `mem-copy-fill`, `zero-hash`: focused Zero cases for file-resource metadata, memory helpers, and deterministic byte payload processing
+- `fs-resource`, `mem-copy-fill`, `zero-hash`: focused Zerox cases for file-resource metadata, memory helpers, and deterministic byte payload processing
 
-The Zero sources for these cases live under `benchmarks/zero`.
+The Zerox sources for these cases live under `benchmarks/zerox`.
 Host targets that do not support a direct executable runner for a case report it
 as `skipped` with a reason instead of failing the whole benchmark run.
 
@@ -70,13 +70,13 @@ host load, and cache state all affect results.
 Change the repeat count:
 
 ```sh
-ZERO_BENCH_RUNS=<n> pnpm run bench
+ZEROX_BENCH_RUNS=<n> pnpm run bench
 ```
 
 Run the sandbox backend explicitly:
 
 ```sh
-ZERO_BENCH_MODE=sandbox pnpm run bench
+ZEROX_BENCH_MODE=sandbox pnpm run bench
 ```
 
 Sandbox mode prepares an isolated environment and is useful for CI. Local mode is

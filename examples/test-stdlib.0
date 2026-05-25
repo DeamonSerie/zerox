@@ -1,0 +1,7 @@
+# Test stdlib loading
+use std.crypto.cipher
+
+pub fn main Void world World !
+  let s u32 std.crypto.cipher.keySize std.crypto.cipher.AES_256
+  if == s 32_u32
+    check world.out.write "stdlib loading OK\n"

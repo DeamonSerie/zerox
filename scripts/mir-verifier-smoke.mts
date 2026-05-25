@@ -5,20 +5,20 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const cc = process.env.CC ?? "cc";
-const out = `/tmp/zero-mir-verifier-smoke-${process.pid}`;
+const out = `/tmp/zerox-mir-verifier-smoke-${process.pid}`;
 
 try {
   await execFileAsync(cc, [
-    "-std=c11",
-    "-Wall",
-    "-Wextra",
-    "-Wpedantic",
-    "-I",
-    "native/zero-c/include",
-    "-I",
-    "native/zero-c/src",
-    "native/zero-c/src/mir_verify.c",
-    "native/zero-c/tests/mir_verify_smoke.c",
+    ["-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Wpedantic",
+        "-I",
+        "native/zerox-c/include",
+        "-I",
+        "native/zerox-c/src",
+        "native/zerox-c/src/mir_verify.c",
+        "native/zerox-c/tests/mir_verify_smoke.c",
     "-o",
     out,
   ]);

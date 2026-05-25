@@ -1,0 +1,19 @@
+# std.crypto.twofish
+#
+# Twofish block cipher implementation.
+# Designed by Bruce Schneier as one of the AES finalists.
+# Uses 128-bit blocks and 128/192/256-bit keys.
+#
+# NOTE: Native runtime implementation pending. Returns 0 (error)
+# until the C runtime in zero_crypto.c is extended.
+#
+
+# --- Twofish Encrypt ---
+
+pub fn encrypt u32 key Span<u8> iv Span<u8> data Span<u8> mode u32 out MutSpan<u8> world World !
+  ret 0_u32
+
+# --- Twofish Decrypt ---
+
+pub fn decrypt u32 key Span<u8> iv Span<u8> data Span<u8> mode u32 out MutSpan<u8> world World !
+  ret 0_u32

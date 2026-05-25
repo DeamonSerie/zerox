@@ -1,0 +1,19 @@
+# std.crypto.serpent
+#
+# Serpent block cipher implementation.
+# Designed by Ross Anderson, Eli Biham, and Lars Knudsen.
+# AES finalist. Uses 128-bit blocks and 128/192/256-bit keys.
+#
+# NOTE: Native runtime implementation pending. Returns 0 (error)
+# until the C runtime in zero_crypto.c is extended.
+#
+
+# --- Serpent Encrypt ---
+
+pub fn encrypt u32 key Span<u8> iv Span<u8> data Span<u8> mode u32 out MutSpan<u8> world World !
+  ret 0_u32
+
+# --- Serpent Decrypt ---
+
+pub fn decrypt u32 key Span<u8> iv Span<u8> data Span<u8> mode u32 out MutSpan<u8> world World !
+  ret 0_u32

@@ -1,0 +1,40 @@
+{
+  "main": {
+    "prefix": "main",
+    "body": [
+      "pub fun main(world: World) -> Void raises {",
+      "    check world.out.write(\"$1\\\\n\")",
+      "}"
+    ],
+    "description": "Zerox main entrypoint"
+  },
+  "shape": {
+    "prefix": "shape",
+    "body": ["shape ${1:Name} {", "    ${2:field}: ${3:i32},", "}"],
+    "description": "Zerox shape declaration"
+  },
+  "function": {
+    "prefix": "fun",
+    "body": [
+      "fun ${1:name}(${2:param}: ${3:i32}) -> ${4:i32} {",
+      "    return ${2:param}",
+      "}"
+    ],
+    "description": "Zerox function declaration"
+  },
+  "test": {
+    "prefix": "test",
+    "body": ["test \"${1:behavior}\" {", "    expect(${2:true})", "}"],
+    "description": "Zerox test block"
+  },
+  "if": {
+    "prefix": "if",
+    "body": ["if $1 {", "    $2", "}"],
+    "description": "Zerox if statement"
+  },
+  "while": {
+    "prefix": "while",
+    "body": ["while $1 {", "    $2", "}"],
+    "description": "Zerox while loop"
+  }
+}

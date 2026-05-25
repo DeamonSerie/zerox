@@ -1,22 +1,22 @@
 ## Building From Source
 
-Use this path when you want to try Zero from a checkout or work on the compiler.
+Use this path when you want to try Zerox from a checkout or work on the compiler.
 
 ```sh
 pnpm install
-make -C native/zero-c
-bin/zero --version
+make -C native/zerox-c
+bin/zerox --version
 ```
 
-`make` builds the local compiler into `.zero/bin/zero`. The repository wrapper
-`bin/zero` uses that local build.
+`make` builds the local compiler into `.zerox/bin/zerox`. The repository wrapper
+`bin/zerox` uses that local build.
 
 ## Quick Command Loop
 
 ```sh
-bin/zero check examples/hello.0
-bin/zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add
-./.zero/out/add
+bin/zerox check examples/hello.0
+bin/zerox build --emit exe --target linux-musl-x64 examples/add.0 --out .zerox/out/add
+./.zerox/out/add
 ```
 
 ## Inspect Code
@@ -24,26 +24,26 @@ bin/zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out
 Inspect package/module structure:
 
 ```sh
-bin/zero graph --json examples/systems-package
+bin/zerox graph --json examples/systems-package
 ```
 
 Inspect artifact size metadata:
 
 ```sh
-bin/zero size --json examples/point.0
+bin/zerox size --json examples/point.0
 ```
 
 List known targets:
 
 ```sh
-bin/zero targets
+bin/zerox targets
 ```
 
 Explain diagnostics and inspect repair plans without editing files:
 
 ```sh
-bin/zero explain TAR002
-bin/zero fix --plan --json conformance/native/fail/mem-copy-immutable-dst.0
+bin/zerox explain TAR002
+bin/zerox fix --plan --json conformance/native/fail/mem-copy-immutable-dst.0
 ```
 
 ## Native Targets
@@ -61,8 +61,8 @@ native target names:
 - `win32-x64.exe`
 
 ```sh
-bin/zero build --emit exe --target linux-musl-x64 examples/add.0 --out .zero/out/add-linux-musl
-bin/zero build --emit exe --target win32-x64.exe examples/hello.0 --out .zero/out/hello-win32
+bin/zerox build --emit exe --target linux-musl-x64 examples/add.0 --out .zerox/out/add-linux-musl
+bin/zerox build --emit exe --target win32-x64.exe examples/hello.0 --out .zerox/out/hello-win32
 ```
 
 Unsupported target or feature requests report diagnostics instead of silently
@@ -73,10 +73,10 @@ choosing another backend.
 Build a small object artifact for a foreign native target:
 
 ```sh
-bin/zero build --emit obj --target darwin-arm64 examples/direct-call-add.0 --out .zero/out/direct-call-add.o
+bin/zerox build --emit obj --target darwin-arm64 examples/direct-call-add.0 --out .zerox/out/direct-call-add.o
 ```
 
-Use `bin/zero check --json --emit obj --target <target> <input>` before a build
+Use `bin/zerox check --json --emit obj --target <target> <input>`
 when an agent needs structured readiness data without writing artifacts.
 
 ## Current Language Subset

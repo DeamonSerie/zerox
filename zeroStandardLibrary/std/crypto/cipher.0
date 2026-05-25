@@ -1,0 +1,167 @@
+# std.crypto.cipher
+#
+# Cipher algorithm constants, mode constants, padding schemes,
+# and supporting types for the std.crypto encryption library.
+#
+# Method Constants
+#   These identify the cipher algorithm to use with encrypt/decrypt.
+#
+
+# --- Algorithm Constants ---
+
+# AES (Advanced Encryption Standard)
+const AES u32 0_u32
+const AES_128 u32 0_u32
+const AES_192 u32 1_u32
+const AES_256 u32 2_u32
+
+# DES (Data Encryption Standard)
+const DES u32 10_u32
+
+# 3DES (Triple DES / TDEA)
+const TDES u32 11_u32
+
+# ChaCha20 stream cipher
+const CHACHA20 u32 20_u32
+
+# XChaCha20 (extended nonce ChaCha20)
+const XCHACHA20 u32 21_u32
+
+# Salsa20 stream cipher
+const SALSA20 u32 22_u32
+
+# Blowfish block cipher
+const BLOWFISH u32 30_u32
+
+# Twofish block cipher
+const TWOFISH u32 31_u32
+
+# Serpent block cipher
+const SERPENT u32 32_u32
+
+# Camellia block cipher
+const CAMELLIA u32 33_u32
+
+# --- Mode Constants ---
+
+const MODE_ECB u32 0_u32
+const MODE_CBC u32 1_u32
+const MODE_CFB u32 2_u32
+const MODE_OFB u32 3_u32
+const MODE_CTR u32 4_u32
+const MODE_GCM u32 5_u32
+const MODE_CCM u32 6_u32
+
+# --- Padding Constants ---
+
+const PADDING_PKCS7 u32 0_u32
+const PADDING_ZERO u32 1_u32
+const PADDING_ANSIX923 u32 2_u32
+const PADDING_ISO10126 u32 3_u32
+const PADDING_NONE u32 4_u32
+
+# --- Option Flag Bits ---
+
+# When set in options word, enable obfuscation layer
+const OPTION_OBFUSCATE u32 0x1_u32
+# When set, use layered/double encryption
+const OPTION_DOUBLE u32 0x2_u32
+# When set, use hybrid (asymmetric + symmetric)
+const OPTION_HYBRID u32 0x4_u32
+# When set, include integrity check
+const OPTION_INTEGRITY u32 0x8_u32
+
+# --- Key Size Lookup ---
+#
+# Returns the expected key size in bytes for a given algorithm.
+# Returns 0 for unknown/variable-length algorithms.
+#
+pub fn keySize u32 algorithm u32
+  if == algorithm AES_128
+    ret 16_u32
+  if == algorithm AES_192
+    ret 24_u32
+  if == algorithm AES_256
+    ret 32_u32
+  if == algorithm DES
+    ret 8_u32
+  if == algorithm TDES
+    ret 24_u32
+  if == algorithm CHACHA20
+    ret 32_u32
+  if == algorithm XCHACHA20
+    ret 32_u32
+  if == algorithm SALSA20
+    ret 32_u32
+  if == algorithm BLOWFISH
+    ret 16_u32
+  if == algorithm TWOFISH
+    ret 32_u32
+  if == algorithm SERPENT
+    ret 32_u32
+  if == algorithm CAMELLIA
+    ret 32_u32
+  ret 0_u32
+
+# --- Block Size Lookup ---
+#
+# Returns the block size in bytes for a given algorithm.
+# Stream ciphers return 1 (byte-at-a-time).
+#
+pub fn blockSize u32 algorithm u32
+  if == algorithm AES_128
+    ret 16_u32
+  if == algorithm AES_192
+    ret 16_u32
+  if == algorithm AES_256
+    ret 16_u32
+  if == algorithm DES
+    ret 8_u32
+  if == algorithm TDES
+    ret 8_u32
+  if == algorithm BLOWFISH
+    ret 8_u32
+  if == algorithm TWOFISH
+    ret 16_u32
+  if == algorithm SERPENT
+    ret 16_u32
+  if == algorithm CAMELLIA
+    ret 16_u32
+  if == algorithm CHACHA20
+    ret 1_u32
+  if == algorithm XCHACHA20
+    ret 1_u32
+  if == algorithm SALSA20
+    ret 1_u32
+  ret 0_u32
+
+# --- Method Name ---
+#
+# Returns a human-readable name for an algorithm constant.
+#
+pub fn methodName String algorithm u32
+  if == algorithm AES_128
+    ret "AES-128"
+  if == algorithm AES_192
+    ret "AES-192"
+  if == algorithm AES_256
+    ret "AES-256"
+  if == algorithm DES
+    ret "DES"
+  if == algorithm TDES
+    ret "3DES"
+  if == algorithm CHACHA20
+    ret "ChaCha20"
+  if == algorithm XCHACHA20
+    ret "XChaCha20"
+  if == algorithm SALSA20
+    ret "Salsa20"
+  if == algorithm BLOWFISH
+    ret "Blowfish"
+  if == algorithm TWOFISH
+    ret "Twofish"
+  if == algorithm SERPENT
+    ret "Serpent"
+  if == algorithm CAMELLIA
+    ret "Camellia"
+  ret "Unknown"

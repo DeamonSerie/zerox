@@ -14,10 +14,21 @@ await mkdir(join(extensionDir, "snippets"), { recursive: true });
 
 await cp("package.json", join(extensionDir, "package.json"));
 await cp("README.md", join(extensionDir, "README.md"));
-await cp("language-configuration/zero.json", join(extensionDir, "language-configuration", "zero.json"));
-await cp("syntaxes/zero.tmLanguage.json", join(extensionDir, "syntaxes", "zero.tmLanguage.json"));
-await cp("snippets/zero.json", join(extensionDir, "snippets", "zero.json"));
-await writeFile(join(extensionDir, ".installed-by-zero"), new Date().toISOString());
+await cp(
+  "language-configuration/zerox.json",
+  join(extensionDir, "language-configuration", "zerox.json"),
+);
+await cp(
+  "syntaxes/zerox.tmLanguage.json",
+  join(extensionDir, "syntaxes", "zerox.tmLanguage.json"),
+);
+await cp("snippets/zerox.json", join(extensionDir, "snippets", "zerox.json"));
+await writeFile(
+  join(extensionDir, ".installed-by-zerox"),
+  new Date().toISOString(),
+);
 
-console.log(`Installed ${manifest.publisher}.${manifest.name} to ${extensionDir}`);
+console.log(
+  `Installed ${manifest.publisher}.${manifest.name} to ${extensionDir}`,
+);
 console.log("Reload the Cursor window for syntax highlighting to activate.");

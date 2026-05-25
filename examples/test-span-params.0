@@ -1,0 +1,11 @@
+pub fn process u32 data Span<u8> key Span<u8>
+  let len usize std.mem.len data
+  ret len as u32
+
+pub fn main Void world World !
+  let input Span<u8> (std.mem.span "hello")
+  let key_buf [4]u8 [0_u8; 4]
+  let key Span<u8> key_buf
+  let result u32 process input key
+  if > result 0_u32
+    check world.out.write "Span params OK\n"

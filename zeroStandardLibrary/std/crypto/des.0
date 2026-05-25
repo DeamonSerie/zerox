@@ -1,0 +1,38 @@
+# std.crypto.des
+#
+# DES and 3DES (Triple DES/TDEA) block cipher implementations.
+#
+# WARNING: DES uses a 56-bit key and is considered insecure for
+# modern use. 3DES provides better security but is slower than AES.
+# Prefer AES for new applications.
+#
+# NOTE: Native runtime implementation pending. These functions
+# require C runtime support in zero_crypto.c. They are declared
+# for interface compatibility but return 0 (error) for now.
+#
+
+# --- DES Constants ---
+
+const DES_BLOCK_SIZE u32 8_u32
+const DES_KEY_SIZE u32 8_u32
+const TDES_KEY_SIZE u32 24_u32
+
+# --- DES Encrypt ---
+
+pub fn encrypt u32 key Span<u8> data Span<u8> mode u32 out MutSpan<u8> world World !
+  ret 0_u32
+
+# --- DES Decrypt ---
+
+pub fn decrypt u32 key Span<u8> data Span<u8> mode u32 out MutSpan<u8> world World !
+  ret 0_u32
+
+# --- Triple DES (3DES/TDEA) Encrypt ---
+
+pub fn tripleEncrypt u32 key Span<u8> data Span<u8> mode u32 out MutSpan<u8> world World !
+  ret 0_u32
+
+# --- Triple DES (3DES/TDEA) Decrypt ---
+
+pub fn tripleDecrypt u32 key Span<u8> data Span<u8> mode u32 out MutSpan<u8> world World !
+  ret 0_u32

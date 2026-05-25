@@ -1,4 +1,4 @@
-const REPO = process.env.NEXT_PUBLIC_GITHUB_REPO || "vercel-labs/zero";
+const REPO = process.env.NEXT_PUBLIC_GITHUB_REPO || "vercel-labs/zerox";
 const REVALIDATE = 86400;
 
 export async function getStarCount(): Promise<string> {
@@ -11,7 +11,8 @@ export async function getStarCount(): Promise<string> {
     const data = (await res.json()) as { stargazers_count?: unknown };
     const count = data.stargazers_count;
     if (typeof count !== "number") return "";
-    if (count >= 1000) return `${(count / 1000).toFixed(count >= 10000 ? 0 : 1)}k`;
+    if (count >= 1000)
+      return `${(count / 1000).toFixed(count >= 10000 ? 0 : 1)}k`;
     return String(count);
   } catch {
     return "";

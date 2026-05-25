@@ -1,0 +1,29 @@
+# std.crypto Library
+#
+# Location: zeroStandardLibrary/std/crypto/
+#
+# This directory contains the Zero standard library crypto module.
+# It provides encryption, decryption, hashing, and key management
+# functions following a consistent API pattern.
+#
+# API Conventions:
+# - All functions accept `Span<u8>` for read-only byte data
+# - Output is written to caller-provided `MutSpan<u8>` buffers
+# - Return value is `u32`: bytes written on success, 0 on failure
+# - `world World !` suffix enables runtime operations
+# - Algorithm/mode/padding selection uses `u32` constants from cipher.0
+#
+# Getting Started:
+#   1. Import the desired sub-module
+#   2. Allocate key, IV, input, and output buffers
+#   3. Call encrypt/decrypt with appropriate parameters
+#   4. Check the return value (> 0 means success)
+#
+# Examples:
+#   examples/std-crypto-aes.0
+#   examples/std-crypto-chacha20.0
+#   examples/std-crypto-hash.0
+#   examples/std-crypto-keygen.0
+#
+# Conformance:
+#   conformance/native/pass/std-crypto-encrypt.0

@@ -3,12 +3,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const outPath = path.join(repoRoot, "native/zero-c/src/embedded_runtime_sources.inc");
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
+const outPath = path.join(
+  repoRoot,
+  "native/zerox-c/src/embedded_runtime_sources.inc",
+);
 const inputs = [
-  ["zero_embedded_zero_runtime_h", "native/zero-c/include/zero_runtime.h"],
-  ["zero_embedded_zero_runtime_c", "native/zero-c/runtime/zero_runtime.c"],
-  ["zero_embedded_zero_http_curl_c", "native/zero-c/runtime/zero_http_curl.c"],
+  ["zerox_embedded_zerox_runtime_h", "native/zerox-c/include/zerox_runtime.h"],
+  ["zerox_embedded_zerox_runtime_c", "native/zerox-c/runtime/zerox_runtime.c"],
+  [
+    "zerox_embedded_zerox_http_curl_c",
+    "native/zerox-c/runtime/zerox_http_curl.c",
+  ],
+  ["zerox_embedded_zerox_crypto_h", "native/zerox-c/runtime/zerox_crypto.h"],
+  ["zerox_embedded_zerox_crypto_c", "native/zerox-c/runtime/zerox_crypto.c"],
 ];
 
 function chunkText(text) {
@@ -36,9 +47,11 @@ function chunkText(text) {
 }
 
 const out = [];
-out.push("/* Generated from Zero runtime sources. Run node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/embed-runtime-sources.mts to refresh. */");
-out.push("#ifndef ZERO_EMBEDDED_RUNTIME_SOURCES_INC");
-out.push("#define ZERO_EMBEDDED_RUNTIME_SOURCES_INC");
+out.push(
+  "/* Generated from Zerox runtime sources. Run node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/embed-runtime-sources.mts to refresh. */",
+);
+out.push("#ifndef ZEROX_EMBEDDED_RUNTIME_SOURCES_INC");
+out.push("#define ZEROX_EMBEDDED_RUNTIME_SOURCES_INC");
 out.push("");
 
 for (const [name, relativePath] of inputs) {

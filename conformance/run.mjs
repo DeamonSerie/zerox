@@ -15,8 +15,8 @@ if (
 }
 
 const execFileAsync = promisify(execFile);
-const zero = "bin/zero";
-const outDir = ".zero/conformance";
+const zero = "bin/zerox";
+const outDir = ".zerox/conformance";
 const canRunLinuxMuslX64 =
   process.platform === "linux" && process.arch === "x64";
 const runnableDirectTarget =
@@ -66,7 +66,7 @@ async function assertBoundsTrap(fixture, name) {
   if (!canRunLinuxMuslX64) return;
   const failedRun = await execFileAsync(out, []).catch((error) => error);
   if (failedRun.stderr)
-    assert.match(failedRun.stderr, /zero bounds check failed/);
+    assert.match(failedRun.stderr, /zerox bounds check failed/);
 }
 
 async function assertDirectRuntimeOrUnsupported(fixture, name, expected) {
@@ -366,7 +366,7 @@ async function assertMachOArm64Executable(path) {
   assert(sawUuid);
   assert(bytes.includes(Buffer.from("/usr/lib/dyld")));
   assert(bytes.includes(Buffer.from("/usr/lib/libSystem.B.dylib")));
-  assert(bytes.includes(Buffer.from("zero-direct")));
+  assert(bytes.includes(Buffer.from("zerox-direct")));
   return bytes;
 }
 
@@ -864,7 +864,7 @@ const compilerMetrics = await execFileAsync("node", [
 ]);
 const compilerMetricsBody = JSON.parse(compilerMetrics.stdout);
 assert.equal(compilerMetricsBody.schema, 1);
-assert(compilerMetricsBody.files["native/zero-c/src/checker.c"].lines > 0);
+assert(compilerMetricsBody.files["native/zerox-c/src/checker.c"].lines > 0);
 assert(Array.isArray(compilerMetricsBody.largeFunctions));
 assert(compilerMetricsBody.stdlib.mainHelperCount > 0);
 assert.equal(
@@ -1253,7 +1253,7 @@ assert.deepEqual(
   {
     target: "linux-musl-x64",
     objectFormat: "elf",
-    backend: "zero-elf64",
+    backend: "zerox-elf64",
     stage: "lower",
     unsupportedFeature: "owned<Tracked>",
   },
@@ -1404,7 +1404,7 @@ assert.equal(
 assert.equal(
   coffDynamicSliceReadinessBody.targetReadiness.diagnostics[0].backendBlocker
     .backend,
-  "zero-coff-x64",
+  "zerox-coff-x64",
 );
 assert.equal(
   coffDynamicSliceReadinessBody.targetReadiness.diagnostics[0].backendBlocker
@@ -4615,7 +4615,7 @@ const hostLeakBuild = await execFileAsync(
     "linux-musl-x64",
     "conformance/c/host-leak-package",
     "--out",
-    ".zero/out/host-leak-package",
+    ".zerox/out/host-leak-package",
   ],
   { encoding: "utf8" },
 ).catch((error) => error);
@@ -4677,7 +4677,7 @@ const depBuild = await execFileAsync(zero, [
   "linux-musl-x64",
   "conformance/packages/dep-app",
   "--out",
-  ".zero/out/dep-app",
+  ".zerox/out/dep-app",
 ]);
 const depBuildBody = JSON.parse(depBuild.stdout);
 assert.equal(depBuildBody.package.dependencies.length, 2);

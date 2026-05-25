@@ -1,8 +1,8 @@
 {
-  "name": "zero-lang",
-  "displayName": "Zero Language",
-  "description": "Syntax highlighting for the Zero programming language.",
-  "publisher": "zero-lang",
+  "name": "zerox-lang",
+  "displayName": "Zerox Language",
+  "description": "Syntax highlighting for the Zerox programming language.",
+  "publisher": "zerox-lang",
   "version": "0.1.3",
   "private": true,
   "type": "module",
@@ -20,28 +20,28 @@
   "contributes": {
     "languages": [
       {
-        "id": "zero",
+        "id": "zerox",
         "aliases": [
-          "Zero",
-          "zero"
+          "Zerox",
+          "zerox"
         ],
         "extensions": [
           ".0"
         ],
-        "configuration": "./language-configuration/zero.json"
+        "configuration": "./language-configuration/zerox.json"
       }
     ],
     "grammars": [
       {
-        "language": "zero",
-        "scopeName": "source.zero",
-        "path": "./syntaxes/zero.tmLanguage.json"
+        "language": "zerox",
+        "scopeName": "source.zerox",
+        "path": "./syntaxes/zerox.tmLanguage.json"
       }
     ],
     "snippets": [
       {
-        "language": "zero",
-        "path": "./snippets/zero.json"
+        "language": "zerox",
+        "path": "./snippets/zerox.json"
       }
     ]
   }

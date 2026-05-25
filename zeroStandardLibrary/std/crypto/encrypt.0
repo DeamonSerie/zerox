@@ -1,0 +1,118 @@
+# std.crypto.encrypt
+#
+# High-level encryption/decryption dispatcher.
+# Provides a unified API for encrypting and decrypting data
+# across all supported cipher algorithms.
+#
+# Usage:
+#   use std.crypto
+#   let mut buf [4096]u8 [0_u8; 4096]
+#   let out MutSpan<u8> buf
+#   let result std.crypto.encrypt data key AES MODE_GCM out world
+#
+
+# --- Encrypt ---
+#
+# Encrypts data using the specified cipher method and mode.
+#
+# Parameters:
+#   data    - Plaintext to encrypt
+#   key     - Encryption key (size depends on algorithm)
+#   iv      - Initialization vector/nonce (size depends on algorithm)
+#   method  - Cipher algorithm (AES, CHACHA20, etc. from cipher.0)
+#   mode    - Block cipher mode (ECB, CBC, GCM, etc.)
+#   padding - Padding scheme (PKCS7, ZERO, etc.)
+#   out     - Output buffer (must be large enough for ciphertext)
+#
+# Returns bytes written, or 0 on failure.
+#
+pub fn encrypt u32 data Span<u8> key Span<u8> iv Span<u8> method u32 mode u32 padding u32 out MutSpan<u8> world World !
+  if == method std.crypto.cipher.AES_128
+    ret std.crypto.aes.encrypt key iv data mode out world
+  if == method std.crypto.cipher.AES_192
+    ret std.crypto.aes.encrypt key iv data mode out world
+  if == method std.crypto.cipher.AES_256
+    ret std.crypto.aes.encrypt key iv data mode out world
+  if == method std.crypto.cipher.DES
+    ret std.crypto.des.encrypt key data mode out world
+  if == method std.crypto.cipher.TDES
+    ret std.crypto.des.tripleEncrypt key data mode out world
+  if == method std.crypto.cipher.CHACHA20
+    ret std.crypto.chacha.chacha20 key iv data 0_u32 out world
+  if == method std.crypto.cipher.XCHACHA20
+    ret std.crypto.chacha.xchacha20 key iv data 0_u32 out world
+  if == method std.crypto.cipher.SALSA20
+    ret std.crypto.chacha.salsa20 key iv data 0_u32 out world
+  if == method std.crypto.cipher.BLOWFISH
+    ret std.crypto.blowfish.encrypt key iv data mode out world
+  if == method std.crypto.cipher.TWOFISH
+    ret std.crypto.twofish.encrypt key iv data mode out world
+  if == method std.crypto.cipher.SERPENT
+    ret std.crypto.serpent.encrypt key iv data mode out world
+  if == method std.crypto.cipher.CAMELLIA
+    ret std.crypto.camellia.encrypt key iv data mode out world
+  ret 0_u32
+
+# --- Decrypt ---
+#
+# Decrypts data using the specified cipher method and mode.
+# Parameters match encrypt().
+#
+# Returns bytes written, or 0 on failure.
+#
+pub fn decrypt u32 data Span<u8> key Span<u8> iv Span<u8> method u32 mode u32 padding u32 out MutSpan<u8> world World !
+  if == method std.crypto.cipher.AES_128
+    ret std.crypto.aes.decrypt key iv data mode out world
+  if == method std.crypto.cipher.AES_192
+    ret std.crypto.aes.decrypt key iv data mode out world
+  if == method std.crypto.cipher.AES_256
+    ret std.crypto.aes.decrypt key iv data mode out world
+  if == method std.crypto.cipher.DES
+    ret std.crypto.des.decrypt key data mode out world
+  if == method std.crypto.cipher.TDES
+    ret std.crypto.des.tripleDecrypt key data mode out world
+  if == method std.crypto.cipher.CHACHA20
+    ret std.crypto.chacha.chacha20 key iv data 0_u32 out world
+  if == method std.crypto.cipher.XCHACHA20
+    ret std.crypto.chacha.xchacha20 key iv data 0_u32 out world
+  if == method std.crypto.cipher.SALSA20
+    ret std.crypto.chacha.salsa20 key iv data 0_u32 out world
+  if == method std.crypto.cipher.BLOWFISH
+    ret std.crypto.blowfish.decrypt key iv data mode out world
+  if == method std.crypto.cipher.TWOFISH
+    ret std.crypto.twofish.decrypt key iv data mode out world
+  if == method std.crypto.cipher.SERPENT
+    ret std.crypto.serpent.decrypt key iv data mode out world
+  if == method std.crypto.cipher.CAMELLIA
+    ret std.crypto.camellia.decrypt key iv data mode out world
+  ret 0_u32
+
+# --- Encrypt with Options Word ---
+#
+# Variant that accepts a combined options word for convenience.
+# Options bits (from cipher.0):
+#   OPTION_OBFUSCATE (0x1) - add obfuscation layer
+#   OPTION_DOUBLE    (0x2) - use double encryption
+#   OPTION_HYBRID    (0x4) - use hybrid encryption
+#   OPTION_INTEGRITY (0x8) - include integrity check
+#
+pub fn encryptWithOptions u32 data Span<u8> key Span<u8> iv Span<u8> method u32 mode u32 padding u32 options u32 out MutSpan<u8> world World !
+  let baseLen u32 encrypt data key iv method mode padding out world
+  if == baseLen 0_u32
+    ret 0_u32
+  let currentLen u32 baseLen
+  # Apply obfuscation layer if OPTION_OBFUSCATE is set
+  if != (&& options std.crypto.cipher.OPTION_OBFUSCATE) 0_u32
+    let obfSlice Span<u8> out[0..currentLen]
+    let obfLen u32 std.crypto.layered.obfuscateLayer obfSlice key out world
+    if == obfLen 0_u32
+      ret 0_u32
+    let currentLen u32 obfLen
+  # Apply double encryption if OPTION_DOUBLE is set
+  if != (&& options std.crypto.cipher.OPTION_DOUBLE) 0_u32
+    let innerSlice Span<u8> out[0..currentLen]
+    let doubleLen u32 encrypt innerSlice key iv method mode padding out world
+    if == doubleLen 0_u32
+      ret 0_u32
+    let currentLen u32 doubleLen
+  ret currentLen

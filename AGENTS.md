@@ -1,12 +1,12 @@
 # Contributor Notes
 
-Zero is a pre-1 experiment in building an agent-first programming language.
+Zerox is a pre-1 experiment in building an agent-first programming language.
 Keep public-facing changes honest about what works today without weakening that
 positioning.
 
 ## Project Direction
 
-Zero is still being shaped around the needs of agents. Breaking changes are
+Zerox is still being shaped around the needs of agents. Breaking changes are
 acceptable when they move the language, standard library, compiler, or tooling
 closer to that goal.
 
@@ -16,16 +16,16 @@ forward. Keep examples, docs, tests, and command contracts aligned with the new
 behavior so the repository describes one coherent current system.
 
 This does not mean broad churn for its own sake. Make direct changes that
-advance Zero's agent-first goals: on-the-fly learnability, deterministic
+advance Zerox's agent-first goals: on-the-fly learnability, deterministic
 inspection and repair, strong standard-library coverage, exceptional developer
 experience, and regular patterns over syntactic convenience.
 
 ## Safety Expectations
 
-Security vulnerabilities should be expected. Zero is not ready for production
+Security vulnerabilities should be expected. Zerox is not ready for production
 systems, sensitive data, or trusted infrastructure.
 
-Run and develop Zero in safe environments: isolated workspaces, disposable
+Run and develop Zerox in safe environments: isolated workspaces, disposable
 inputs, and systems where compiler crashes, malformed output, or unsafe runtime
 behavior cannot damage production state. Treat generated artifacts and examples
 as experimental unless they have been reviewed for the specific environment
@@ -33,9 +33,9 @@ where they will run.
 
 ## Development
 
-- Build the local compiler with `make -C native/zero-c`.
-- Use `bin/zero` for focused checks; it execs the local native compiler at
-  `.zero/bin/zero`.
+- Build the local compiler with `make -C native/zerox-c`.
+- Use `bin/zerox` for focused checks; it execs the local native compiler at
+  `.zerox/bin/zerox`.
 - Keep examples runnable and docs copyable.
 - Prefer small, direct changes over broad refactors.
 - Use direct emitters for compiler output.
@@ -53,16 +53,16 @@ pnpm run command-contracts
 For focused compiler work:
 
 ```sh
-bin/zero check --json <file-or-package>
-bin/zero graph --json <file-or-package>
-bin/zero size --json <file-or-package>
-bin/zero explain <diagnostic-code>
-bin/zero fix --plan --json <file-or-package>
+bin/zerox check --json <file-or-package>
+bin/zerox graph --json <file-or-package>
+bin/zerox size --json <file-or-package>
+bin/zerox explain <diagnostic-code>
+bin/zerox fix --plan --json <file-or-package>
 ```
 
 ## Project Layout
 
-- `native/zero-c/`: native compiler implementation.
+- `native/zerox-c/`: native compiler implementation.
 - `examples/`: small runnable programs and packages.
 - `conformance/`: language and CLI fixtures.
 - `docs/`: public documentation site.
@@ -83,7 +83,7 @@ To prepare a release:
 
 1. Create a release branch, such as `ctate/v0.1.1`.
 2. Bump the release version in `package.json`, `docs/package.json`,
-   `extensions/vscode/package.json`, and `native/zero-c/src/main.c`.
+   `extensions/vscode/package.json`, and `native/zerox-c/src/main.c`.
 3. Update command-contract expectations that assert the compiler version.
 4. Write the `CHANGELOG.md` entry for the new version, wrapped in
    `<!-- release:start -->` and `<!-- release:end -->` markers.
@@ -95,9 +95,9 @@ To prepare a release:
 7. Run focused checks before opening or updating the PR:
 
 ```sh
-make -C native/zero-c
-bin/zero --version --json
-pnpm run test:zero
+make -C native/zerox-c
+bin/zerox --version --json
+pnpm run test:zerox
 pnpm run command-contracts:local
 pnpm run docs:test
 ```

@@ -30,12 +30,12 @@ jobs:
           version: 0.14.1
 
       - name: Build native compiler
-        run: make -C native/zero-c
+        run: make -C native/zerox-c
 
       - name: Verify embedded skill data
         run: |
           node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/embed-skill-data.mts
-          git diff --exit-code native/zero-c/src/embedded_skills.inc
+          git diff --exit-code native/zerox-c/src/embedded_skills.inc
 
       - run: pnpm install --frozen-lockfile
 
@@ -52,7 +52,7 @@ jobs:
         run: pnpm run native:sanitize
 
       - name: TypeScript tests
-        run: pnpm run test:zero
+        run: pnpm run test:zerox
 
       - name: Docs tests
         run: pnpm run docs:test
@@ -78,15 +78,15 @@ jobs:
 
       - name: Cross-target smoke
         run: |
-          bin/zero check --target linux-musl-x64 examples/memory-package
-          bin/zero build --emit obj --target linux-musl-x64 examples/direct-obj-add.0 --out .zero/out/direct-obj-add-linux-musl.o
-          bin/zero build --target linux-musl-x64 examples/hello.0 --out .zero/out/hello-linux-musl
-          bin/zero build --target win32-x64.exe examples/hello.0 --out .zero/out/hello-win32
+          bin/zerox check --target linux-musl-x64 examples/memory-package
+          bin/zerox build --emit obj --target linux-musl-x64 examples/direct-obj-add.0 --out .zerox/out/direct-obj-add-linux-musl.o
+          bin/zerox build --target linux-musl-x64 examples/hello.0 --out .zerox/out/hello-linux-musl
+          bin/zerox build --target win32-x64.exe examples/hello.0 --out .zerox/out/hello-win32
 
       - name: Release artifact build smoke
         run: |
-          mkdir -p .zero/ci-release
+          mkdir -p .zerox/ci-release
           node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/embed-skill-data.mts
-          ZIG_GLOBAL_CACHE_DIR=.zero/zig-global-cache ZIG_LOCAL_CACHE_DIR=.zero/zig-local-cache zig cc -target x86_64-linux-musl -std=c11 -D_POSIX_C_SOURCE=200809L -Os -Inative/zero-c/include native/zero-c/src/*.c -o .zero/ci-release/zero-linux-musl-x64
-          ./.zero/ci-release/zero-linux-musl-x64 --version
-          ./.zero/ci-release/zero-linux-musl-x64 skills list --json
+          ZIG_GLOBAL_CACHE_DIR=.zerox/zig-global-cache ZIG_LOCAL_CACHE_DIR=.zerox/zig-local-cache zig cc -target x86_64-linux-musl -std=c11 -D_POSIX_C_SOURCE=200809L -Os -Inative/zerox-c/include native/zerox-c/src/*.c -o .zerox/ci-release/zerox-linux-musl-x64
+          ./.zerox/ci-release/zerox-linux-musl-x64 --version
+          ./.zerox/ci-release/zerox-linux-musl-x64 skills list --json

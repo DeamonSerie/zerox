@@ -1,0 +1,103 @@
+# std.crypto.key
+#
+# Key generation and derivation utilities.
+# Uses the native crypto runtime for cryptographically secure
+# random number generation and PBKDF2 key derivation.
+#
+
+# --- Generate Random Bytes ---
+#
+# Fills a buffer with cryptographically secure random bytes
+# from the OS-provided CSPRNG.
+#
+pub fn randomBytes u32 size u32 out MutSpan<u8> world World !
+
+# --- Generate Key ---
+#
+# Generates a cryptographically random key for the given algorithm.
+#
+pub fn generate u32 algorithm u32 out MutSpan<u8> world World !
+  let size u32 std.crypto.cipher.keySize algorithm
+  if == size 0_u32
+    ret 0_u32
+  ret randomBytes size out world
+
+# --- PBKDF2 Key Derivation ---
+#
+# Derives a key from a password using PBKDF2-HMAC-SHA256.
+#
+pub fn derive u32 password Span<u8> salt Span<u8> iterations u32 outLen u32 out MutSpan<u8> world World !
+
+# --- Key Exchange ---
+#
+# Performs a basic XOR-based key mixing.
+#
+pub fn exchange u32 keyA Span<u8> keyB Span<u8> out MutSpan<u8> world World !
+  let lenA u32 std.mem.len keyA
+  let lenB u32 std.mem.len keyB
+  let minLen u32 lenA
+  if < lenB minLen
+    let minLen u32 lenB
+  let i u32 0_u32
+  while < i minLen
+    let a u8 keyA[i]
+    let b u8 keyB[i]
+    let x u8 ^ a b
+    store<u8> x out i
+    let i u32 + i 1_u32
+  ret minLen
+
+# --- Obfuscate (XOR-based) ---
+#
+# Simple XOR obfuscation transform.
+#
+pub fn obfuscate u32 data Span<u8> key Span<u8> out MutSpan<u8> world World !
+  let dataLen u32 std.mem.len data
+  let keyLen u32 std.mem.len key
+  let i u32 0_u32
+  while < i dataLen
+    let d u8 data[i]
+    let kIdx u32 % i keyLen
+    let k u8 key[kIdx]
+    let x u8 ^ d k
+    store<u8> x out i
+    let i u32 + i 1_u32
+  ret dataLen
+
+# --- Deobfuscate (XOR-based, same as obfuscate) ---
+#
+pub fn deobfuscate u32 data Span<u8> key Span<u8> out MutSpan<u8> world World !
+  ret obfuscate data key out world
+
+# --- Split Key ---
+#
+# Splits a key into two shares using XOR secret sharing.
+#
+pub fn split u32 key Span<u8> share1 MutSpan<u8> share2 MutSpan<u8> world World !
+  let keyLen u32 std.mem.len key
+  let written u32 randomBytes keyLen share1 world
+  if == written 0_u32
+    ret 0_u32
+  let i u32 0_u32
+  while < i keyLen
+    let k u8 key[i]
+    let s1 u8 share1[i]
+    let s2 u8 ^ k s1
+    store<u8> s2 share2 i
+    let i u32 + i 1_u32
+  ret keyLen
+
+# --- Reconstruct Key ---
+#
+# Reconstructs a key from two shares using XOR.
+#
+pub fn reconstruct u32 share1 Span<u8> share2 Span<u8> out MutSpan<u8> world World !
+  let len u32 std.mem.len share1
+  let i u32 0_u32
+  while < i len
+    let s1 u8 share1[i]
+    let s2 u8 share2[i]
+    let k u8 ^ s1 s2
+    store<u8> k out i
+    let i u32 + i 1_u32
+  ret len

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+native="$root/.zerox/bin/zerox"
+
+if [[ ! -x "$native" ]]; then
+  echo "zerox: native compiler is not built yet" >&2
+  echo "run: make -C native/zerox-c" >&2
+  exit 127
+fi
+
+# If Botan was built locally (via make botan-build), point the compiler at it.
+if [ -z "${ZEROX_BOTAN_DIR:-}" ] && [ -f "$root/botan-master-master/libbotan-3.a" ]; then
+  export ZEROX_BOTAN_DIR="$root/botan-master-master"
+elif [ -z "${ZEROX_BOTAN_DIR:-}" ] && [ -f "$root/botan-master-master/build/libbotan-3.a" ]; then
+  export ZEROX_BOTAN_DIR="$root/botan-master-master/build"
+fi
+
+exec "$native" "$@"

@@ -1,10 +1,16 @@
 #!/usr/bin/env -S node --experimental-strip-types --disable-warning=ExperimentalWarning
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
-const outDir = join(root, ".zero", "native-test-sandbox");
+const outDir = join(root, ".zerox", "native-test-sandbox");
 mkdirSync(outDir, { recursive: true });
 loadDotEnvFiles([".env", ".env.local"]);
 const args = process.argv.slice(2);
@@ -38,9 +44,14 @@ function shellQuote(value) {
 function sandboxCommand() {
   const separator = args.indexOf("--");
   if (separator !== -1 && separator + 1 < args.length) {
-    return args.slice(separator + 1).map(shellQuote).join(" ");
+    return args
+      .slice(separator + 1)
+      .map(shellQuote)
+      .join(" ");
   }
-  return process.env.ZERO_SANDBOX_COMMAND?.trim() || "bash scripts/test-native.sh";
+  return (
+    process.env.ZERO_SANDBOX_COMMAND?.trim() || "bash scripts/test-native.sh"
+  );
 }
 
 function loadDotEnvFiles(paths) {
@@ -51,7 +62,9 @@ function loadDotEnvFiles(paths) {
     for (const line of lines) {
       const trimmed = line.trim();
       if (trimmed === "" || trimmed.startsWith("#")) continue;
-      const match = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(trimmed);
+      const match = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(
+        trimmed,
+      );
       if (!match || process.env[match[1]] !== undefined) continue;
       process.env[match[1]] = parseDotEnvValue(match[2]);
     }
@@ -61,12 +74,21 @@ function loadDotEnvFiles(paths) {
 function parseDotEnvValue(value) {
   const trimmed = value.trim();
   const quote = trimmed[0];
-  if ((quote === "\"" || quote === "'") && trimmed.endsWith(quote)) {
+  if ((quote === '"' || quote === "'") && trimmed.endsWith(quote)) {
     const inner = trimmed.slice(1, -1);
-    return quote === "\"" ? inner.replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "\t").replace(/\\"/g, "\"").replace(/\\\\/g, "\\") : inner;
+    return quote === '"'
+      ? inner
+          .replace(/\\n/g, "\n")
+          .replace(/\\r/g, "\r")
+          .replace(/\\t/g, "\t")
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, "\\")
+      : inner;
   }
   const commentStart = trimmed.search(/\s#/);
-  return commentStart === -1 ? trimmed : trimmed.slice(0, commentStart).trimEnd();
+  return commentStart === -1
+    ? trimmed
+    : trimmed.slice(0, commentStart).trimEnd();
 }
 
 function parsePositiveInt(value, fallback) {
@@ -77,40 +99,50 @@ function parsePositiveInt(value, fallback) {
 function parseOptionalNonNegativeInt(value) {
   if (value === undefined || value === "") return undefined;
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`expected a non-negative integer, got ${value}`);
+  if (!Number.isFinite(parsed) || parsed < 0)
+    throw new Error(`expected a non-negative integer, got ${value}`);
   return parsed;
 }
 
 function sandboxProjectDir() {
-  return process.env.ZERO_NATIVE_TEST_SANDBOX_PROJECT_DIR ||
+  return (
+    process.env.ZERO_NATIVE_TEST_SANDBOX_PROJECT_DIR ||
     process.env.ZERO_BENCH_SANDBOX_PROJECT_DIR ||
-    "/vercel/sandbox/zero-lang";
+    "/vercel/sandbox/zerox-lang"
+  );
 }
 
 function sandboxRuntime() {
-  return process.env.ZERO_NATIVE_TEST_SANDBOX_RUNTIME ||
+  return (
+    process.env.ZERO_NATIVE_TEST_SANDBOX_RUNTIME ||
     process.env.ZERO_BENCH_SANDBOX_RUNTIME ||
-    "node24";
+    "node24"
+  );
 }
 
 function sandboxTimeout() {
   return parsePositiveInt(
-    process.env.ZERO_NATIVE_TEST_SANDBOX_TIMEOUT_MS ?? process.env.ZERO_BENCH_SANDBOX_TIMEOUT_MS,
+    process.env.ZERO_NATIVE_TEST_SANDBOX_TIMEOUT_MS ??
+      process.env.ZERO_BENCH_SANDBOX_TIMEOUT_MS,
     10 * 60 * 1000,
   );
 }
 
 function sandboxVcpus() {
   return parsePositiveInt(
-    process.env.ZERO_NATIVE_TEST_SANDBOX_VCPUS ?? process.env.ZERO_BENCH_SANDBOX_VCPUS,
+    process.env.ZERO_NATIVE_TEST_SANDBOX_VCPUS ??
+      process.env.ZERO_BENCH_SANDBOX_VCPUS,
     16,
   );
 }
 
 function snapshotFromEnv() {
-  const refresh = (process.env.ZERO_NATIVE_TEST_SANDBOX_REFRESH ?? "").toLowerCase();
+  const refresh = (
+    process.env.ZERO_NATIVE_TEST_SANDBOX_REFRESH ?? ""
+  ).toLowerCase();
   if (["1", "true", "yes"].includes(refresh)) return null;
-  const snapshotId = process.env.ZERO_NATIVE_TEST_SANDBOX_SNAPSHOT_ID?.trim() ||
+  const snapshotId =
+    process.env.ZERO_NATIVE_TEST_SANDBOX_SNAPSHOT_ID?.trim() ||
     process.env.ZERO_BENCH_SANDBOX_SNAPSHOT_ID?.trim();
   if (!snapshotId) return null;
   return {
@@ -137,9 +169,13 @@ function writeSnapshotEnv(snapshot) {
     "",
   ];
   writeFileSync(snapshotPath, lines.join("\n"));
-  process.stderr.write(`Created Vercel Sandbox native-test snapshot: ${snapshot.snapshotId}\n`);
+  process.stderr.write(
+    `Created Vercel Sandbox native-test snapshot: ${snapshot.snapshotId}\n`,
+  );
   process.stderr.write(`Saved reusable snapshot env to ${snapshotPath}\n`);
-  process.stderr.write("Add ZERO_NATIVE_TEST_SANDBOX_SNAPSHOT_ID to .env to reuse it, or set ZERO_NATIVE_TEST_SANDBOX_REFRESH=1 to rebuild it.\n");
+  process.stderr.write(
+    "Add ZERO_NATIVE_TEST_SANDBOX_SNAPSHOT_ID to .env to reuse it, or set ZERO_NATIVE_TEST_SANDBOX_REFRESH=1 to rebuild it.\n",
+  );
 }
 
 function createSourceArchive() {
@@ -151,7 +187,7 @@ function createSourceArchive() {
     ".env",
     ".env.*",
     ".vercel",
-    ".zero",
+    ".zerox",
     ".next",
     "dist",
     "coverage",
@@ -161,20 +197,33 @@ function createSourceArchive() {
     "extensions/*/node_modules",
     "docs/node_modules",
   ];
-  const excludeArgs = excludes.flatMap((exclude) => [`--exclude=${exclude}`, `--exclude=./${exclude}`]);
+  const excludeArgs = excludes.flatMap((exclude) => [
+    `--exclude=${exclude}`,
+    `--exclude=./${exclude}`,
+  ]);
   const metadataArgs = process.platform === "darwin" ? ["--no-xattrs"] : [];
-  const result = spawnSync("tar", [...metadataArgs, ...excludeArgs, "-czf", archivePath, "."], {
-    cwd: root,
-    encoding: "utf8",
-    env: { ...process.env, COPYFILE_DISABLE: "1" },
-  });
-  if (result.status !== 0) throw new Error(`failed to create native-test source archive\n${result.stderr.trim()}`);
+  const result = spawnSync(
+    "tar",
+    [...metadataArgs, ...excludeArgs, "-czf", archivePath, "."],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, COPYFILE_DISABLE: "1" },
+    },
+  );
+  if (result.status !== 0)
+    throw new Error(
+      `failed to create native-test source archive\n${result.stderr.trim()}`,
+    );
   return archivePath;
 }
 
 async function runSandboxCommand(sandbox, params, label) {
   const result = await sandbox.runCommand(params);
-  const [stdout, stderr] = await Promise.all([result.stdout(), result.stderr()]);
+  const [stdout, stderr] = await Promise.all([
+    result.stdout(),
+    result.stderr(),
+  ]);
   if (stdout) process.stdout.write(stdout);
   if (stderr) process.stderr.write(stderr);
   if (result.exitCode !== 0) {
@@ -195,13 +244,24 @@ async function createPreparedSnapshot(Sandbox) {
   const runtime = sandboxRuntime();
   const timeout = sandboxTimeout();
   const vcpus = sandboxVcpus();
-  const snapshotExpiration = parseOptionalNonNegativeInt(process.env.ZERO_NATIVE_TEST_SANDBOX_SNAPSHOT_EXPIRATION_MS);
+  const snapshotExpiration = parseOptionalNonNegativeInt(
+    process.env.ZERO_NATIVE_TEST_SANDBOX_SNAPSHOT_EXPIRATION_MS,
+  );
   const archivePath = createSourceArchive();
-  const sandbox = await Sandbox.create({ runtime, timeout, resources: { vcpus } });
+  const sandbox = await Sandbox.create({
+    runtime,
+    timeout,
+    resources: { vcpus },
+  });
   const projectDir = sandboxProjectDir();
 
   try {
-    await sandbox.writeFiles([{ path: "/tmp/zero-lang-source.tar.gz", content: readFileSync(archivePath) }]);
+    await sandbox.writeFiles([
+      {
+        path: "/tmp/zerox-lang-source.tar.gz",
+        content: readFileSync(archivePath),
+      },
+    ]);
     await runSandboxCommand(
       sandbox,
       {
@@ -210,7 +270,7 @@ async function createPreparedSnapshot(Sandbox) {
           "-lc",
           [
             "set -euo pipefail",
-            "as_root() { if command -v sudo >/dev/null 2>&1; then sudo \"$@\"; else \"$@\"; fi; }",
+            'as_root() { if command -v sudo >/dev/null 2>&1; then sudo "$@"; else "$@"; fi; }',
             "install_build_tools() {",
             "  if command -v make >/dev/null 2>&1 && { command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1; }; then return; fi",
             "  if command -v apt-get >/dev/null 2>&1; then",
@@ -232,20 +292,30 @@ async function createPreparedSnapshot(Sandbox) {
             "command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1",
             `rm -rf ${projectDir}`,
             `mkdir -p ${projectDir}`,
-            `tar -xzf /tmp/zero-lang-source.tar.gz -C ${projectDir}`,
+            `tar -xzf /tmp/zerox-lang-source.tar.gz -C ${projectDir}`,
             `cd ${projectDir}`,
             "corepack enable",
             "corepack prepare pnpm@11.1.3 --activate",
             "pnpm install --frozen-lockfile",
-            "make -C native/zero-c",
+            "make -C native/zerox-c",
             "node --version",
           ].join("\n"),
         ],
       },
       "native-test sandbox setup",
     );
-    const snapshot = await sandbox.snapshot(snapshotExpiration === undefined ? undefined : { expiration: snapshotExpiration });
-    const preparedSnapshot = { snapshotId: snapshot.snapshotId, projectDir, timeout, vcpus, reused: false };
+    const snapshot = await sandbox.snapshot(
+      snapshotExpiration === undefined
+        ? undefined
+        : { expiration: snapshotExpiration },
+    );
+    const preparedSnapshot = {
+      snapshotId: snapshot.snapshotId,
+      projectDir,
+      timeout,
+      vcpus,
+      reused: false,
+    };
     writeSnapshotEnv(preparedSnapshot);
     return preparedSnapshot;
   } catch (error) {
@@ -262,7 +332,12 @@ async function runSandboxTask(Sandbox, snapshot, command) {
     resources: { vcpus: snapshot.vcpus },
   });
   try {
-    await sandbox.writeFiles([{ path: "/tmp/zero-lang-source-current.tar.gz", content: readFileSync(archivePath) }]);
+    await sandbox.writeFiles([
+      {
+        path: "/tmp/zerox-lang-source-current.tar.gz",
+        content: readFileSync(archivePath),
+      },
+    ]);
     await runSandboxCommand(
       sandbox,
       {
@@ -294,14 +369,18 @@ async function runSandboxTask(Sandbox, snapshot, command) {
 async function main() {
   ensureVercelAuthEnv();
   const { Sandbox } = await import("@vercel/sandbox").catch((error) => {
-    throw new Error(`native:test:sandbox requires @vercel/sandbox. Run pnpm install first.\n${error.message}`);
+    throw new Error(
+      `native:test:sandbox requires @vercel/sandbox. Run pnpm install first.\n${error.message}`,
+    );
   });
 
   const reusableSnapshot = snapshotFromEnv();
   const snapshot = reusableSnapshot ?? (await createPreparedSnapshot(Sandbox));
   const reuseText = snapshot.reused ? "reused" : "fresh";
   const command = sandboxCommand();
-  process.stderr.write(`Running ${command} in Vercel Sandbox using ${reuseText} snapshot ${snapshot.snapshotId}...\n`);
+  process.stderr.write(
+    `Running ${command} in Vercel Sandbox using ${reuseText} snapshot ${snapshot.snapshotId}...\n`,
+  );
   await runSandboxTask(Sandbox, snapshot, command);
   process.stderr.write(`sandbox command ok: ${command}\n`);
 }

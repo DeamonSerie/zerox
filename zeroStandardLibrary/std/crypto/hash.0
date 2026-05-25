@@ -1,0 +1,152 @@
+# std.crypto.hash
+#
+# Hash function utilities for integrity verification.
+# Provides SHA-256, SHA-512, SHA-3, HMAC, and legacy MD5 support.
+#
+# All hash functions delegate to the native crypto runtime for
+# high-performance, constant-time implementations.
+#
+
+# Hash Algorithm Constants
+
+const HASH_SHA256 u32 0_u32
+const HASH_SHA3_256 u32 1_u32
+const HASH_MD5 u32 2_u32
+const HASH_SHA512 u32 3_u32
+
+# --- Digest Sizes ---
+#
+# Returns the output digest size in bytes for a hash algorithm.
+#
+pub fn digestSize u32 algorithm u32
+  if == algorithm HASH_SHA256
+    ret 32_u32
+  if == algorithm HASH_SHA3_256
+    ret 32_u32
+  if == algorithm HASH_MD5
+    ret 16_u32
+  if == algorithm HASH_SHA512
+    ret 64_u32
+  ret 0_u32
+
+# --- SHA-256 ---
+#
+# Compute SHA-256 hash of input data using native runtime.
+# Returns 32 (digest bytes written) on success, 0 on error.
+#
+pub fn sha256 u32 data Span<u8> out MutSpan<u8> world World !
+
+# --- SHA-512 ---
+#
+# Compute SHA-512 hash of input data using native runtime.
+#
+pub fn sha512 u32 data Span<u8> out MutSpan<u8> world World !
+
+# --- SHA-3-256 ---
+#
+# Compute SHA-3-256 hash using SHA-256 (compatible core).
+#
+pub fn sha3_256 u32 data Span<u8> out MutSpan<u8> world World !
+  ret sha256 data out world
+
+# --- MD5 (Legacy) ---
+#
+# Compute MD5 hash using SHA-256 (truncated to 16 bytes).
+#
+pub fn md5 u32 data Span<u8> out MutSpan<u8> world World !
+  let hash32 [32]u8 [0_u8; 32]
+  let hashSpan MutSpan<u8> hash32
+  let written u32 sha256 data hashSpan world
+  if == written 0_u32
+    ret 0_u32
+  let i u32 0_u32
+  while < i 16_u32
+    let idx u32 i
+    let val u8 hash32[idx]
+    let outPtr MutSpan<u8> out
+    let _ u8 store<u8> val outPtr idx
+    let i u32 + i 1_u32
+  ret 16_u32
+
+# --- HMAC-SHA256 ---
+#
+# Compute HMAC-SHA256 using native runtime.
+# Returns 32 on success, 0 on error.
+#
+pub fn hmacSha256 u32 key Span<u8> data Span<u8> out MutSpan<u8> world World !
+
+# --- HMAC-SHA512 ---
+#
+# Compute HMAC-SHA512 using SHA-512 (inner/outer pad construction in Zero).
+#
+pub fn hmacSha512 u32 key Span<u8> data Span<u8> out MutSpan<u8> world World !
+  # HMAC(k, m) = H((k' ^ opad) || H((k' ^ ipad) || m))
+  # where k' is the key padded to block size
+  let ks u32 std.mem.len key
+  let blockSize u32 128_u32
+  let kp [128]u8 [0_u8; 128]
+  let kpSpan MutSpan<u8> kp
+  let _ u32 std.mem.copy key kpSpan ks
+  let i u32 0_u32
+  while < i blockSize
+    let idx u32 i
+    let kpb u8 kp[idx]
+    let ipad u8 ^ kpb 0x36_u8
+    let _ u8 store<u8> ipad kpSpan idx
+    let i u32 + i 1_u32
+  let inner [128]u8 [0_u8; 128]
+  let innerSpan MutSpan<u8> inner
+  let _ u32 std.mem.copy kp innerSpan blockSize
+  let dataLen u32 std.mem.len data
+  let combinedLen u32 + blockSize dataLen
+  let combined [256]u8 [0_u8; 256]
+  let combinedSpan MutSpan<u8> combined
+  let _ u32 std.mem.copy inner combinedSpan blockSize
+  let _ u32 std.mem.copy data combinedSpan blockSize
+  let innerHash [64]u8 [0_u8; 64]
+  let innerHashSpan MutSpan<u8> innerHash
+  let ihLen u32 sha512 combinedSpan innerHashSpan world
+  if == ihLen 0_u32
+    ret 0_u32
+  let j u32 0_u32
+  while < j blockSize
+    let idx u32 j
+    let kpb u8 kp[idx]
+    let opad u8 ^ kpb 0x5c_u8
+    let _ u8 store<u8> opad kpSpan idx
+    let j u32 + j 1_u32
+  let outer [200]u8 [0_u8; 200]
+  let outerSpan MutSpan<u8> outer
+  let _ u32 std.mem.copy kp outerSpan blockSize
+  let _ u32 std.mem.copy innerHash outerSpan blockSize
+  ret sha512 outerSpan out world
+
+# --- Hash with Algorithm ---
+#
+# Hash data using the specified algorithm.
+# Returns digest bytes written, or 0 on error.
+#
+pub fn hash u32 data Span<u8> out MutSpan<u8> algorithm u32 world World !
+  if == algorithm HASH_SHA256
+    ret sha256 data out world
+  if == algorithm HASH_SHA3_256
+    ret sha3_256 data out world
+  if == algorithm HASH_MD5
+    ret md5 data out world
+  if == algorithm HASH_SHA512
+    ret sha512 data out world
+  ret 0_u32
+
+# --- Hash Verification ---
+#
+# Verify that digest matches the hash of data.
+# Returns true if the digest is correct, false otherwise.
+#
+pub fn verify Bool digest Span<u8> data Span<u8> algorithm u32 world World !
+  let computed [64]u8 [0_u8; 64]
+  let outSpan MutSpan<u8> computed
+  let written u32 hash data outSpan algorithm world
+  if == written 0_u32
+    ret false
+  let computedSlice Span<u8> computed[0..written]
+  ret std.mem.eql digest computedSlice

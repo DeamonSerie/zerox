@@ -59,10 +59,10 @@ interface AgentStep {
 interface AgentMetrics {
   turnCount: number;
   toolCallCount: number;
-  zeroCliCallCount: number;
-  zeroSkillLoadCount: number;
-  zeroCheckCallCount: number;
-  zeroRunCallCount: number;
+  zeroxCliCallCount: number;
+  zeroxSkillLoadCount: number;
+  zeroxCheckCallCount: number;
+  zeroxRunCallCount: number;
 }
 
 interface AgentRun {
@@ -87,12 +87,12 @@ interface SandboxCredentials {
 }
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const zero = join(repoRoot, "bin", "zero");
+const zero = join(repoRoot, "bin", "zerox");
 const AI_GATEWAY_HOST = "ai-gateway.vercel.sh";
 const AI_GATEWAY_URL = `https://${AI_GATEWAY_HOST}`;
-const DEFAULT_PROJECT_DIR = "/vercel/sandbox/zero-lang";
-const PROMPT_PATH = "/tmp/zero-eval-prompt.txt";
-const REMOTE_EVAL_ROOT = "/tmp/zero-evals";
+const DEFAULT_PROJECT_DIR = "/vercel/sandbox/zerox-lang";
+const PROMPT_PATH = "/tmp/zerox-eval-prompt.txt";
+const REMOTE_EVAL_ROOT = "/tmp/zerox-evals";
 const REMOTE_RESULTS_ROOT = `${REMOTE_EVAL_ROOT}/results`;
 const REMOTE_WORKSPACE_ROOT = `${REMOTE_EVAL_ROOT}/workspaces`;
 const DEFAULT_SANDBOX_TIMEOUT_MS = 30 * 60 * 1000;
@@ -106,16 +106,16 @@ const LOCAL_ARCHIVE_EXCLUDE_DIRS = new Set([
   ".claude",
   ".cursor",
   ".vercel",
-  ".zero",
+  ".zerox",
 ]);
 
 const systemPrompt = [
-  "You are an agent evaluating a Zero programming task.",
+  "You are an agent evaluating a Zerox programming task.",
   "Work inside the repository checkout prepared by the evaluator.",
-  "Use the local ./bin/zero compiler as your source of Zero-specific guidance and verification.",
-  "First run ./bin/zero skills get zero --full.",
+  "Use the local ./bin/zerox compiler as your source of Zerox-specific guidance and verification.",
+  "First run ./bin/zerox skills get zerox --full.",
   "Load any additional skills recommended by that skill before writing code.",
-  "Use ./bin/zero check --json to inspect diagnostics, then ./bin/zero run to verify stdout.",
+  "Use ./bin/zerox check --json to inspect diagnostics, then ./bin/zerox run to verify stdout.",
   "For the final answer, output code only: exactly the verified source bytes.",
   "Do not summarize success, mention stdout, add a preamble, or use Markdown fences.",
 ].join("\n");
@@ -215,7 +215,7 @@ async function createSandboxContext(
     process.stderr.write(`Sandbox ready: ${sandboxId}\n`);
     await sandbox.writeFiles([
       {
-        path: "/tmp/zero-lang-source.tar.gz",
+        path: "/tmp/zerox-lang-source.tar.gz",
         content: readFileSync(archivePath),
       },
     ]);
@@ -288,7 +288,7 @@ async function runCase(
   const { check, run, remoteSourcePath } = validation;
 
   let error: string | null =
-    agentRun.error ?? (check.code === 0 ? null : "zero check failed");
+    agentRun.error ?? (check.code === 0 ? null : "zerox check failed");
   const patternFailures = sourcePatternFailures(
     source,
     evalCase.requiredSourcePatterns,
@@ -458,8 +458,8 @@ function buildClaudePrompt(
     "",
     `Repository root: ${projectDir}`,
     `You have at most ${options.maxTurns} agent turns before the evaluator marks the run failed.`,
-    "Use shell commands from the repository root. Prefer ./bin/zero, not any global zero binary.",
-    "After ./bin/zero check and ./bin/zero run confirm the expected output, return code only.",
+    "Use shell commands from the repository root. Prefer ./bin/zerox, not any global zerox binary.",
+    "After ./bin/zerox check and ./bin/zerox run confirm the expected output, return code only.",
     "Do not include a success sentence, explanation, or Markdown fence.",
   ].join("\n");
 }
@@ -505,10 +505,10 @@ async function validateSourceInSandbox(
     context.sandbox,
     {
       cmd: "bash",
-      args: ["-lc", `./bin/zero check --json ${shellQuote(remoteSourcePath)}`],
+      args: ["-lc", `./bin/zerox check --json ${shellQuote(remoteSourcePath)}`],
       cwd: projectDir,
     },
-    "zero check",
+    "zerox check",
   );
   let run: CommandResult | null = null;
   if (check.code === 0) {
@@ -518,11 +518,11 @@ async function validateSourceInSandbox(
         cmd: "bash",
         args: [
           "-lc",
-          `./bin/zero run --out ${shellQuote(`${remoteCaseDir}/program`)} ${shellQuote(remoteSourcePath)}`,
+          `./bin/zerox run --out ${shellQuote(`${remoteCaseDir}/program`)} ${shellQuote(remoteSourcePath)}`,
         ],
         cwd: projectDir,
       },
-      "zero run",
+      "zerox run",
     );
   }
 
@@ -540,7 +540,10 @@ async function runSandboxCommand(
   _label: string,
 ): Promise<CommandResult> {
   const result = await sandbox.runCommand(params);
-  const [stdout, stderr] = await Promise.all([result.stdout(), result.stderr()]);
+  const [stdout, stderr] = await Promise.all([
+    result.stdout(),
+    result.stderr(),
+  ]);
   return { code: result.exitCode, stdout, stderr };
 }
 
@@ -753,7 +756,7 @@ function isPathAtOrBelow(path: string, parent: string) {
 function buildSandboxSetupScript(projectDir: string) {
   return [
     "set -euo pipefail",
-    "as_root() { if command -v sudo >/dev/null 2>&1; then sudo \"$@\"; else \"$@\"; fi; }",
+    'as_root() { if command -v sudo >/dev/null 2>&1; then sudo "$@"; else "$@"; fi; }',
     "install_build_tools() {",
     "  if command -v make >/dev/null 2>&1 && { command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || command -v clang >/dev/null 2>&1; }; then return; fi",
     "  if command -v apt-get >/dev/null 2>&1; then",
@@ -773,12 +776,12 @@ function buildSandboxSetupScript(projectDir: string) {
     "install_build_tools",
     `rm -rf ${shellQuote(projectDir)}`,
     `mkdir -p ${shellQuote(projectDir)}`,
-    `tar -xzf /tmp/zero-lang-source.tar.gz -C ${shellQuote(projectDir)}`,
+    `tar -xzf /tmp/zerox-lang-source.tar.gz -C ${shellQuote(projectDir)}`,
     `cd ${shellQuote(projectDir)}`,
-    "make -C native/zero-c",
+    "make -C native/zerox-c",
     "command -v claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code",
     "claude --version",
-    "./bin/zero --version",
+    "./bin/zerox --version",
   ].join("\n");
 }
 
@@ -871,19 +874,21 @@ function loadDotEnvFiles(paths: string[]) {
 function parseDotEnvValue(value: string) {
   const trimmed = value.trim();
   const quote = trimmed[0];
-  if ((quote === "\"" || quote === "'") && trimmed.endsWith(quote)) {
+  if ((quote === '"' || quote === "'") && trimmed.endsWith(quote)) {
     const inner = trimmed.slice(1, -1);
-    return quote === "\""
+    return quote === '"'
       ? inner
           .replace(/\\n/g, "\n")
           .replace(/\\r/g, "\r")
           .replace(/\\t/g, "\t")
-          .replace(/\\"/g, "\"")
+          .replace(/\\"/g, '"')
           .replace(/\\\\/g, "\\")
       : inner;
   }
   const commentStart = trimmed.search(/\s#/);
-  return commentStart === -1 ? trimmed : trimmed.slice(0, commentStart).trimEnd();
+  return commentStart === -1
+    ? trimmed
+    : trimmed.slice(0, commentStart).trimEnd();
 }
 
 function shellQuote(value: string) {
@@ -892,7 +897,9 @@ function shellQuote(value: string) {
 }
 
 function claudeModelName(value: string) {
-  return value.startsWith("anthropic/") ? value.slice("anthropic/".length) : value;
+  return value.startsWith("anthropic/")
+    ? value.slice("anthropic/".length)
+    : value;
 }
 
 function parseArgs(args: string[]): RunOptions {
@@ -1099,8 +1106,8 @@ function failureReason(input: {
   responseFormatFailures: string[];
   agentRequirementFailures: string[];
 }) {
-  if (!input.run) return "zero run did not execute";
-  if (input.run.code !== 0) return `zero run exited ${input.run.code}`;
+  if (!input.run) return "zerox run did not execute";
+  if (input.run.code !== 0) return `zerox run exited ${input.run.code}`;
   if (input.actualStdout !== input.expectedStdout) {
     return "stdout did not match expected output";
   }
@@ -1127,12 +1134,15 @@ function getAgentRequirementFailures(
       `agent used ${metrics.turnCount} turns, exceeding max ${maxTurns}`,
     );
   }
-  if (metrics.zeroCliCallCount === 0) failures.push("zero CLI was not called");
-  if (metrics.zeroSkillLoadCount === 0) {
-    failures.push("zero skill was not loaded");
+  if (metrics.zeroxCliCallCount === 0)
+    failures.push("zerox CLI was not called");
+  if (metrics.zeroxSkillLoadCount === 0) {
+    failures.push("zerox skill was not loaded");
   }
-  if (metrics.zeroCheckCallCount === 0) failures.push("zero check was not called");
-  if (metrics.zeroRunCallCount === 0) failures.push("zero run was not called");
+  if (metrics.zeroxCheckCallCount === 0)
+    failures.push("zerox check was not called");
+  if (metrics.zeroxRunCallCount === 0)
+    failures.push("zerox run was not called");
   return failures;
 }
 
@@ -1141,17 +1151,17 @@ function measureAgent(steps: AgentStep[]): AgentMetrics {
   const commands = toolCalls
     .map((call) => toolCommand(call))
     .filter((command): command is string => Boolean(command));
-  const zeroCommands = commands.filter(isZeroCliCommand);
+  const zeroCommands = commands.filter(isZeroxCliCommand);
   return {
     turnCount: steps.length,
     toolCallCount: toolCalls.length,
-    zeroCliCallCount: zeroCommands.length,
-    zeroSkillLoadCount: zeroCommands.filter(isZeroSkillLoadCommand).length,
-    zeroCheckCallCount: zeroCommands.filter((command) =>
-      /\b(?:\.\/)?bin\/zero\s+check\b/.test(command),
+    zeroxCliCallCount: zeroCommands.length,
+    zeroxSkillLoadCount: zeroCommands.filter(isZeroxSkillLoadCommand).length,
+    zeroxCheckCallCount: zeroCommands.filter((command) =>
+      /\b(?:\.\/)?bin\/zerox\s+check\b/.test(command),
     ).length,
-    zeroRunCallCount: zeroCommands.filter((command) =>
-      /\b(?:\.\/)?bin\/zero\s+run\b/.test(command),
+    zeroxRunCallCount: zeroCommands.filter((command) =>
+      /\b(?:\.\/)?bin\/zerox\s+run\b/.test(command),
     ).length,
   };
 }
@@ -1162,13 +1172,13 @@ function toolCommand(call: AgentToolCall): string | null {
   return typeof command === "string" ? command : null;
 }
 
-function isZeroCliCommand(command: string) {
-  return /\b(?:\.\/)?bin\/zero\b/.test(command);
+function isZeroxCliCommand(command: string) {
+  return /\b(?:\.\/)?bin\/zerox\b/.test(command);
 }
 
-function isZeroSkillLoadCommand(command: string) {
+function isZeroxSkillLoadCommand(command: string) {
   return (
-    /\b(?:\.\/)?bin\/zero\s+skills\s+get\s+zero\b/.test(command) &&
+    /\b(?:\.\/)?bin\/zerox\s+skills\s+get\s+zerox\b/.test(command) &&
     /--full\b/.test(command)
   );
 }
@@ -1247,9 +1257,9 @@ function isSummary(value: unknown): value is {
 } {
   return Boolean(
     value &&
-      typeof value === "object" &&
-      "results" in value &&
-      Array.isArray(value.results),
+    typeof value === "object" &&
+    "results" in value &&
+    Array.isArray(value.results),
   );
 }
 
@@ -1261,7 +1271,7 @@ Options:
   --model <id>             AI Gateway model id. May be repeated; overrides defaults
   --models <ids>           Comma-separated AI Gateway model ids; overrides defaults
   --max-turns <n>          Maximum Claude turns before failing scoring (default: 10)
-  --out <dir>              Output directory (default: .zero/evals/runs/<timestamp>)
+  --out <dir>              Output directory (default: .zerox/evals/runs/<timestamp>)
   --sandbox-runtime <id>   Vercel Sandbox runtime (default: ZERO_EVAL_SANDBOX_RUNTIME or node24)
   --sandbox-timeout-ms <n> Sandbox timeout (default: ZERO_EVAL_SANDBOX_TIMEOUT_MS or enough for selected runs)
   --sandbox-vcpus <n>      Sandbox vCPU count (default: ZERO_EVAL_SANDBOX_VCPUS or 4)

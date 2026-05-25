@@ -1,0 +1,4 @@
+use std.crypto.aes
+
+pub fn main Void world World !
+  check world.out.write "test\n"

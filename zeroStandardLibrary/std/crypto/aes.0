@@ -1,0 +1,52 @@
+# std.crypto.aes
+#
+# AES (Advanced Encryption Standard) implementation.
+# Uses the native crypto runtime for AES-128, AES-192, and AES-256
+# with CBC, GCM, and CTR modes.
+#
+
+# --- AES Encrypt ---
+#
+# Encrypts data using AES with the specified mode.
+# Uses the native crypto runtime for constant-time AES computation.
+#
+# Parameters:
+#   key  - Encryption key (16, 24, or 32 bytes for AES-128/192/256)
+#   iv   - Initialization vector (16 bytes for CBC, 12 for GCM)
+#   data - Plaintext to encrypt
+#   mode - Cipher mode (MODE_ECB, MODE_CBC, MODE_GCM, MODE_CTR)
+#   out  - Output buffer (must be >= data length + 16 for GCM tag)
+#
+# Returns bytes written, or 0 on error.
+#
+pub fn encrypt u32 key Span<u8> iv Span<u8> data Span<u8> mode u32 out MutSpan<u8> world World !
+
+# --- AES Decrypt ---
+#
+# Decrypts data using AES with the specified mode.
+# Uses the native crypto runtime for constant-time AES computation.
+#
+pub fn decrypt u32 key Span<u8> iv Span<u8> data Span<u8> mode u32 out MutSpan<u8> world World !
+
+# --- AES-GCM Encrypt with Tag ---
+#
+# AES-GCM encryption returning ciphertext || 16-byte authentication tag.
+#
+pub fn encryptGcm u32 key Span<u8> iv Span<u8> data Span<u8> aad Span<u8> out MutSpan<u8> world World !
+  ret encrypt key iv data std.crypto.cipher.MODE_GCM out world
+
+# --- AES-GCM Decrypt with Tag Verification ---
+#
+# AES-GCM decryption with tag verification.
+# Input: ciphertext || 16-byte tag. Output: plaintext.
+#
+pub fn decryptGcm u32 key Span<u8> iv Span<u8> data Span<u8> aad Span<u8> out MutSpan<u8> world World !
+  ret decrypt key iv data std.crypto.cipher.MODE_GCM out world
+
+# --- AES Key Generation ---
+#
+# Generates a cryptographically random AES key.
+#
+pub fn generateKey u32 keyBits u32 out MutSpan<u8> world World !
+  let size u32 / keyBits 8_u32
+  ret std.crypto.key.randomBytes size out world

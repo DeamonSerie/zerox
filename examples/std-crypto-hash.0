@@ -1,0 +1,42 @@
+# std.crypto.hash example
+#
+# Demonstrates SHA-256 hashing and HMAC.
+#
+# Build: bin/zero check examples/std-crypto-hash.0
+# Run:   bin/zero run examples/std-crypto-hash.0
+
+pub fn main Void world World !
+  let message Span<u8> "Hello, Zero!"
+
+  # SHA-256 hash
+  let mut hash_buf [32]u8 [0_u8; 32]
+  let hash_out MutSpan<u8> hash_buf
+  let hash_len std.crypto.hash.sha256 message hash_out world
+  if == hash_len 0_u32
+    check world.out.write "FAIL: SHA-256 returned 0\n"
+  if == hash_len 32_u32
+    check world.out.write "SHA-256 hash length: OK\n"
+
+  # HMAC-SHA256
+  let mut key_buf [16]u8 [
+    0_u8, 1_u8, 2_u8, 3_u8, 4_u8, 5_u8, 6_u8, 7_u8,
+    8_u8, 9_u8, 10_u8, 11_u8, 12_u8, 13_u8, 14_u8, 15_u8
+  ]
+  let key Span<u8> key_buf
+
+  let mut mac_buf [32]u8 [0_u8; 32]
+  let mac_out MutSpan<u8> mac_buf
+  let mac_len std.crypto.hash.hmacSha256 key message mac_out world
+  if == mac_len 0_u32
+    check world.out.write "FAIL: HMAC-SHA256 returned 0\n"
+  if == mac_len 32_u32
+    check world.out.write "HMAC-SHA256 length: OK\n"
+
+  # Hash verification
+  let verified std.crypto.hash.verify hash_buf message std.crypto.hash.HASH_SHA256 world
+  if verified
+    check world.out.write "SHA-256 verification: OK\n"
+  else
+    check world.out.write "FAIL: SHA-256 verification failed\n"
+
+  check world.out.write "Crypto hash examples: OK\n"

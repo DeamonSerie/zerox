@@ -3,11 +3,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const outPath = path.join(repoRoot, "native/zero-c/src/embedded_skills.inc");
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
+const outPath = path.join(repoRoot, "native/zerox-c/src/embedded_skills.inc");
 const inputs = [
-  "skills/zero/SKILL.md",
-  ...fs.readdirSync(path.join(repoRoot, "skill-data"))
+  "skills/zerox/SKILL.md"
+  ...fs
+    .readdirSync(path.join(repoRoot, "skill-data"))
     .filter((name) => name.endsWith(".md"))
     .sort((a, b) => a.localeCompare(b))
     .map((name) => `skill-data/${name}`),
@@ -22,7 +26,10 @@ type EmbeddedSkill = {
   ident?: string;
 };
 
-function parseFrontmatter(text, relativePath): Omit<EmbeddedSkill, "relativePath" | "text" | "ident"> {
+function parseFrontmatter(
+  text,
+  relativePath,
+): Omit<EmbeddedSkill, "relativePath" | "text" | "ident"> {
   const match = text.trimStart().match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) throw new Error(`${relativePath}: missing skill frontmatter`);
 
@@ -77,26 +84,30 @@ function cIdent(text) {
   return text.replace(/[^A-Za-z0-9_]/g, "_");
 }
 
-const skills: EmbeddedSkill[] = inputs.map((relativePath) => {
-  const text = fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
-  return { ...parseFrontmatter(text, relativePath), relativePath, text };
-}).sort((a, b) => a.name.localeCompare(b.name));
+const skills: EmbeddedSkill[] = inputs
+  .map((relativePath) => {
+    const text = fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
+    return { ...parseFrontmatter(text, relativePath), relativePath, text };
+  })
+  .sort((a, b) => a.name.localeCompare(b.name));
 
 const out = [];
-out.push("/* Generated from Zero skill data. Run node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/embed-skill-data.mts to refresh. */");
-out.push("#ifndef ZERO_EMBEDDED_SKILLS_INC");
-out.push("#define ZERO_EMBEDDED_SKILLS_INC");
+out.push(
+  "/* Generated from Zerox skill data. Run node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/embed-skill-data.mts to refresh. */",
+);
+out.push("#ifndef ZEROX_EMBEDDED_SKILLS_INC");
+out.push("#define ZEROX_EMBEDDED_SKILLS_INC");
 out.push("");
 out.push("typedef struct {");
 out.push("  const char *name;");
 out.push("  const char *description;");
 out.push("  bool hidden;");
 out.push("  const char *const *content;");
-out.push("} ZeroEmbeddedSkill;");
+out.push("} ZeroxEmbeddedSkill;");
 out.push("");
 
 for (const skill of skills) {
-  const ident = `zero_embedded_skill_${cIdent(skill.name)}_chunks`;
+  const ident = `zerox_embedded_skill_${cIdent(skill.name)}_chunks`;
   skill.ident = ident;
   out.push(`static const char *const ${ident}[] = {`);
   for (const chunk of chunkText(skill.text)) {
@@ -107,12 +118,16 @@ for (const skill of skills) {
   out.push("");
 }
 
-out.push("static const ZeroEmbeddedSkill zero_embedded_skills[] = {");
+out.push("static const ZeroxEmbeddedSkill zerox_embedded_skills[] = {");
 for (const skill of skills) {
-  out.push(`  {${JSON.stringify(skill.name)}, ${JSON.stringify(skill.description)}, ${skill.hidden ? "true" : "false"}, ${skill.ident}},`);
+  out.push(
+    `  {${JSON.stringify(skill.name)}, ${JSON.stringify(skill.description)}, ${skill.hidden ? "true" : "false"}, ${skill.ident}},`,
+  );
 }
 out.push("};");
-out.push("static const size_t zero_embedded_skill_count = sizeof(zero_embedded_skills) / sizeof(zero_embedded_skills[0]);");
+out.push(
+  "static const size_t zerox_embedded_skill_count = sizeof(zerox_embedded_skills) / sizeof(zerox_embedded_skills[0]);",
+);
 out.push("");
 out.push("#endif");
 out.push("");

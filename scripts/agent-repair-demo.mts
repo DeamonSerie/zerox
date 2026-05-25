@@ -4,16 +4,19 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const outDir = ".zero/agent-repair-demo";
+const outDir = ".zerox/agent-repair-demo";
 mkdirSync(outDir, { recursive: true });
 
-const brokenSource = readFileSync("examples/agent-repair-demo/broken.0", "utf8");
+const brokenSource = readFileSync(
+  "examples/agent-repair-demo/broken.0",
+  "utf8",
+);
 const workFile = join(outDir, "main.0");
 writeFileSync(workFile, brokenSource);
 
 function zeroJson(args, allowFailure = false) {
   try {
-    return JSON.parse(execFileSync("bin/zero", args, { encoding: "utf8" }));
+    return JSON.parse(execFileSync("bin/zerox", args, { encoding: "utf8" }));
   } catch (error) {
     if (!allowFailure) throw error;
     return JSON.parse(error.stdout.toString());
@@ -43,11 +46,16 @@ assert.equal(fixed.diagnostics.length, 0);
 
 const projectDir = join(outDir, "project");
 rmSync(projectDir, { recursive: true, force: true });
-execFileSync("bin/zero", ["new", "package", projectDir], { stdio: ["ignore", "ignore", "pipe"] });
+execFileSync("bin/zerox", ["new", "package", projectDir], {
+  stdio: ["ignore", "ignore", "pipe"],
+});
 
 function assertNoC(body) {
   assert.equal(body.generatedCBytes ?? 0, 0);
-  assert.equal(body.cBridgeFallback ?? body.selfHostRouting?.cBridge?.required ?? false, false);
+  assert.equal(
+    body.cBridgeFallback ?? body.selfHostRouting?.cBridge?.required ?? false,
+    false,
+  );
   assert.notEqual(body.legacy, true);
 }
 
@@ -62,7 +70,10 @@ assertNoC(projectTest);
 
 const projectMain = join(projectDir, "src", "main.0");
 const projectMainSource = readFileSync(projectMain, "utf8");
-writeFileSync(projectMain, projectMainSource.split('\n\ntest "package import works"')[0] + "\n");
+writeFileSync(
+  projectMain,
+  projectMainSource.split('\n\ntest "package import works"')[0] + "\n",
+);
 
 const projectGraph = zeroJson(["graph", "--json", projectDir]);
 assert.equal(projectGraph.selfHostRouting.cBridge.required, false);
@@ -77,9 +88,19 @@ const projectMem = zeroJson(["mem", "--json", projectDir]);
 assertNoC(projectMem);
 
 const releaseOut = join(outDir, "project-linux-release");
-const projectRelease = zeroJson(["build", "--json", "--release", "tiny", "--target", "linux-musl-x64", projectDir, "--out", releaseOut]);
+const projectRelease = zeroJson([
+  "build",
+  "--json",
+  "--release",
+  "tiny",
+  "--target",
+  "linux-musl-x64",
+  projectDir,
+  "--out",
+  releaseOut,
+]);
 assert.equal(projectRelease.emit, "exe");
-assert.equal(projectRelease.compiler, "zero-elf64");
+assert.equal(projectRelease.compiler, "zerox-elf64");
 assertNoC(projectRelease);
 
 console.log("agent repair demo ok");

@@ -14,12 +14,12 @@ export const maxDuration = 60;
 
 const DEFAULT_MODEL = "anthropic/claude-haiku-4.5";
 
-const SYSTEM_PROMPT = `You are a helpful documentation assistant for Zero, a pre-1 experimental programming language project exploring agent-first design. Zero intentionally makes breaking changes while searching for the language, library, and tooling patterns that work best for agents. Security vulnerabilities should be expected; Zero should be run or developed only in safe, non-production environments.
+const SYSTEM_PROMPT = `You are a helpful documentation assistant for Zerox, a pre-1 experimental programming language project exploring agent-first design. Zerox intentionally makes breaking changes while searching for the language, library, and tooling patterns that work best for agents. Security vulnerabilities should be expected; Zerox should be run or developed only in safe, non-production environments.
 
-GitHub repository: https://github.com/vercel-labs/zero
+GitHub repository: https://github.com/vercel-labs/zerox
 Documentation: https://zerolang.ai
 
-You have access to the full Zero documentation via the bash and readFile tools. The docs are available as markdown files in the /workspace/ directory. The file layout matches each page's URL slug — e.g. /workspace/index.md is the home, /workspace/getting-started.md is /getting-started, /workspace/modules/parse.md is /modules/parse.
+You have access to the full Zerox documentation via the bash and readFile tools. The docs are available as markdown files in the /workspace/ directory. The file layout matches each page's URL slug — e.g. /workspace/index.md is the home, /workspace/getting-started.md is /getting-started, /workspace/modules/parse.md is /modules/parse.
 
 When answering questions:
 - Use the bash tool to list files (ls /workspace/) or search for content (grep -r "keyword" /workspace/)
@@ -30,7 +30,7 @@ When answering questions:
 - If the docs don't cover a topic, say so honestly
 - Do NOT include source references or file paths in your response
 - Do NOT use emojis in your responses
-- When showing Zero source code, use \`\`\`zero fenced blocks. When showing shell commands, use \`\`\`sh.`;
+- When showing Zerox source code, use \`\`\`zerox fenced blocks. When showing shell commands, use \`\`\`sh.`;
 
 type DocsFiles = Record<string, string>;
 
@@ -84,7 +84,8 @@ async function rateLimitRequest(req: Request): Promise<NextResponse | null> {
     return NextResponse.json(
       {
         error: "Chat rate limiting is not configured",
-        message: "Set KV_REST_API_URL and KV_REST_API_TOKEN to enable docs chat.",
+        message:
+          "Set KV_REST_API_URL and KV_REST_API_TOKEN to enable docs chat.",
       },
       { status: 503 },
     );
@@ -103,7 +104,8 @@ async function rateLimitRequest(req: Request): Promise<NextResponse | null> {
     return NextResponse.json(
       {
         error: "Chat rate limiting unavailable",
-        message: "Docs chat is temporarily unavailable because rate limiting could not be applied.",
+        message:
+          "Docs chat is temporarily unavailable because rate limiting could not be applied.",
       },
       { status: 503 },
     );
@@ -126,7 +128,10 @@ async function rateLimitRequest(req: Request): Promise<NextResponse | null> {
 export async function POST(req: Request) {
   if (!process.env.AI_GATEWAY_API_KEY && !process.env.VERCEL_OIDC_TOKEN) {
     return NextResponse.json(
-      { error: "Chat is not configured. Set AI_GATEWAY_API_KEY or configure deployment OIDC." },
+      {
+        error:
+          "Chat is not configured. Set AI_GATEWAY_API_KEY or configure deployment OIDC.",
+      },
       { status: 503 },
     );
   }

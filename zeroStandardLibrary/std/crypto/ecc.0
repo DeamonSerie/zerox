@@ -1,0 +1,47 @@
+# std.crypto.ecc
+#
+# Elliptic Curve Cryptography implementation.
+# Supports ECDSA (signing) and ECDH (key exchange).
+# Curves: P-256 (secp256r1), P-384, P-521, Curve25519
+#
+# NOTE: Native runtime implementation pending. Returns 0 (error)
+# until big-number support is added to zero_crypto.c.
+#
+
+# --- Curve Constants ---
+
+const CURVE_P256 u32 0_u32
+const CURVE_P384 u32 1_u32
+const CURVE_P521 u32 2_u32
+const CURVE_X25519 u32 3_u32
+const CURVE_ED25519 u32 4_u32
+
+# --- Generate ECC Key Pair ---
+
+pub fn generateKeyPair u32 curve u32 pubOut MutSpan<u8> privOut MutSpan<u8> world World !
+  ret 0_u32
+
+# --- ECDSA Sign ---
+
+pub fn sign u32 privateKey Span<u8> data Span<u8> curve u32 out MutSpan<u8> world World !
+  ret 0_u32
+
+# --- ECDSA Verify ---
+
+pub fn verify Bool publicKey Span<u8> data Span<u8> signature Span<u8> curve u32 world World !
+  ret false
+
+# --- ECDH Key Exchange ---
+
+pub fn ecdh u32 privateKey Span<u8> peerPublic Span<u8> curve u32 out MutSpan<u8> world World !
+  ret 0_u32
+
+# --- Ed25519 Sign ---
+
+pub fn ed25519Sign u32 privateKey Span<u8> data Span<u8> out MutSpan<u8> world World !
+  ret 0_u32
+
+# --- Ed25519 Verify ---
+
+pub fn ed25519Verify Bool publicKey Span<u8> data Span<u8> signature Span<u8> world World !
+  ret false

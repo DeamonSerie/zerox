@@ -1,0 +1,37 @@
+# std.crypto - Zero Encryption Library
+#
+# A comprehensive encryption and cryptography library for Zero.
+# Provides symmetric ciphers, asymmetric cryptography, hashing,
+# key management, and layered/hybrid encryption modes.
+#
+# Sub-modules:
+#   cipher.0   - Algorithm, mode, and padding constants
+#   encrypt.0  - High-level encrypt/decrypt dispatcher
+#   aes.0      - AES (128/192/256) implementation
+#   chacha.0   - ChaCha20, XChaCha20, Salsa20 stream ciphers
+#   des.0      - DES and 3DES block ciphers
+#   blowfish.0 - Blowfish block cipher
+#   twofish.0  - Twofish block cipher
+#   serpent.0  - Serpent block cipher
+#   camellia.0 - Camellia block cipher
+#   rsa.0      - RSA asymmetric encryption and signing
+#   ecc.0      - ECC/ECDSA/ECDH/Ed25519
+#   hash.0     - SHA-256, SHA-512, SHA-3, MD5, HMAC
+#   key.0      - Key generation, derivation, exchange, obfuscation
+#   layered.0  - Double encryption, hybrid schemes
+#
+# Usage:
+#   use std.crypto
+#   use std.crypto.cipher
+#
+#   let mut key [32]u8 [0_u8; 32]
+#   let mut iv [12]u8 [0_u8; 12]
+#   let mut buf [1024]u8 [0_u8; 1024]
+#   let out MutSpan<u8> buf
+#
+#   # Encrypt with AES-256-GCM
+#   let enc_len std.crypto.encrypt "data" key iv cipher.AES cipher.MODE_GCM cipher.PADDING_NONE out world
+#
+#   # Decrypt
+#   let dec_len std.crypto.decrypt buf[0..enc_len] key iv cipher.AES cipher.MODE_GCM cipher.PADDING_NONE out world
+#

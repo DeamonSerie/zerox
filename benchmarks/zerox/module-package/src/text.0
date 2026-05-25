@@ -1,0 +1,2 @@
+fn labelOk Bool
+  ret true

@@ -1,5 +1,6 @@
 .DS_Store
 dist/
+.zerox/
 .zero/
 .pnpm-store/
 .turbo/

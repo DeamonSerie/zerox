@@ -1,0 +1,46 @@
+# std.crypto.chacha
+#
+# ChaCha20, XChaCha20, and Salsa20 stream cipher implementations.
+# Uses the native crypto runtime for high-performance stream cipher
+# operations.
+#
+
+# --- ChaCha20 Encrypt/Decrypt ---
+#
+# ChaCha20 is a stream cipher: encryption and decryption are identical
+# operations (XOR with keystream).
+#
+pub fn chacha20 u32 key Span<u8> nonce Span<u8> data Span<u8> counter u32 out MutSpan<u8> world World !
+
+# --- XChaCha20 Encrypt/Decrypt ---
+#
+# XChaCha20 extends ChaCha20 with a 24-byte nonce.
+# The native runtime helper automatically handles 24-byte nonces.
+#
+pub fn xchacha20 u32 key Span<u8> nonce Span<u8> data Span<u8> counter u32 out MutSpan<u8> world World !
+  ret chacha20 key nonce data counter out world
+
+# --- Salsa20 Encrypt/Decrypt ---
+#
+# Salsa20 stream cipher (predecessor to ChaCha20).
+#
+pub fn salsa20 u32 key Span<u8> nonce Span<u8> data Span<u8> counter u32 out MutSpan<u8> world World !
+
+# --- ChaCha20-Poly1305 AEAD Encrypt ---
+#
+# Authenticated encryption using ChaCha20 + Poly1305 MAC.
+#
+pub fn chacha20Poly1305Encrypt u32 key Span<u8> nonce Span<u8> data Span<u8> aad Span<u8> out MutSpan<u8> world World !
+
+# --- ChaCha20-Poly1305 AEAD Decrypt ---
+#
+# Verify and decrypt ChaCha20-Poly1305.
+#
+pub fn chacha20Poly1305Decrypt u32 key Span<u8> nonce Span<u8> data Span<u8> aad Span<u8> out MutSpan<u8> world World !
+
+# --- Key Generation ---
+#
+# Generates a random 32-byte key suitable for ChaCha20.
+#
+pub fn generateKey u32 out MutSpan<u8> world World !
+  ret std.crypto.key.randomBytes 32_u32 out world

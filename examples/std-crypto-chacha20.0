@@ -1,0 +1,46 @@
+# std.crypto.chacha20 example
+#
+# Demonstrates ChaCha20 stream cipher encryption/decryption.
+#
+# Build: bin/zero check examples/std-crypto-chacha20.0
+# Run:   bin/zero run examples/std-crypto-chacha20.0
+
+pub fn main Void world World !
+  # 32-byte key for ChaCha20
+  let mut key_buf [32]u8 [0_u8; 32]
+  mut i u32 0_u32
+  while < i 32_u32
+    key_buf[i]  i as u8
+    i  + i 1_u32
+  let key Span<u8> key_buf
+
+  # 12-byte nonce
+  let mut nonce_buf [12]u8 [0_u8; 12]
+  let nonce Span<u8> nonce_buf
+
+  # Message
+  let message Span<u8> "ChaCha20 stream cipher test"
+
+  # Output buffers
+  let mut cipher_buf [64]u8 [0_u8; 64]
+  let cipher_out MutSpan<u8> cipher_buf
+  let mut plain_buf [64]u8 [0_u8; 64]
+  let plain_out MutSpan<u8> plain_buf
+
+  # ChaCha20 encrypt (xor with keystream)
+  let enc_len std.crypto.chacha.chacha20 key nonce message 0_u32 cipher_out world
+  if == enc_len 0_u32
+    check world.out.write "FAIL: ChaCha20 encryption returned 0\n"
+
+  # ChaCha20 decrypt (same operation - xor with same keystream)
+  let cipher_slice Span<u8> cipher_buf[0..enc_len]
+  let dec_len std.crypto.chacha.chacha20 key nonce cipher_slice 0_u32 plain_out world
+  if == dec_len 0_u32
+    check world.out.write "FAIL: ChaCha20 decryption returned 0\n"
+
+  # Verify round-trip
+  let decrypted Span<u8> plain_buf[0..dec_len]
+  if std.mem.eql message decrypted
+    check world.out.write "ChaCha20 round-trip: OK\n"
+  else
+    check world.out.write "FAIL: ChaCha20 plaintext mismatch\n"

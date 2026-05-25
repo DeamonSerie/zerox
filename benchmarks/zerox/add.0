@@ -1,0 +1,9 @@
+fn answer i32
+  ret + 40 2
+
+pub fn main Void world World !
+  let value answer()
+  if == value 42
+    check world.out.write "math works\n"
+  else
+    check world.out.write "math broke\n"
