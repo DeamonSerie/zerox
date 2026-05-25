@@ -15,7 +15,7 @@ Optimized for:
 
 > **Safety status**
 >
-> Security vulnerabilities should be expected. zeroxlang is not ready for production systems, sensitive data, or trusted infrastructure. Run and develop it in isolated, disposable environments.
+> Security vulnerabilities should be expected. zerox is not ready for production systems, sensitive data, or trusted infrastructure. Run and develop it in isolated, disposable environments.
 
 ## Agent Workflow Interfaces
 
