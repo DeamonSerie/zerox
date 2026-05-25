@@ -1,4 +1,4 @@
-# zeroxlang
+# zerox
 
 Experimental programming language for agent workflows.
 
