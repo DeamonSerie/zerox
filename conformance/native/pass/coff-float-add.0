@@ -1,0 +1,10 @@
+fn addF32 f32 left f32 right f32
+  ret + left right
+
+pub fn main Void world World !
+  let x f32 1.0
+  let y f32 1.0
+  check world.out.write "before"
+  if == (addF32 x y) 2.0
+    check world.out.write " add ok"
+  check world.out.write "\n"

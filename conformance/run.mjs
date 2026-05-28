@@ -329,7 +329,7 @@ async function assertElfAarch64Executable(path) {
   );
 }
 
-async function assertMachOArm64Object(path, exportedName) {
+async function assertVoidArm64Object(path, exportedName) {
   const bytes = await readFile(path);
   assert.equal(bytes.readUInt32LE(0), 0xfeedfacf);
   assert.equal(bytes.readUInt32LE(4), 0x0100000c);
@@ -342,7 +342,7 @@ async function assertMachOArm64Object(path, exportedName) {
   return bytes;
 }
 
-async function assertMachOArm64Executable(path) {
+async function assertVoidArm64Executable(path) {
   const bytes = await readFile(path);
   assert.equal(bytes.readUInt32LE(0), 0xfeedfacf);
   assert.equal(bytes.readUInt32LE(4), 0x0100000c);
@@ -473,9 +473,9 @@ for (const fixture of [
   "conformance/native/pass/open-ended-slices.0",
   "conformance/native/pass/string-slices.0",
   "conformance/native/pass/coff-dynamic-byte-slice-blocked.0",
-  "conformance/native/pass/macho-large-byte-slice-blocked.0",
-  "conformance/native/pass/macho-nested-call-scratch-blocked.0",
-  "conformance/native/pass/macho-open-byte-slice-blocked.0",
+  "conformance/native/pass/Void-large-byte-slice-blocked.0",
+  "conformance/native/pass/Void-nested-call-scratch-blocked.0",
+  "conformance/native/pass/Void-open-byte-slice-blocked.0",
   "conformance/native/pass/string-byte-ergonomics.0",
   "conformance/native/pass/indexed-mutation.0",
   "conformance/native/pass/nested-lvalues.0",
@@ -954,26 +954,26 @@ assert.deepEqual(
   compilerMetricsBody.backendFormats.coff.archFilesWithLocalPatchState,
   [],
 );
-assert.equal(compilerMetricsBody.backendFormats.macho.sharedWriter, true);
+assert.equal(compilerMetricsBody.backendFormats.Void.sharedWriter, true);
 assert.equal(
-  compilerMetricsBody.backendFormats.macho.objectUsesSharedWriter,
+  compilerMetricsBody.backendFormats.Void.objectUsesSharedWriter,
   true,
 );
 assert.equal(
-  compilerMetricsBody.backendFormats.macho.executableUsesSharedWriter,
+  compilerMetricsBody.backendFormats.Void.executableUsesSharedWriter,
   true,
 );
 assert.deepEqual(
-  compilerMetricsBody.backendFormats.macho.archFilesWithLocalContainerWriters,
+  compilerMetricsBody.backendFormats.Void.archFilesWithLocalContainerWriters,
   [],
 );
-assert.equal(compilerMetricsBody.backendFormats.macho.patchStateModule, true);
+assert.equal(compilerMetricsBody.backendFormats.Void.patchStateModule, true);
 assert.equal(
-  compilerMetricsBody.backendFormats.macho.archFileUsesPatchStateModule,
+  compilerMetricsBody.backendFormats.Void.archFileUsesPatchStateModule,
   true,
 );
 assert.deepEqual(
-  compilerMetricsBody.backendFormats.macho.archFilesWithLocalPatchState,
+  compilerMetricsBody.backendFormats.Void.archFilesWithLocalPatchState,
   [],
 );
 assert.equal(
@@ -1001,7 +1001,7 @@ assert.equal(
   true,
 );
 assert.equal(
-  compilerMetricsBody.backendFormats.aarch64.machoUsesSharedEncodingPrimitives,
+  compilerMetricsBody.backendFormats.aarch64.VoidUsesSharedEncodingPrimitives,
   true,
 );
 assert.deepEqual(
@@ -1350,7 +1350,7 @@ assert.equal(
   "buildability",
 );
 
-const directStringMachOExe = await execFileAsync(zero, [
+const directStringVoidExe = await execFileAsync(zero, [
   "build",
   "--json",
   "--emit",
@@ -1361,9 +1361,9 @@ const directStringMachOExe = await execFileAsync(zero, [
   "--out",
   `${outDir}/direct-string-literal-darwin`,
 ]);
-const directStringMachOExeBody = JSON.parse(directStringMachOExe.stdout);
-assert.equal(directStringMachOExeBody.compiler, "zero-macho64");
-assert.equal(directStringMachOExeBody.generatedCBytes, 0);
+const directStringVoidExeBody = JSON.parse(directStringVoidExe.stdout);
+assert.equal(directStringVoidExeBody.compiler, "zero-Void64");
+assert.equal(directStringVoidExeBody.generatedCBytes, 0);
 const directStringCoffExe = await execFileAsync(zero, [
   "build",
   "--json",
@@ -1449,7 +1449,7 @@ for (const key of [
 assert.equal(coffDynamicSliceBuildDiag.backendBlocker.backend, "zero-coff-x64");
 assert.equal(coffDynamicSliceBuildDiag.backendBlocker.stage, "buildability");
 
-async function assertMachOObjectBuildabilityBlocked(
+async function assertVoidObjectBuildabilityBlocked(
   fixture,
   outName,
   expectedMessage,
@@ -1474,7 +1474,7 @@ async function assertMachOObjectBuildabilityBlocked(
   assert.equal(readinessBody.targetReadiness.diagnostics[0].code, "BLD004");
   assert.equal(
     readinessBody.targetReadiness.diagnostics[0].backendBlocker.backend,
-    "zero-macho64",
+    "zero-Void64",
   );
   assert.equal(
     readinessBody.targetReadiness.diagnostics[0].backendBlocker.stage,
@@ -1511,23 +1511,23 @@ async function assertMachOObjectBuildabilityBlocked(
   ]) {
     assert.equal(buildDiag[key], readinessDiag[key]);
   }
-  assert.equal(buildDiag.backendBlocker.backend, "zero-macho64");
+  assert.equal(buildDiag.backendBlocker.backend, "zero-Void64");
   assert.equal(buildDiag.backendBlocker.stage, "buildability");
 }
 
-await assertMachOObjectBuildabilityBlocked(
-  "conformance/native/pass/macho-large-byte-slice-blocked.0",
-  "macho-large-byte-slice.o",
+await assertVoidObjectBuildabilityBlocked(
+  "conformance/native/pass/Void-large-byte-slice-blocked.0",
+  "Void-large-byte-slice.o",
   /constant start/,
 );
-await assertMachOObjectBuildabilityBlocked(
-  "conformance/native/pass/macho-nested-call-scratch-blocked.0",
-  "macho-nested-call-scratch.o",
+await assertVoidObjectBuildabilityBlocked(
+  "conformance/native/pass/Void-nested-call-scratch-blocked.0",
+  "Void-nested-call-scratch.o",
   /scratch spill capacity/,
 );
-await assertMachOObjectBuildabilityBlocked(
-  "conformance/native/pass/macho-open-byte-slice-blocked.0",
-  "macho-open-byte-slice.o",
+await assertVoidObjectBuildabilityBlocked(
+  "conformance/native/pass/Void-open-byte-slice-blocked.0",
+  "Void-open-byte-slice.o",
   /byte-view length/,
 );
 
@@ -1616,7 +1616,7 @@ await execFileAsync(zero, [
 ]);
 await assertElfAarch64Object(arm64PrivateHelperObj, "main");
 
-const memoryPackageMachOReadiness = await execFileAsync(zero, [
+const memoryPackageVoidReadiness = await execFileAsync(zero, [
   "check",
   "--json",
   "--emit",
@@ -1625,24 +1625,24 @@ const memoryPackageMachOReadiness = await execFileAsync(zero, [
   "darwin-arm64",
   "examples/memory-package",
 ]);
-const memoryPackageMachOReadinessBody = JSON.parse(
-  memoryPackageMachOReadiness.stdout,
+const memoryPackageVoidReadinessBody = JSON.parse(
+  memoryPackageVoidReadiness.stdout,
 );
-assert.equal(memoryPackageMachOReadinessBody.ok, true);
-assert.equal(memoryPackageMachOReadinessBody.diagnostics.length, 0);
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.ok, false);
-assert.equal(memoryPackageMachOReadinessBody.targetReadiness.buildable, false);
+assert.equal(memoryPackageVoidReadinessBody.ok, true);
+assert.equal(memoryPackageVoidReadinessBody.diagnostics.length, 0);
+assert.equal(memoryPackageVoidReadinessBody.targetReadiness.ok, false);
+assert.equal(memoryPackageVoidReadinessBody.targetReadiness.buildable, false);
 assert.equal(
-  memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].code,
+  memoryPackageVoidReadinessBody.targetReadiness.diagnostics[0].code,
   "BLD004",
 );
 assert.equal(
-  memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].backendBlocker
+  memoryPackageVoidReadinessBody.targetReadiness.diagnostics[0].backendBlocker
     .backend,
-  "zero-macho64",
+  "zero-Void64",
 );
 assert.equal(
-  memoryPackageMachOReadinessBody.targetReadiness.diagnostics[0].backendBlocker
+  memoryPackageVoidReadinessBody.targetReadiness.diagnostics[0].backendBlocker
     .stage,
   "buildability",
 );
@@ -1695,10 +1695,10 @@ await assertAgentSurfaceOwnedDropUnsupported(
 await assertAgentSurfaceOwnedDropUnsupported(
   "darwin-arm64",
   "obj",
-  "agent-surface-owned-drop-macho.o",
-  /Mach-O/,
-  "macho",
-  "zero-macho64",
+  "agent-surface-owned-drop-Void.o",
+  /Void/,
+  "Void",
+  "zero-Void64",
 );
 await assertAgentSurfaceOwnedDropUnsupported(
   "win32-x64.exe",
@@ -1711,10 +1711,10 @@ await assertAgentSurfaceOwnedDropUnsupported(
 await assertAgentSurfaceOwnedDropUnsupported(
   "darwin-arm64",
   "obj",
-  "agent-surface-owned-drop-macho-backend-ignored.o",
-  /Mach-O/,
-  "macho",
-  "zero-macho64",
+  "agent-surface-owned-drop-Void-backend-ignored.o",
+  /Void/,
+  "Void",
+  "zero-Void64",
   { extraArgs: ["--backend", "zero-elf64"] },
 );
 
@@ -2071,96 +2071,96 @@ assert(
 );
 assert(directI64ObjBytes.includes(Buffer.from([0x48, 0x01, 0xc8])));
 
-const directMachOU64LiteralSource = `${outDir}/direct-macho-u64-literal.0`;
-const directMachOU64LiteralOut = `${outDir}/direct-macho-u64-literal.o`;
+const directVoidU64LiteralSource = `${outDir}/direct-Void-u64-literal.0`;
+const directVoidU64LiteralOut = `${outDir}/direct-Void-u64-literal.o`;
 await writeFile(
-  directMachOU64LiteralSource,
+  directVoidU64LiteralSource,
   `export c fn main u64
   let value u64 4294967296
   ret value
 `,
 );
-const directMachOU64LiteralJson = await execFileAsync(zero, [
+const directVoidU64LiteralJson = await execFileAsync(zero, [
   "build",
   "--json",
   "--emit",
   "obj",
   "--target",
   "darwin-arm64",
-  directMachOU64LiteralSource,
+  directVoidU64LiteralSource,
   "--out",
-  directMachOU64LiteralOut,
+  directVoidU64LiteralOut,
 ]);
-const directMachOU64LiteralBody = JSON.parse(directMachOU64LiteralJson.stdout);
-const directMachOU64LiteralBytes = await readFile(directMachOU64LiteralOut);
-assert.equal(directMachOU64LiteralBody.compiler, "zero-macho64");
+const directVoidU64LiteralBody = JSON.parse(directVoidU64LiteralJson.stdout);
+const directVoidU64LiteralBytes = await readFile(directVoidU64LiteralOut);
+assert.equal(directVoidU64LiteralBody.compiler, "zero-Void64");
 assert.equal(
-  directMachOU64LiteralBody.objectBackend.objectEmission.path,
-  "direct-macho64-object",
+  directVoidU64LiteralBody.objectBackend.objectEmission.path,
+  "direct-Void64-object",
 );
 assert(
-  directMachOU64LiteralBytes.includes(Buffer.from([0x28, 0x00, 0xc0, 0xf2])),
+  directVoidU64LiteralBytes.includes(Buffer.from([0x28, 0x00, 0xc0, 0xf2])),
 );
 
-const directMachOU64DivSource = `${outDir}/direct-macho-u64-div.0`;
-const directMachOU64DivOut = `${outDir}/direct-macho-u64-div.o`;
+const directVoidU64DivSource = `${outDir}/direct-Void-u64-div.0`;
+const directVoidU64DivOut = `${outDir}/direct-Void-u64-div.o`;
 await writeFile(
-  directMachOU64DivSource,
+  directVoidU64DivSource,
   `export c fn main u64 a u64 b u64
   ret / a b
 `,
 );
-const directMachOU64DivJson = await execFileAsync(zero, [
+const directVoidU64DivJson = await execFileAsync(zero, [
   "build",
   "--json",
   "--emit",
   "obj",
   "--target",
   "darwin-arm64",
-  directMachOU64DivSource,
+  directVoidU64DivSource,
   "--out",
-  directMachOU64DivOut,
+  directVoidU64DivOut,
 ]);
-const directMachOU64DivBody = JSON.parse(directMachOU64DivJson.stdout);
-const directMachOU64DivBytes = await readFile(directMachOU64DivOut);
-assert.equal(directMachOU64DivBody.compiler, "zero-macho64");
+const directVoidU64DivBody = JSON.parse(directVoidU64DivJson.stdout);
+const directVoidU64DivBytes = await readFile(directVoidU64DivOut);
+assert.equal(directVoidU64DivBody.compiler, "zero-Void64");
 assert.equal(
-  directMachOU64DivBody.objectBackend.objectEmission.path,
-  "direct-macho64-object",
+  directVoidU64DivBody.objectBackend.objectEmission.path,
+  "direct-Void64-object",
 );
-assert(directMachOU64DivBytes.includes(Buffer.from([0x00, 0x09, 0xc9, 0x9a])));
-assert(!directMachOU64DivBytes.includes(Buffer.from([0x00, 0x09, 0xc9, 0x1a])));
+assert(directVoidU64DivBytes.includes(Buffer.from([0x00, 0x09, 0xc9, 0x9a])));
+assert(!directVoidU64DivBytes.includes(Buffer.from([0x00, 0x09, 0xc9, 0x1a])));
 
-const directMachOU64ModSource = `${outDir}/direct-macho-u64-mod.0`;
-const directMachOU64ModOut = `${outDir}/direct-macho-u64-mod.o`;
+const directVoidU64ModSource = `${outDir}/direct-Void-u64-mod.0`;
+const directVoidU64ModOut = `${outDir}/direct-Void-u64-mod.o`;
 await writeFile(
-  directMachOU64ModSource,
+  directVoidU64ModSource,
   `export c fn main u64 a u64 b u64
   ret % a b
 `,
 );
-const directMachOU64ModJson = await execFileAsync(zero, [
+const directVoidU64ModJson = await execFileAsync(zero, [
   "build",
   "--json",
   "--emit",
   "obj",
   "--target",
   "darwin-arm64",
-  directMachOU64ModSource,
+  directVoidU64ModSource,
   "--out",
-  directMachOU64ModOut,
+  directVoidU64ModOut,
 ]);
-const directMachOU64ModBody = JSON.parse(directMachOU64ModJson.stdout);
-const directMachOU64ModBytes = await readFile(directMachOU64ModOut);
-assert.equal(directMachOU64ModBody.compiler, "zero-macho64");
+const directVoidU64ModBody = JSON.parse(directVoidU64ModJson.stdout);
+const directVoidU64ModBytes = await readFile(directVoidU64ModOut);
+assert.equal(directVoidU64ModBody.compiler, "zero-Void64");
 assert.equal(
-  directMachOU64ModBody.objectBackend.objectEmission.path,
-  "direct-macho64-object",
+  directVoidU64ModBody.objectBackend.objectEmission.path,
+  "direct-Void64-object",
 );
-assert(directMachOU64ModBytes.includes(Buffer.from([0x0a, 0x09, 0xc9, 0x9a])));
-assert(directMachOU64ModBytes.includes(Buffer.from([0x40, 0xa1, 0x09, 0x9b])));
-assert(!directMachOU64ModBytes.includes(Buffer.from([0x0a, 0x09, 0xc9, 0x1a])));
-assert(!directMachOU64ModBytes.includes(Buffer.from([0x40, 0xa1, 0x09, 0x1b])));
+assert(directVoidU64ModBytes.includes(Buffer.from([0x0a, 0x09, 0xc9, 0x9a])));
+assert(directVoidU64ModBytes.includes(Buffer.from([0x40, 0xa1, 0x09, 0x9b])));
+assert(!directVoidU64ModBytes.includes(Buffer.from([0x0a, 0x09, 0xc9, 0x1a])));
+assert(!directVoidU64ModBytes.includes(Buffer.from([0x40, 0xa1, 0x09, 0x1b])));
 
 const metaJsonSuccess = await execFileAsync(zero, [
   "check",
@@ -4427,9 +4427,9 @@ assert.equal(windowsMsvcTarget.directBackend.exeSupported, true);
 assert.equal(windowsMsvcTarget.directBackend.objectEmitter, "zero-coff-x64");
 assert.equal(windowsMsvcTarget.directBackend.exeEmitter, "zero-coff-x64-exe");
 assert.equal(linuxGnuTarget.directBackend.objectEmitter, "zero-elf64");
-assert.equal(darwinArm64Target.directBackend.objectEmitter, "zero-macho64");
+assert.equal(darwinArm64Target.directBackend.objectEmitter, "zero-Void64");
 assert.equal(darwinArm64Target.directBackend.exeSupported, true);
-assert.equal(darwinArm64Target.directBackend.exeEmitter, "zero-macho64-exe");
+assert.equal(darwinArm64Target.directBackend.exeEmitter, "zero-Void64-exe");
 assert.equal(
   darwinArm64Target.httpRuntime.provider,
   targetsBody.host === "darwin-arm64" ? "curl" : null,

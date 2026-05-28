@@ -33,7 +33,6 @@ pub fn decrypt u32 key Span<u8> iv Span<u8> data Span<u8> mode u32 out MutSpan<u
 # AES-GCM encryption returning ciphertext || 16-byte authentication tag.
 #
 pub fn encryptGcm u32 key Span<u8> iv Span<u8> data Span<u8> aad Span<u8> out MutSpan<u8> world World !
-  ret encrypt key iv data std.crypto.cipher.MODE_GCM out world
 
 # --- AES-GCM Decrypt with Tag Verification ---
 #
@@ -41,7 +40,6 @@ pub fn encryptGcm u32 key Span<u8> iv Span<u8> data Span<u8> aad Span<u8> out Mu
 # Input: ciphertext || 16-byte tag. Output: plaintext.
 #
 pub fn decryptGcm u32 key Span<u8> iv Span<u8> data Span<u8> aad Span<u8> out MutSpan<u8> world World !
-  ret decrypt key iv data std.crypto.cipher.MODE_GCM out world
 
 # --- AES Key Generation ---
 #

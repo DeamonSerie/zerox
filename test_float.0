@@ -1,0 +1,5 @@
+export fn main i32
+  let f32 x = 3.14
+  let f32 y = 2.71
+  let f32 z = + x y
+  ret 0

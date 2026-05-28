@@ -9,10 +9,17 @@
 
 # Hash Algorithm Constants
 
-const HASH_SHA256 u32 0_u32
+const HASH_SHA256   u32 0_u32
+const HASH_SHA384   u32 4_u32
 const HASH_SHA3_256 u32 1_u32
-const HASH_MD5 u32 2_u32
-const HASH_SHA512 u32 3_u32
+const HASH_SHA3_512 u32 5_u32
+const HASH_MD5      u32 2_u32
+const HASH_SHA512   u32 3_u32
+const HASH_BLAKE2B  u32 6_u32
+const HASH_BLAKE2S  u32 7_u32
+const HASH_SHA3_384 u32 8_u32
+const HASH_SHAKE128 u32 9_u32
+const HASH_SHAKE256 u32 10_u32
 
 # --- Digest Sizes ---
 #
@@ -21,12 +28,27 @@ const HASH_SHA512 u32 3_u32
 pub fn digestSize u32 algorithm u32
   if == algorithm HASH_SHA256
     ret 32_u32
+  if == algorithm HASH_SHA384
+    ret 48_u32
   if == algorithm HASH_SHA3_256
+    ret 32_u32
+  if == algorithm HASH_SHA3_512
+    ret 64_u32
+  if == algorithm HASH_BLAKE2B
+    ret 64_u32
+  if == algorithm HASH_BLAKE2S
     ret 32_u32
   if == algorithm HASH_MD5
     ret 16_u32
+  if == algorithm HASH_SHA3_384
+    ret 48_u32
   if == algorithm HASH_SHA512
     ret 64_u32
+  if == algorithm HASH_SHAKE128
+    # XOF — variable output; caller should know their desired length
+    ret 0_u32
+  if == algorithm HASH_SHAKE256
+    ret 0_u32
   ret 0_u32
 
 # --- SHA-256 ---
@@ -36,11 +58,67 @@ pub fn digestSize u32 algorithm u32
 #
 pub fn sha256 u32 data Span<u8> out MutSpan<u8> world World !
 
+# --- SHA-384 ---
+#
+# Compute SHA-384 hash of input data using native runtime.
+# Returns 48 (digest bytes written) on success, 0 on error.
+#
+pub fn sha384 u32 data Span<u8> out MutSpan<u8> world World !
+
+# --- SHA-3-256 (Native) ---
+#
+# Compute SHA-3-256 hash using native Botan-backed runtime.
+# Returns 32 on success, 0 on error.
+#
+pub fn sha3_256 u32 data Span<u8> out MutSpan<u8> world World !
+
+# --- SHA-3-512 ---
+#
+# Compute SHA-3-512 hash using native Botan-backed runtime.
+# Returns 64 on success, 0 on error.
+#
+pub fn sha3_512 u32 data Span<u8> out MutSpan<u8> world World !
+
+# --- BLAKE2b ---
+#
+# Compute BLAKE2b-512 hash using native Botan-backed runtime.
+# Returns 64 on success, 0 on error.
+#
+pub fn blake2b u32 data Span<u8> out MutSpan<u8> world World !
+
+# --- BLAKE2s ---
+#
+# Compute BLAKE2s-256 hash using native Botan-backed runtime.
+# Returns 32 on success, 0 on error.
+#
+pub fn blake2s u32 data Span<u8> out MutSpan<u8> world World !
+
 # --- SHA-512 ---
 #
 # Compute SHA-512 hash of input data using native runtime.
 #
 pub fn sha512 u32 data Span<u8> out MutSpan<u8> world World !
+
+# --- SHA-3-384 ---
+#
+# Compute SHA-3-384 hash using native Botan-backed runtime.
+# Returns 48 on success, 0 on error.
+#
+pub fn sha3_384 u32 data Span<u8> out MutSpan<u8> world World !
+
+# --- SHAKE-128 (XOF) ---
+#
+# Extendable-output function (XOF) with variable output length.
+# Returns out_len on success, 0 on error.
+#
+pub fn shake128 u32 data Span<u8> out_len u32 out MutSpan<u8> world World !
+
+# --- SHAKE-256 (XOF) ---
+#
+# Extendable-output function (XOF) with variable output length.
+# Returns out_len on success, 0 on error.
+#
+pub fn shake256 u32 data Span<u8> out_len u32 out MutSpan<u8> world World !
 
 # --- SHA-3-256 ---
 #
@@ -75,51 +153,19 @@ pub fn md5 u32 data Span<u8> out MutSpan<u8> world World !
 #
 pub fn hmacSha256 u32 key Span<u8> data Span<u8> out MutSpan<u8> world World !
 
+# --- HMAC-SHA384 ---
+#
+# Compute HMAC-SHA384 using native Botan-backed runtime.
+# Returns 48 on success, 0 on error.
+#
+pub fn hmacSha384 u32 key Span<u8> data Span<u8> out MutSpan<u8> world World !
+
 # --- HMAC-SHA512 ---
 #
-# Compute HMAC-SHA512 using SHA-512 (inner/outer pad construction in Zero).
+# Compute HMAC-SHA512 using native Botan-backed runtime.
+# Returns 64 on success, 0 on error.
 #
 pub fn hmacSha512 u32 key Span<u8> data Span<u8> out MutSpan<u8> world World !
-  # HMAC(k, m) = H((k' ^ opad) || H((k' ^ ipad) || m))
-  # where k' is the key padded to block size
-  let ks u32 std.mem.len key
-  let blockSize u32 128_u32
-  let kp [128]u8 [0_u8; 128]
-  let kpSpan MutSpan<u8> kp
-  let _ u32 std.mem.copy key kpSpan ks
-  let i u32 0_u32
-  while < i blockSize
-    let idx u32 i
-    let kpb u8 kp[idx]
-    let ipad u8 ^ kpb 0x36_u8
-    let _ u8 store<u8> ipad kpSpan idx
-    let i u32 + i 1_u32
-  let inner [128]u8 [0_u8; 128]
-  let innerSpan MutSpan<u8> inner
-  let _ u32 std.mem.copy kp innerSpan blockSize
-  let dataLen u32 std.mem.len data
-  let combinedLen u32 + blockSize dataLen
-  let combined [256]u8 [0_u8; 256]
-  let combinedSpan MutSpan<u8> combined
-  let _ u32 std.mem.copy inner combinedSpan blockSize
-  let _ u32 std.mem.copy data combinedSpan blockSize
-  let innerHash [64]u8 [0_u8; 64]
-  let innerHashSpan MutSpan<u8> innerHash
-  let ihLen u32 sha512 combinedSpan innerHashSpan world
-  if == ihLen 0_u32
-    ret 0_u32
-  let j u32 0_u32
-  while < j blockSize
-    let idx u32 j
-    let kpb u8 kp[idx]
-    let opad u8 ^ kpb 0x5c_u8
-    let _ u8 store<u8> opad kpSpan idx
-    let j u32 + j 1_u32
-  let outer [200]u8 [0_u8; 200]
-  let outerSpan MutSpan<u8> outer
-  let _ u32 std.mem.copy kp outerSpan blockSize
-  let _ u32 std.mem.copy innerHash outerSpan blockSize
-  ret sha512 outerSpan out world
 
 # --- Hash with Algorithm ---
 #
@@ -129,12 +175,28 @@ pub fn hmacSha512 u32 key Span<u8> data Span<u8> out MutSpan<u8> world World !
 pub fn hash u32 data Span<u8> out MutSpan<u8> algorithm u32 world World !
   if == algorithm HASH_SHA256
     ret sha256 data out world
+  if == algorithm HASH_SHA384
+    ret sha384 data out world
   if == algorithm HASH_SHA3_256
     ret sha3_256 data out world
+  if == algorithm HASH_SHA3_512
+    ret sha3_512 data out world
+  if == algorithm HASH_BLAKE2B
+    ret blake2b data out world
+  if == algorithm HASH_BLAKE2S
+    ret blake2s data out world
   if == algorithm HASH_MD5
     ret md5 data out world
+  if == algorithm HASH_SHA3_384
+    ret sha3_384 data out world
   if == algorithm HASH_SHA512
     ret sha512 data out world
+  if == algorithm HASH_SHAKE128
+    # SHAKE requires out_len parameter; use shake128 directly
+    ret 0_u32
+  if == algorithm HASH_SHAKE256
+    # SHAKE requires out_len parameter; use shake256 directly
+    ret 0_u32
   ret 0_u32
 
 # --- Hash Verification ---

@@ -19,6 +19,8 @@ static const char *mir_type_kind_name(IrTypeKind type) {
     case IR_TYPE_ALLOC: return "Alloc";
     case IR_TYPE_VEC: return "Vec";
     case IR_TYPE_MAYBE_BYTE_VIEW: return "Maybe<ByteView>";
+    case IR_TYPE_F32: return "f32";
+    case IR_TYPE_F64: return "f64";
     case IR_TYPE_MAYBE_SCALAR: return "Maybe<scalar>";
     case IR_TYPE_RECORD: return "record";
     case IR_TYPE_UNSUPPORTED:
@@ -28,7 +30,7 @@ static const char *mir_type_kind_name(IrTypeKind type) {
 }
 
 static bool mir_type_is_value(IrTypeKind type) {
-  return type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_USIZE || type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_I64 || type == IR_TYPE_U64;
+  return type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_USIZE || type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_I64 || type == IR_TYPE_U64 || type == IR_TYPE_F32 || type == IR_TYPE_F64;
 }
 
 static bool mir_type_is_direct_abi(IrTypeKind type) {
@@ -52,9 +54,11 @@ static unsigned mir_type_byte_size(IrTypeKind type) {
     case IR_TYPE_BOOL:
     case IR_TYPE_U8: return 1;
     case IR_TYPE_U16: return 2;
+    case IR_TYPE_F32:
     case IR_TYPE_I32:
     case IR_TYPE_USIZE:
     case IR_TYPE_U32: return 4;
+    case IR_TYPE_F64:
     case IR_TYPE_I64:
     case IR_TYPE_U64: return 8;
     default: return 0;
@@ -519,6 +523,21 @@ static bool mir_verify_direct_helper_value_contract(IrProgram *ir, const IrFunct
         case CRYPTO_CHACHA20: name = "std.crypto.chacha.chacha20"; expected = 0; break;
         case CRYPTO_PBKDF2: name = "std.crypto.key.derive"; expected = 0; break;
         case CRYPTO_RANDOM_BYTES: name = "std.crypto.key.randomBytes"; expected = 0; break;
+        case CRYPTO_SHA384: name = "std.crypto.hash.sha384"; expected = 48; break;
+        case CRYPTO_SHA3_256: name = "std.crypto.hash.sha3_256"; expected = 32; break;
+        case CRYPTO_SHA3_512: name = "std.crypto.hash.sha3_512"; expected = 64; break;
+        case CRYPTO_BLAKE2B: name = "std.crypto.hash.blake2b"; expected = 64; break;
+        case CRYPTO_BLAKE2S: name = "std.crypto.hash.blake2s"; expected = 32; break;
+        case CRYPTO_SHA3_384: name = "std.crypto.hash.sha3_384"; expected = 48; break;
+        case CRYPTO_SHAKE128: name = "std.crypto.hash.shake128"; expected = 0; break;
+        case CRYPTO_SHAKE256: name = "std.crypto.hash.shake256"; expected = 0; break;
+        case CRYPTO_HMAC_SHA512: name = "std.crypto.hash.hmacSha512"; expected = 64; break;
+        case CRYPTO_ECC_ED25519_GENERATE_KEYPAIR: name = "std.crypto.ecc.ed25519GenerateKeyPair"; expected = 0; break;
+        case CRYPTO_ECC_X25519_ECDH: name = "std.crypto.ecc.x25519Ecdh"; expected = 0; break;
+        case CRYPTO_AES_GCM_ENCRYPT: name = "std.crypto.aes.encryptGcm"; expected = 0; break;
+        case CRYPTO_AES_GCM_DECRYPT: name = "std.crypto.aes.decryptGcm"; expected = 0; break;
+        case CRYPTO_ECC_X25519_GENERATE_KEYPAIR: name = "std.crypto.ecc.x25519GenerateKeyPair"; expected = 0; break;
+        case CRYPTO_HMAC_SHA384: name = "std.crypto.hash.hmacSha384"; expected = 48; break;
         default: break;
       }
       mir_require_count(&requirements->runtime_helpers, 1, value->line, value->column, name);
@@ -666,7 +685,7 @@ static bool mir_verify_fallible_flow_value_contract(IrProgram *ir, const IrFunct
 
 static bool mir_verify_direct_primitive_value(IrProgram *ir, const IrValue *value, const char *message, const char *role) {
   if (!ir || !ir->mir_valid) return false;
-  if (value && (value->type == IR_TYPE_BOOL || mir_type_is_integer_value(value->type))) return true;
+  if (value && (value->type == IR_TYPE_BOOL || mir_type_is_integer_value(value->type) || value->type == IR_TYPE_F32 || value->type == IR_TYPE_F64)) return true;
   char actual[160];
   snprintf(actual, sizeof(actual), "%s is %s", role ? role : "value", value ? mir_type_kind_name(value->type) : "missing");
   mir_verify_mark_unsupported(ir, message, value ? value->line : 1, value ? value->column : 1, actual);
@@ -711,7 +730,7 @@ static bool mir_verify_binary_value_contract(IrProgram *ir, const IrValue *value
 static bool mir_verify_compare_value_contract(IrProgram *ir, const IrValue *value) {
   if (!mir_verify_value_type(ir, value, IR_TYPE_BOOL, "MIR verifier found compare result type mismatch", "compare result")) return false;
   if (!value->left || !value->right || value->left->type != value->right->type ||
-      !(value->left->type == IR_TYPE_BOOL || mir_type_is_integer_value(value->left->type))) {
+      !(value->left->type == IR_TYPE_BOOL || mir_type_is_integer_value(value->left->type) || value->left->type == IR_TYPE_F32 || value->left->type == IR_TYPE_F64)) {
     char actual[192];
     snprintf(actual, sizeof(actual), "compare left %s right %s",
              value->left ? mir_type_kind_name(value->left->type) : "missing",
@@ -880,6 +899,7 @@ static bool mir_verify_direct_value_kind_contract(IrProgram *ir, const IrFunctio
   if (!value) return true;
   switch (value->kind) {
     case IR_VALUE_INT:
+      if (value->type == IR_TYPE_F32 || value->type == IR_TYPE_F64) return true;
       return mir_verify_value_is_integer(ir, value, "MIR verifier found integer literal type mismatch", "integer literal");
     case IR_VALUE_BOOL:
       return mir_verify_value_type(ir, value, IR_TYPE_BOOL, "MIR verifier found boolean literal type mismatch", "boolean literal");

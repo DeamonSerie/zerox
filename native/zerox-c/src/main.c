@@ -588,7 +588,7 @@ static bool write_runtime_compile_inputs(
     return false;
   }
   if (!runtime_make_dir(out->include_dir, diag) ||
-      !write_runtime_chunks_file(out->header_file, zerox_embedded_zero_runtime_h, diag) ||
+      !write_runtime_chunks_file(out->header_file, zerox_embedded_zerox_runtime_h, diag) ||
       !write_runtime_chunks_file(out->source_file, source_chunks, diag)) {
     runtime_diag_preserve_path(diag);
     runtime_compile_inputs_free(out);
@@ -4685,6 +4685,21 @@ typedef struct {
   bool zerox_crypto_chacha20;
   bool zerox_crypto_pbkdf2;
   bool zerox_crypto_random_bytes;
+  bool zerox_crypto_sha384;
+  bool zerox_crypto_sha3_256;
+  bool zerox_crypto_sha3_512;
+  bool zerox_crypto_blake2b;
+  bool zerox_crypto_blake2s;
+  bool zerox_crypto_hmac_sha384;
+  bool zerox_crypto_sha3_384;
+  bool zerox_crypto_shake128;
+  bool zerox_crypto_shake256;
+  bool zerox_crypto_hmac_sha512;
+  bool zerox_crypto_ecc_ed25519_generate_keypair;
+  bool zerox_crypto_ecc_x25519_ecdh;
+  bool zerox_crypto_aes_gcm_encrypt;
+  bool zerox_crypto_aes_gcm_decrypt;
+  bool zerox_crypto_ecc_x25519_generate_keypair;
 } RuntimeImportAudit;
 
 static void runtime_import_audit_mark_fs_base(RuntimeImportAudit *audit) {
@@ -4786,6 +4801,21 @@ static void runtime_import_audit_value(const IrValue *value, RuntimeImportAudit 
         case CRYPTO_CHACHA20: audit->zerox_crypto_chacha20 = true; break;
         case CRYPTO_PBKDF2: audit->zerox_crypto_pbkdf2 = true; break;
         case CRYPTO_RANDOM_BYTES: audit->zerox_crypto_random_bytes = true; break;
+        case CRYPTO_SHA384: audit->zerox_crypto_sha384 = true; break;
+        case CRYPTO_SHA3_256: audit->zerox_crypto_sha3_256 = true; break;
+        case CRYPTO_SHA3_512: audit->zerox_crypto_sha3_512 = true; break;
+        case CRYPTO_BLAKE2B: audit->zerox_crypto_blake2b = true; break;
+        case CRYPTO_BLAKE2S: audit->zerox_crypto_blake2s = true; break;
+        case CRYPTO_HMAC_SHA384: audit->zerox_crypto_hmac_sha384 = true; break;
+        case CRYPTO_SHA3_384: audit->zerox_crypto_sha3_384 = true; break;
+        case CRYPTO_SHAKE128: audit->zerox_crypto_shake128 = true; break;
+        case CRYPTO_SHAKE256: audit->zerox_crypto_shake256 = true; break;
+        case CRYPTO_HMAC_SHA512: audit->zerox_crypto_hmac_sha512 = true; break;
+        case CRYPTO_ECC_ED25519_GENERATE_KEYPAIR: audit->zerox_crypto_ecc_ed25519_generate_keypair = true; break;
+        case CRYPTO_ECC_X25519_ECDH: audit->zerox_crypto_ecc_x25519_ecdh = true; break;
+        case CRYPTO_AES_GCM_ENCRYPT: audit->zerox_crypto_aes_gcm_encrypt = true; break;
+        case CRYPTO_AES_GCM_DECRYPT: audit->zerox_crypto_aes_gcm_decrypt = true; break;
+        case CRYPTO_ECC_X25519_GENERATE_KEYPAIR: audit->zerox_crypto_ecc_x25519_generate_keypair = true; break;
         default: break;
       }
       break;
@@ -4901,6 +4931,21 @@ static size_t native_zerox_runtime_import_count(const RuntimeImportAudit *audit)
   if (audit->zerox_crypto_chacha20) count++;
   if (audit->zerox_crypto_pbkdf2) count++;
   if (audit->zerox_crypto_random_bytes) count++;
+  if (audit->zerox_crypto_sha384) count++;
+  if (audit->zerox_crypto_sha3_256) count++;
+  if (audit->zerox_crypto_sha3_512) count++;
+  if (audit->zerox_crypto_blake2b) count++;
+  if (audit->zerox_crypto_blake2s) count++;
+  if (audit->zerox_crypto_hmac_sha384) count++;
+  if (audit->zerox_crypto_sha3_384) count++;
+  if (audit->zerox_crypto_shake128) count++;
+  if (audit->zerox_crypto_shake256) count++;
+  if (audit->zerox_crypto_hmac_sha512) count++;
+  if (audit->zerox_crypto_ecc_ed25519_generate_keypair) count++;
+  if (audit->zerox_crypto_ecc_x25519_ecdh) count++;
+  if (audit->zerox_crypto_aes_gcm_encrypt) count++;
+  if (audit->zerox_crypto_aes_gcm_decrypt) count++;
+  if (audit->zerox_crypto_ecc_x25519_generate_keypair) count++;
   return count;
 }
 
@@ -4916,7 +4961,17 @@ static bool runtime_import_audit_uses_crypto(const RuntimeImportAudit *audit) {
   return audit && (audit->zerox_crypto_sha256 || audit->zerox_crypto_hmac_sha256 ||
                    audit->zerox_crypto_aes_encrypt || audit->zerox_crypto_aes_decrypt ||
                    audit->zerox_crypto_chacha20 || audit->zerox_crypto_pbkdf2 ||
-                   audit->zerox_crypto_random_bytes);
+                   audit->zerox_crypto_random_bytes || audit->zerox_crypto_sha384 ||
+                   audit->zerox_crypto_sha3_256 || audit->zerox_crypto_sha3_512 ||
+                   audit->zerox_crypto_blake2b || audit->zerox_crypto_blake2s ||
+                   audit->zerox_crypto_hmac_sha384 || audit->zerox_crypto_sha3_384 ||
+                   audit->zerox_crypto_shake128 || audit->zerox_crypto_shake256 ||
+                   audit->zerox_crypto_hmac_sha512 ||
+                   audit->zerox_crypto_ecc_ed25519_generate_keypair ||
+                   audit->zerox_crypto_ecc_x25519_ecdh ||
+                   audit->zerox_crypto_aes_gcm_encrypt ||
+                   audit->zerox_crypto_aes_gcm_decrypt ||
+                   audit->zerox_crypto_ecc_x25519_generate_keypair);
 }
 
 static void append_runtime_import_module_json(ZBuf *buf, const RuntimeImportAudit *audit, size_t import_count) {
@@ -8543,10 +8598,10 @@ static void apply_ir_metrics_to_input(SourceInput *input, const IrProgram *ir, c
   input->direct_export_count = ir->direct_export_count;
   input->direct_stack_bytes = ir->direct_stack_bytes;
   input->direct_max_frame_bytes = ir->direct_max_frame_bytes;
-  if (z_direct_object_backend(target) == Z_DIRECT_BACKEND_MACHO64 ||
-      z_direct_exe_backend(target) == Z_DIRECT_BACKEND_MACHO64) {
-    input->direct_stack_bytes = z_macho64_stack_bytes_from_ir(ir);
-    input->direct_max_frame_bytes = z_macho64_max_frame_bytes_from_ir(ir);
+  if (z_direct_object_backend(target) == Z_DIRECT_BACKEND_VOID64 ||
+      z_direct_exe_backend(target) == Z_DIRECT_BACKEND_VOID64) {
+    input->direct_stack_bytes = z_void64_stack_bytes_from_ir(ir);
+    input->direct_max_frame_bytes = z_void64_max_frame_bytes_from_ir(ir);
   }
   input->direct_readonly_data_bytes = ir->direct_readonly_data_bytes;
   input->direct_allocator_helper_count = ir->direct_allocator_helper_count;
@@ -9765,7 +9820,7 @@ int main(int argc, char **argv) {
     switch (object_backend) {
       case Z_DIRECT_BACKEND_ELF64: emitted_object = z_emit_elf64_object_from_ir(&ir, &object, &diag); break;
       case Z_DIRECT_BACKEND_ELF_AARCH64: emitted_object = z_emit_elf_aarch64_object_from_ir(&ir, &object, &diag); break;
-      case Z_DIRECT_BACKEND_MACHO64: emitted_object = z_emit_macho64_object_from_ir(&ir, &object, &diag); break;
+      case Z_DIRECT_BACKEND_VOID64: emitted_object = z_emit_void64_object_from_ir(&ir, &object, &diag); break;
       case Z_DIRECT_BACKEND_COFF_X64: emitted_object = z_emit_coff_x64_object_from_ir(&ir, &object, &diag); break;
       case Z_DIRECT_BACKEND_NONE: emitted_object = false; break;
     }
@@ -9858,8 +9913,8 @@ int main(int argc, char **argv) {
     ZBuf object;
     zbuf_init(&object);
     phase_started = now_ms();
-    bool emitted_object = object_backend == Z_DIRECT_BACKEND_MACHO64
-                            ? z_emit_macho64_object_from_ir(&ir, &object, &diag)
+    bool emitted_object = object_backend == Z_DIRECT_BACKEND_VOID64
+                            ? z_emit_void64_object_from_ir(&ir, &object, &diag)
                             : z_emit_elf64_object_from_ir(&ir, &object, &diag);
     input.codegen_ms = now_ms() - phase_started;
     if (!emitted_object) {
@@ -9885,7 +9940,7 @@ int main(int argc, char **argv) {
     ZToolchainPlan runtime_toolchain = z_plan_toolchain(command.cc, command.profile, target);
 
     phase_started = now_ms();
-    input.emitted_object_cache_hit = compiler_cache_touch("emitted-object", compile_cache_key(&input, target, command.profile, object_backend == Z_DIRECT_BACKEND_MACHO64 ? "direct-macho64-object-runtime-link" : "direct-elf64-object-runtime-link"));
+    input.emitted_object_cache_hit = compiler_cache_touch("emitted-object", compile_cache_key(&input, target, command.profile, object_backend == Z_DIRECT_BACKEND_VOID64 ? "direct-macho64-object-runtime-link" : "direct-elf64-object-runtime-link"));
     bool wrote_object = z_write_binary_file(object_file, (const unsigned char *)object.data, object.len, &diag);
     if (wrote_object) wrote_object = compile_zerox_runtime_object(runtime_object_file, &runtime_toolchain, &command, target, &diag);
     if (wrote_object && needs_crypto_runtime) wrote_object = compile_zerox_crypto_object(crypto_object_file, &runtime_toolchain, &command, target, &diag);
@@ -10002,7 +10057,7 @@ int main(int argc, char **argv) {
     bool emitted_exe = false;
     switch (exe_backend) {
       case Z_DIRECT_BACKEND_ELF_AARCH64: emitted_exe = z_emit_elf_aarch64_exe_from_ir(&ir, &exe, &diag); break;
-      case Z_DIRECT_BACKEND_MACHO64: emitted_exe = z_emit_macho64_exe_from_ir(&ir, &exe, &diag); break;
+      case Z_DIRECT_BACKEND_VOID64: emitted_exe = z_emit_void64_exe_from_ir(&ir, &exe, &diag); break;
       case Z_DIRECT_BACKEND_COFF_X64: emitted_exe = z_emit_coff_x64_exe_from_ir(&ir, &exe, &diag); break;
       case Z_DIRECT_BACKEND_ELF64: emitted_exe = z_emit_elf64_exe_from_ir(&ir, &exe, &diag); break;
       case Z_DIRECT_BACKEND_NONE: emitted_exe = false; break;

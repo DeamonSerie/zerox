@@ -1,0 +1,245 @@
+# std.math.optim
+#
+# Numerical optimization algorithms: 1D bracketing methods,
+# multi-dimensional gradient-based and direct search methods.
+#
+# All functions use f64 precision.
+
+# --- Golden-Section Search (1D) ---
+#
+# Find the minimum of a unimodal function on [a, b] using
+# golden-section search. Does not require derivatives.
+#
+# Parameters:
+#   fn  - Function to minimize
+#   a   - Left bracket
+#   b   - Right bracket
+#   tol - Convergence tolerance
+#
+# Returns the approximate minimizer.
+#
+pub fn goldenSection f64 fn (fn f64) f64 a f64 b f64 tol f64
+  let phi f64 PHI
+  let invPhi f64 / 1.0 phi
+  mut left f64 a
+  mut right f64 b
+  let h f64 - right left
+  if <= h tol
+    ret / (+ left right) 2.0
+  let c f64 + right (* (- 0.0 h) invPhi)
+  let d f64 + left (* h invPhi)
+  let fc f64 fn c
+  let fd f64 fn d
+  while > (abs (- left right)) tol
+    if < fc fd
+      set right d
+      set d c
+      set fd fc
+      set h * h invPhi
+      set c + right (* (- 0.0 h) invPhi)
+      set fc fn c
+    else
+      set left c
+      set c d
+      set fc fd
+      set h * h invPhi
+      set d + left (* h invPhi)
+      set fd fn d
+  ret / (+ left right) 2.0
+
+# --- Brent's Method (1D) ---
+#
+# Find the minimum of a unimodal function using Brent's method,
+# which combines parabolic interpolation with golden-section search
+# for robust convergence.
+#
+pub fn brent f64 fn (fn f64) f64 a f64 b f64 tol f64
+  let invPhi f64 / 1.0 PHI
+  mut x f64 b
+  mut w f64 b
+  mut v f64 b
+  mut fx f64 fn x
+  mut fw f64 fx
+  mut fv f64 fx
+  let d f64 (- b a)
+  mut a2 f64 a
+  mut b2 f64 b
+  if <= d tol
+    ret x
+  mut e f64 d
+  mut m f64 0.0
+  mut tol2 f64 0.0
+  mut u f64 0.0
+  mut fu f64 0.0
+  mut p f64 0.0
+  mut q f64 0.0
+  mut r f64 0.0
+  while true
+    set m / (+ a2 b2) 2.0
+    set tol2 * 2.0 tol
+    if <= (abs (- x m)) (- tol2 (/ (- b2 a2) 2.0))
+      ret x
+    set p 0.0
+    set q 0.0
+    set r 0.0
+    if > (abs e) tol
+      # Parabolic interpolation
+      set r / (- x w) (- fx fw)
+      set q / (- x v) (- fx fv)
+      set p * (- (* (- x v) q) (* (- x w) r)) (/ 2.0 (- q r))
+      set q 1.0
+    if > (abs p) (abs (* 0.5 q e))
+      # Fall back to golden section
+      if < x m
+        set e (- a2 x)
+      else
+        set e (- b2 x)
+      set p / e invPhi
+      set q 1.0
+    set u + x (/ p q)
+    if || (< u (+ a2 tol)) (> u (- b2 tol))
+      if < x m
+        set u (+ a2 tol)
+      else
+        set u (- b2 tol)
+    set fu fn u
+    if <= fu fx
+      if < u x
+        set b2 x
+      else
+        set a2 x
+      set v w
+      set fv fw
+      set w x
+      set fw fx
+      set x u
+      set fx fu
+    else
+      if < u x
+        set a2 u
+      else
+        set b2 u
+      if || (<= fu fw) (== w x)
+        set v w
+        set fv fw
+        set w u
+        set fw fu
+      else
+        if || (<= fu fv) (|| (== v x) (== v w))
+          set v u
+          set fv fu
+    set e (- e)
+    # Check bracket convergence
+    if <= (- b2 a2) (* 2.0 tol)
+      ret x
+
+# --- Gradient Descent ---
+#
+# Minimize a function using gradient descent.
+# f(x) is the objective, df(x) is its derivative/gradient.
+#
+# Parameters:
+#   fn      - Objective function f(x)
+#   dfn     - Gradient function f'(x)
+#   guess   - Initial guess
+#   alpha   - Learning rate (step size)
+#   tol     - Convergence tolerance on |dx|
+#   maxIter - Maximum iterations
+#
+# Returns the approximate minimizer.
+#
+pub fn gradientDescent f64 fn (fn f64) f64 dfn (fn f64) f64 guess f64 alpha f64 tol f64 maxIter u32
+  mut x f64 guess
+  mut iter u32 0
+  while < iter maxIter
+    let grad f64 dfn x
+    let dx f64 * (- 0.0 alpha) grad
+    set x + x dx
+    if < (abs dx) tol
+      ret x
+    set iter + iter 1
+  ret x
+
+# --- Nelder-Mead Simplex (direct search) ---
+#
+# Minimize a function using the Nelder-Mead simplex algorithm.
+# Works for multi-dimensional optimization without derivatives.
+#
+# This 1D implementation uses a simplex of 2 points.
+# For n-dimensional problems, use (n+1) simplex vertices.
+#
+# Parameters:
+#   fn      - Function to minimize
+#   x0      - Initial point
+#   x1      - Second simplex vertex
+#   tol     - Convergence tolerance on simplex size
+#   maxIter - Maximum iterations
+#
+# Returns the approximate minimizer.
+#
+pub fn nelderMead1D f64 fn (fn f64) f64 x0 f64 x1 f64 tol f64 maxIter u32
+  mut a f64 x0
+  mut b f64 x1
+  mut fa f64 fn a
+  mut fb f64 fn b
+  mut iter u32 0
+  while < iter maxIter
+    # Ensure a is the better point
+    if > fa fb
+      let tmp f64 a
+      set a b
+      set b tmp
+      let tmpF f64 fa
+      set fa fb
+      set fb tmpF
+    # Reflection
+    let mid f64 / (+ a b) 2.0
+    let reflected f64 + mid (- mid b)
+    let fr f64 fn reflected
+    if < fr fa
+      # Expansion
+      let expanded f64 + mid (* 2.0 (- mid b))
+      let fe f64 fn expanded
+      if < fe fr
+        set b expanded
+        set fb fe
+      else
+        set b reflected
+        set fb fr
+    else
+      if < fr fb
+        set b reflected
+        set fb fr
+      else
+        # Contraction
+        let contracted f64 / (+ a b) 2.0
+        let fc f64 fn contracted
+        if < fc fb
+          set b contracted
+          set fb fc
+        else
+          # Shrink
+          set b / (+ a b) 2.0
+          set fb fn b
+    # Check convergence
+    if < (abs (- a b)) tol
+      ret a
+    set iter + iter 1
+  ret a
+
+# Test optimization functions
+test "goldenSection works"
+  let f (fn f64) f64 let x f64 args[0]; ret (* (- x 2.0) (- x 2.0))
+  let min goldenSection f 0.0 5.0 1.0e-6
+  expect (approxEq min 2.0 1.0e-4)
+
+test "gradientDescent works"
+  let f (fn f64) f64 let x f64 args[0]; ret (* (- x 3.0) (- x 3.0))
+  let df (fn f64) f64 let x f64 args[0]; ret (* 2.0 (- x 3.0))
+  let min gradientDescent f df 0.0 0.1 1.0e-6 100_u32
+  expect (approxEq min 3.0 1.0e-4)
+
+test "nelderMead1D works"
+  let f (fn f64) f64 let x f64 args[0]; ret (+ (* x x) (* 2.0 x) 1.0)
+  let min nelderMead1D f (- 0.0 5.0) 5.0 1.0e-6 100_u32
+  expect (approxEq min (- 0.0 1.0) 1.0e-4)

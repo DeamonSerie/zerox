@@ -157,14 +157,28 @@ const ZStdHelperInfo z_std_helpers[] = {
   /* std.crypto.aes block cipher */
   {"std.crypto.aes.encrypt", "u32", 6, "codec", "target-neutral", "writes caller buffer", true},
   {"std.crypto.aes.decrypt", "u32", 6, "codec", "target-neutral", "writes caller buffer", true},
-
-  /* std.crypto.chacha stream ciphers */
-  {"std.crypto.chacha.chacha20", "u32", 6, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.aes.encryptGcm", "u32", 6, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.aes.decryptGcm", "u32", 6, "codec", "target-neutral", "writes caller buffer", true},
 
   /* std.crypto.hash */
   {"std.crypto.hash.sha256", "u32", 3, "codec", "target-neutral", "writes caller buffer", true},
   {"std.crypto.hash.hmacSha256", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
   {"std.crypto.hash.sha512", "u32", 3, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.hash.sha384", "u32", 3, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.hash.sha3_256", "u32", 3, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.hash.sha3_512", "u32", 3, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.hash.blake2b", "u32", 3, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.hash.blake2s", "u32", 3, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.hash.hmacSha384", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.hash.sha3_384", "u32", 3, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.hash.shake128", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.hash.shake256", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.hash.hmacSha512", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.hash.hash", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.hash.verify", "Bool", 4, "codec", "target-neutral", "no allocation", true},
+
+  /* std.crypto.chacha stream ciphers */
+  {"std.crypto.chacha.chacha20", "u32", 6, "codec", "target-neutral", "writes caller buffer", true},
 
   /* std.crypto.chacha stream ciphers (additional) */
   {"std.crypto.chacha.salsa20", "u32", 6, "codec", "target-neutral", "writes caller buffer", true},
@@ -174,6 +188,12 @@ const ZStdHelperInfo z_std_helpers[] = {
   /* std.crypto.key */
   {"std.crypto.key.randomBytes", "u32", 3, "rand", "host", "writes caller buffer", true},
   {"std.crypto.key.derive", "u32", 6, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.key.exchange", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.key.obfuscate", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.key.deobfuscate", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.key.split", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.key.reconstruct", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.key.generate", "u32", 3, "codec", "target-neutral", "writes caller buffer", true},
 
   /* std.crypto.des block cipher */
   {"std.crypto.des.encrypt", "u32", 5, "codec", "target-neutral", "writes caller buffer", true},
@@ -211,6 +231,9 @@ const ZStdHelperInfo z_std_helpers[] = {
   {"std.crypto.ecc.ecdh", "u32", 5, "codec", "target-neutral", "writes caller buffer", true},
   {"std.crypto.ecc.ed25519Sign", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
   {"std.crypto.ecc.ed25519Verify", "Bool", 4, "codec", "target-neutral", "no allocation", true},
+  {"std.crypto.ecc.ed25519GenerateKeyPair", "u32", 3, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.ecc.x25519Ecdh", "u32", 4, "codec", "target-neutral", "writes caller buffer", true},
+  {"std.crypto.ecc.x25519GenerateKeyPair", "u32", 3, "codec", "target-neutral", "writes caller buffer", true},
 
   {NULL, NULL, 0, NULL, NULL, NULL, false},
 };

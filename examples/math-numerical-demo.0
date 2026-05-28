@@ -1,0 +1,67 @@
+# std.math.numerical example
+#
+# Demonstrates root finding, interpolation, least-squares
+# fitting, and special functions.
+#
+# Build:  bin/zerox check examples/math-numerical-demo.0
+# Test:   bin/zerox test examples/math-numerical-demo.0
+
+# f(x) = x^2 - 4, root at x = 2
+let f (fn f64) f64 let x f64 args[0]; ret - (* x x) 4.0
+
+test "bisection finds root"
+  let root std.math.numerical.bisect f 0.0 5.0 1e-6
+  expect (std.math.approxEq root 2.0 1e-4)
+
+test "secant finds root"
+  let root std.math.numerical.secant f 1.0 3.0 1e-6 50_u32
+  expect (std.math.approxEq root 2.0 1e-4)
+
+# f(x) = x^3 - 8, f'(x) = 3x^2
+let df (fn f64) f64 let x f64 args[0]; ret * 3.0 (* x x)
+
+test "newton finds cube root"
+  let root std.math.numerical.newton f df 3.0 1e-6 50_u32
+  expect (std.math.approxEq root 2.0 1e-4)
+
+# Linear interpolation
+test "linear interpolation works"
+  let xData [4]f64 [0.0, 1.0, 2.0, 3.0]
+  let yData [4]f64 [0.0, 1.0, 4.0, 9.0]
+  let v std.math.numerical.interpolateLinear xData yData 4_u32 1.5
+  expect (std.math.approxEq v 2.5 1e-6)
+  let v2 std.math.numerical.interpolateLinear xData yData 4_u32 0.0
+  expect (std.math.approxEq v2 0.0 1e-6)
+
+# Lagrange interpolation
+test "lagrange interpolation works"
+  let xData [3]f64 [0.0, 1.0, 2.0]
+  let yData [3]f64 [0.0, 1.0, 4.0]
+  let v std.math.numerical.interpolateLagrange xData yData 3_u32 0.5
+  expect (std.math.approxEq v 0.25 1e-4)
+
+# Linear regression
+test "linear regression finds perfect fit"
+  let xData [5]f64 [1.0, 2.0, 3.0, 4.0, 5.0]
+  let yData [5]f64 [3.0, 5.0, 7.0, 9.0, 11.0]
+  let fit std.math.numerical.linearRegression xData yData 5_u32
+  expect (std.math.approxEq fit.b 2.0 1e-2)
+  expect (std.math.approxEq fit.a 1.0 1e-2)
+  expect (std.math.approxEq fit.r2 1.0 1e-4)
+
+# Special functions
+test "sinc works"
+  expect (std.math.approxEq (std.math.numerical.sinc 0.0) 1.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq (std.math.numerical.sinc 1.0) 0.0 1e-6)
+
+test "erf works"
+  expect (std.math.approxEq (std.math.numerical.erf 0.0) 0.0 std.math.DEFAULT_TOLERANCE)
+
+test "trapz works for discrete data"
+  # y = [0, 1, 2, 3, 4], h = 1 -> should be ~8
+  let y [5]f64 [0.0, 1.0, 2.0, 3.0, 4.0]
+  let result std.math.numerical.trapz y 5_u32 1.0
+  expect (std.math.approxEq result 8.0 1e-6)
+
+pub fn main Void world World !
+  check world.out.write "math numerical demo: run 'bin/zerox test examples/math-numerical-demo.0'\n"

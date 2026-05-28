@@ -63,10 +63,12 @@ uint32_t zerox_crypto_hmac_sha256(const unsigned char *key, size_t key_len,
 uint32_t zerox_crypto_aes_encrypt(const unsigned char *key, size_t key_len,
                                  const unsigned char *iv, size_t iv_len,
                                  const unsigned char *data, size_t data_len,
+                                 uint32_t mode,
                                  unsigned char *out, size_t out_cap);
 uint32_t zerox_crypto_aes_decrypt(const unsigned char *key, size_t key_len,
                                  const unsigned char *iv, size_t iv_len,
                                  const unsigned char *data, size_t data_len,
+                                 uint32_t mode,
                                  unsigned char *out, size_t out_cap);
 uint32_t zerox_crypto_chacha20(const unsigned char *key, size_t key_len,
                               const unsigned char *nonce, size_t nonce_len,
@@ -85,6 +87,17 @@ uint32_t zerox_crypto_salsa20(const unsigned char *key, size_t key_len,
                              const unsigned char *data, size_t data_len,
                              uint32_t counter,
                              unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_aes_gcm_encrypt(const unsigned char *key, size_t key_len,
+                                      const unsigned char *iv, size_t iv_len,
+                                      const unsigned char *data, size_t data_len,
+                                      const unsigned char *aad, size_t aad_len,
+                                      unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_aes_gcm_decrypt(const unsigned char *key, size_t key_len,
+                                      const unsigned char *iv, size_t iv_len,
+                                      const unsigned char *data, size_t data_len,
+                                      const unsigned char *aad, size_t aad_len,
+                                      unsigned char *out, size_t out_cap);
+
 uint32_t zerox_crypto_chacha20_poly1305_encrypt(
     const unsigned char *key, size_t key_len,
     const unsigned char *nonce, size_t nonce_len,
@@ -207,5 +220,8 @@ uint32_t zerox_crypto_ecc_ed25519_sign(const unsigned char *priv_key, size_t pri
 int zerox_crypto_ecc_ed25519_verify(const unsigned char *pub_key, size_t pub_key_len,
                                    const unsigned char *data, size_t data_len,
                                    const unsigned char *sig, size_t sig_len);
+uint32_t zerox_crypto_ecc_x25519_generate_keypair(
+    unsigned char *pub_out, size_t pub_cap,
+    unsigned char *priv_out, size_t priv_cap);
 
 #endif

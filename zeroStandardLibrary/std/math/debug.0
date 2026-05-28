@@ -1,0 +1,202 @@
+# std.math.debug
+#
+# Debugging utilities for mathematical computations.
+# Enables users to trace and inspect intermediate values
+# during mathematical operations without modifying or
+# simplifying the computation logic.
+#
+# The debug module provides a mechanism to log intermediate
+# computation steps, inspect values at key points, and
+# trace the flow of complex mathematical expressions.
+
+# --- Trace Entry ---
+#
+# Represents a single traced computation step.
+#
+pub type TraceEntry
+  label f64   # Step number / iteration
+  input f64   # Input value at this step
+  output f64  # Output/result value
+  residual f64 # Error or residual (if applicable)
+
+# --- Trace Log ---
+#
+# A log of trace entries for recording computation history.
+# Uses flat arrays indexed by current position.
+#
+pub type TraceLog
+  entries TraceEntry
+  capacity usize
+
+# --- Math Context ---
+#
+# Context for debugging mathematical operations.
+# Stores step-by-step computation history.
+#
+pub type MathContext
+  traceLog TraceLog
+  step u32
+
+# --- Create a new debug context ---
+#
+# Parameters:
+#   capacity - Maximum number of trace entries to store
+#
+pub fn new MathContext capacity usize
+  ret MathContext . traceLog (TraceLog . entries (TraceEntry . label 0.0 input 0.0 output 0.0 residual 0.0) capacity capacity) step 0_u32
+
+# --- Record a computation step ---
+#
+# Records an intermediate calculation result in the trace.
+# Returns the output value unchanged for transparent passthrough.
+#
+# Usage:
+#   let x ctx.trace "step name" input result
+#
+pub fn trace Record f64 ctx mutref<MathContext> label f64 input f64 output f64
+  if < (as usize ctx.step) ctx.traceLog.capacity
+    set ctx.traceLog.entries.label (as usize ctx.step) label
+    set ctx.traceLog.entries.input (as usize ctx.step) input
+    set ctx.traceLog.entries.output (as usize ctx.step) output
+    set ctx.traceLog.entries.residual (as usize ctx.step) (abs (- output input))
+    set ctx.step + ctx.step 1
+  ret output
+
+# --- Record with explicit residual ---
+#
+pub fn traceExplicit f64 ctx mutref<MathContext> label f64 input f64 output f64 residual f64
+  if < (as usize ctx.step) ctx.traceLog.capacity
+    set ctx.traceLog.entries.label (as usize ctx.step) label
+    set ctx.traceLog.entries.input (as usize ctx.step) input
+    set ctx.traceLog.entries.output (as usize ctx.step) output
+    set ctx.traceLog.entries.residual (as usize ctx.step) residual
+    set ctx.step + ctx.step 1
+  ret output
+
+# --- Print trace to stdout ---
+#
+# Prints all recorded trace entries in a readable format.
+#
+pub fn printTrace Void ctx ref<MathContext> world World !
+  mut i u32 0
+  while < i ctx.step
+    check world.out.write "Step "
+    check world.out.write (std.parse.parseU32 i)
+    check world.out.write ": label="
+    check world.out.write (std.parse.parseU32 (as u32 ctx.traceLog.entries.label[(as usize i)]))
+    check world.out.write " input="
+    check world.out.write (std.parse.parseU32 (as u32 ctx.traceLog.entries.input[(as usize i)]))
+    check world.out.write " output="
+    check world.out.write (std.parse.parseU32 (as u32 ctx.traceLog.entries.output[(as usize i)]))
+    check world.out.write " residual="
+    check world.out.write (std.parse.parseU32 (as u32 ctx.traceLog.entries.residual[(as usize i)]))
+    check world.out.write "\n"
+    set i + i 1
+
+# --- Check for Convergence ---
+#
+# Check if the most recent step has converged within tolerance.
+# Returns true if the residual of the latest entry is within tolerance.
+#
+pub fn hasConverged Bool ctx ref<MathContext> tolerance f64
+  if == ctx.step 0_u32
+    ret false
+  let lastIdx usize (as usize (- ctx.step 1_u32))
+  ret <= ctx.traceLog.entries.residual[lastIdx] tolerance
+
+# --- Get step count ---
+#
+pub fn stepCount u32 ctx ref<MathContext>
+  ret ctx.step
+
+# --- Reset the context ---
+#
+pub fn reset Void ctx mutref<MathContext>
+  set ctx.step 0_u32
+
+# --- Debug Evaluation of a Function ---
+#
+# Evaluates fn(x) and traces the result with a label.
+# This is useful for inserting debug checkpoints into
+# larger computations without changing control flow.
+#
+pub fn debugEval f64 ctx mutref<MathContext> label f64 x f64 fn (fn f64) f64
+  let result f64 fn x
+  ret trace ctx label x result
+
+# --- Iteration Monitor ---
+#
+# Monitors convergence of an iterative computation.
+# Wraps each iteration step and records the progress.
+#
+# fn should take the current value and return the next value.
+#
+pub fn iterate Monitor f64 ctx mutref<MathContext> initial f64 maxIter u32 tolerance f64 stepFn (fn f64) f64
+  mut current f64 initial
+  mut iter u32 0
+  while < iter maxIter
+    let next f64 stepFn current
+    let residual f64 abs (- next current)
+    set current traceExplicit ctx (as f64 iter) current next residual
+    if < residual tolerance
+      ret current
+    set iter + iter 1
+  ret current
+
+# --- Trace Newton Iteration ---
+#
+# Wrap Newton's method with full iteration tracing.
+#
+pub fn traceNewton f64 ctx mutref<MathContext> guess f64 tolerance f64 maxIter u32
+  fn (fn f64) f64
+  fn (fn f64) f64
+  mut x f64 guess
+  mut iter u32 0
+  while < iter maxIter
+    let fx f64 args[0] x
+    let dfx f64 args[1] x
+    if isZero dfx
+      ret x
+    let dx f64 / fx dfx
+    let next f64 - x dx
+    set x trace ctx (as f64 iter) x next
+    if < (abs (- next x)) tolerance
+      ret x
+    set iter + iter 1
+  ret x
+
+# Test debug functions
+test "trace records values"
+  mut ctx MathContext new 10_usize
+  let r1 f64 trace (&mut ctx) 1.0 2.0 4.0
+  expect (== r1 4.0)
+  expect (== (stepCount (& ctx)) 1_u32)
+
+test "trace passthrough maintains values"
+  mut ctx MathContext new 10_usize
+  let x f64 trace (&mut ctx) 0.0 5.0 10.0
+  expect (== x 10.0)
+
+test "hasConverged works"
+  mut ctx MathContext new 10_usize
+  let _ f64 traceExplicit (&mut ctx) 1.0 0.0 1.0 0.5
+  expect (! hasConverged (& ctx) 0.1)
+  let _ f64 traceExplicit (&mut ctx) 2.0 1.0 1.05 0.05
+  expect (hasConverged (& ctx) 0.1)
+
+test "reset clears context"
+  mut ctx MathContext new 10_usize
+  let _ f64 trace (&mut ctx) 1.0 1.0 2.0
+  expect (== (stepCount (& ctx)) 1_u32)
+  reset (&mut ctx)
+  expect (== (stepCount (& ctx)) 0_u32)
+
+test "iterate with monitor traces convergence"
+  mut ctx MathContext new 20_usize
+  # Simple converging sequence: x_{n+1} = x_n / 2 + 1/x_n
+  let fn (fn f64) f64 let x f64 args[0]; ret / (+ x (/ 2.0 x)) 2.0
+  let result iterate (&mut ctx) 1.5 20_u32 1.0e-6 fn
+  expect (approxEq result 1.41421356 1.0e-4)
+  # Should converge in a few steps
+  let steps stepCount (& ctx)
+  expect (< steps 20_u32)

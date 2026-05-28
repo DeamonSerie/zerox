@@ -1,0 +1,91 @@
+# std.math.algebra example
+#
+# Demonstrates polynomial evaluation, root finding,
+# trigonometric operations, and algebraic utilities.
+#
+# Build:  bin/zerox check examples/math-algebra-demo.0
+# Test:   bin/zerox test examples/math-algebra-demo.0
+# Run:    bin/zerox run examples/math-algebra-demo.0
+
+# Polynomial evaluation: f(x) = x^2 - 3x + 2
+test "polynomial evaluation works"
+  let coeffs [3]f64 [1.0, (- 0.0 3.0), 2.0]
+  let result std.math.algebra.polyEval coeffs 2_u32 0.0
+  expect (std.math.approxEq result 2.0 std.math.DEFAULT_TOLERANCE)
+  let result2 std.math.algebra.polyEval coeffs 2_u32 1.0
+  expect (std.math.approxEq result2 0.0 std.math.DEFAULT_TOLERANCE)
+  let result3 std.math.algebra.polyEval coeffs 2_u32 2.0
+  expect (std.math.approxEq result3 0.0 std.math.DEFAULT_TOLERANCE)
+
+# Quadratic equation: x^2 - 5x + 6 = 0 -> x = 2, x = 3
+test "quadratic solver works"
+  mut roots [2]f64 [0.0, 0.0]
+  let count std.math.algebra.solveQuadratic 1.0 (- 0.0 5.0) 6.0 roots
+  expect (== count 2_u32)
+  expect (std.math.approxEq roots[0] 2.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq roots[1] 3.0 std.math.DEFAULT_TOLERANCE)
+
+# Trigonometry basics
+test "trig functions work"
+  expect (std.math.approxEq (std.math.algebra.sin 0.0) 0.0 1e-6)
+  expect (std.math.approxEq (std.math.algebra.sin std.math.PI_2) 1.0 1e-6)
+  expect (std.math.approxEq (std.math.algebra.cos 0.0) 1.0 1e-6)
+  expect (std.math.approxEq (std.math.algebra.cos std.math.PI) (- 0.0 1.0) 1e-6)
+  expect (std.math.approxEq (std.math.algebra.tan std.math.PI_4) 1.0 1e-4)
+
+# Inverse trig
+test "inverse trig works"
+  expect (std.math.approxEq (std.math.algebra.asin 1.0) std.math.PI_2 1e-4)
+  expect (std.math.approxEq (std.math.algebra.acos 1.0) 0.0 1e-4)
+  expect (std.math.approxEq (std.math.algebra.atan 1.0) std.math.PI_4 1e-4)
+  let angle std.math.algebra.atan2 1.0 0.0
+  expect (std.math.approxEq angle std.math.PI_2 1e-4)
+
+# Exponential and natural log
+test "exp and ln work"
+  expect (std.math.approxEq (std.math.algebra.exp 0.0) 1.0 1e-6)
+  expect (std.math.approxEq (std.math.algebra.exp 1.0) std.math.E 1e-4)
+  expect (std.math.approxEq (std.math.algebra.ln 1.0) 0.0 1e-6)
+  expect (std.math.approxEq (std.math.algebra.ln std.math.E) 1.0 1e-4)
+
+# log10 and log2
+test "log functions work"
+  expect (std.math.approxEq (std.math.algebra.log10 100.0) 2.0 1e-4)
+  expect (std.math.approxEq (std.math.algebra.log2 8.0) 3.0 1e-4)
+
+# Integer power
+test "powi works"
+  expect (std.math.approxEq (std.math.powi 2.0 10) 1024.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq (std.math.powi 3.0 3) 27.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq (std.math.powi 2.0 (- 0 2)) 0.25 std.math.DEFAULT_TOLERANCE)
+
+# GCD and LCM
+test "gcd and lcm work"
+  expect (== (std.math.algebra.gcd 12_i64 18_i64) 6_i64)
+  expect (== (std.math.algebra.lcm 12_i64 18_i64) 36_i64)
+
+# Binomial coefficient
+test "binomial works"
+  expect (std.math.approxEq (std.math.algebra.binomial 5_i64 2_i64) 10.0 1e-6)
+  expect (std.math.approxEq (std.math.algebra.binomial 10_i64 5_i64) 252.0 1e-6)
+
+# Square root and cube root
+test "sqrt and cbrt work"
+  expect (std.math.approxEq (std.math.algebra.sqrt 4.0) 2.0 1e-6)
+  expect (std.math.approxEq (std.math.algebra.cbrt 27.0) 3.0 1e-6)
+  expect (std.math.approxEq (std.math.algebra.cbrt (- 0.0 8.0)) (- 0.0 2.0) 1e-4)
+
+# Arithmetic-geometric mean
+test "agm works"
+  let agmVal std.math.algebra.agm 1.0 2.0
+  expect (std.math.approxEq agmVal 1.4567910310469068 1e-6)
+
+# Polynomial with derivative
+test "polynomial derivative works"
+  let coeffs [3]f64 [1.0, (- 0.0 2.0), 1.0]
+  let pv std.math.algebra.polyEvalWithDerivative coeffs 2_u32 3.0
+  expect (std.math.approxEq pv.f 4.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq pv.df 4.0 std.math.DEFAULT_TOLERANCE)
+
+pub fn main Void world World !
+  check world.out.write "math algebra demo: run 'bin/zerox test examples/math-algebra-demo.0'\n"

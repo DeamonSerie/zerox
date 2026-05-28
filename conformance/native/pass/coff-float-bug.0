@@ -1,0 +1,5 @@
+pub fn main Void world World !
+  let x f32 2.0
+  check world.out.write "x set\n"
+  let y f32 + x 3.0
+  check world.out.write "y computed\n"

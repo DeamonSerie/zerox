@@ -113,4 +113,26 @@ void z_x64_emit_syscall(ZBuf *buf);
 void z_x64_emit_sub_rsp(ZBuf *buf, unsigned amount);
 void z_x64_emit_add_rsp(ZBuf *buf, unsigned amount);
 
+/* SSE/SSE2 floating-point XMM instruction emitters */
+void z_x64_emit_movss_xmm_reg(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm);
+void z_x64_emit_movsd_xmm_reg(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm);
+void z_x64_emit_movd_xmm_from_gpr(ZBuf *buf, unsigned xmm_reg, unsigned gpr_reg);
+void z_x64_emit_movq_xmm_from_gpr(ZBuf *buf, unsigned xmm_reg, unsigned gpr_reg);
+void z_x64_emit_movd_gpr_from_xmm(ZBuf *buf, unsigned gpr_reg, unsigned xmm_reg);
+void z_x64_emit_movq_gpr_from_xmm(ZBuf *buf, unsigned gpr_reg, unsigned xmm_reg);
+void z_x64_emit_addss_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm);
+void z_x64_emit_addsd_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm);
+void z_x64_emit_subss_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm);
+void z_x64_emit_subsd_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm);
+void z_x64_emit_mulss_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm);
+void z_x64_emit_mulsd_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm);
+void z_x64_emit_divss_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm);
+void z_x64_emit_divsd_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm);
+void z_x64_emit_ucomiss_xmm_xmm(ZBuf *buf, unsigned xmm_left, unsigned xmm_right);
+void z_x64_emit_ucomisd_xmm_xmm(ZBuf *buf, unsigned xmm_left, unsigned xmm_right);
+void z_x64_emit_movss_xmm_ptr_rbp_disp(ZBuf *buf, unsigned xmm_reg, unsigned offset);
+void z_x64_emit_movsd_xmm_ptr_rbp_disp(ZBuf *buf, unsigned xmm_reg, unsigned offset);
+void z_x64_emit_movss_ptr_rbp_disp_xmm(ZBuf *buf, unsigned xmm_reg, unsigned offset);
+void z_x64_emit_movsd_ptr_rbp_disp_xmm(ZBuf *buf, unsigned xmm_reg, unsigned offset);
+
 #endif

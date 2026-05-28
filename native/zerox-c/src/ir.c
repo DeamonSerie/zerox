@@ -153,6 +153,8 @@ static IrTypeKind ir_type_kind(const char *type) {
   if (strcmp(type, "u32") == 0) return IR_TYPE_U32;
   if (strcmp(type, "i64") == 0) return IR_TYPE_I64;
   if (strcmp(type, "u64") == 0) return IR_TYPE_U64;
+  if (strcmp(type, "f32") == 0) return IR_TYPE_F32;
+  if (strcmp(type, "f64") == 0) return IR_TYPE_F64;
   if (strcmp(type, "Duration") == 0) return IR_TYPE_I64;
   if (strcmp(type, "RandSource") == 0) return IR_TYPE_U32;
   if (strcmp(type, "ProcStatus") == 0) return IR_TYPE_I32;
@@ -200,7 +202,8 @@ static int ir_std_http_error_code(const char *name) {
 }
 
 static bool ir_type_is_value(IrTypeKind type) {
-  return type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_USIZE || type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_I64 || type == IR_TYPE_U64;
+  return type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_USIZE || type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_I64 || type == IR_TYPE_U64 ||
+         type == IR_TYPE_F32 || type == IR_TYPE_F64;
 }
 
 static bool ir_type_is_direct_local(IrTypeKind type) {
@@ -210,6 +213,10 @@ static bool ir_type_is_direct_local(IrTypeKind type) {
 
 static bool ir_type_is_direct_abi(IrTypeKind type) {
   return type == IR_TYPE_BOOL || ir_type_is_value(type);
+}
+
+static bool ir_type_is_float(IrTypeKind type) {
+  return type == IR_TYPE_F32 || type == IR_TYPE_F64;
 }
 
 static bool ir_type_is_direct_fallible_value(IrTypeKind type) {
@@ -386,9 +393,11 @@ static unsigned ir_type_byte_size(IrTypeKind type) {
     case IR_TYPE_U16: return 2;
     case IR_TYPE_I32:
     case IR_TYPE_USIZE:
-    case IR_TYPE_U32: return 4;
+    case IR_TYPE_U32:
+    case IR_TYPE_F32: return 4;
     case IR_TYPE_I64:
-    case IR_TYPE_U64: return 8;
+    case IR_TYPE_U64:
+    case IR_TYPE_F64: return 8;
     default: return 0;
   }
 }
@@ -599,6 +608,62 @@ static bool ir_parse_integer_literal(const char *text, unsigned long long *out) 
   if (!saw_digit) return false;
   if (out) *out = value;
   return true;
+}
+
+/* Parse a float literal and store its bits in unsigned long long via type punning */
+static bool ir_parse_float_literal(const char *text, IrTypeKind type, unsigned long long *out) {
+  if (!text || !text[0]) return false;
+  
+  /* Make a copy without underscores and type suffix */
+  size_t text_len = strlen(text);
+  char *cleaned = z_checked_calloc(1, text_len + 1);
+  size_t j = 0;
+  bool has_dot = false;
+  bool has_exp = false;
+  
+  for (size_t i = 0; i < text_len; i++) {
+    char ch = text[i];
+    if (ch == '_') continue;
+    if (ch == '.') has_dot = true;
+    if (ch == 'e' || ch == 'E') has_exp = true;
+    /* Stop at type suffix like _f32 or _f64 */
+    if (ch == '_' && i + 1 < text_len && (text[i + 1] == 'f' || text[i + 1] == 'F')) break;
+    cleaned[j++] = ch;
+  }
+  cleaned[j] = '\0';
+  
+  /* If no dot and no exponent, it might still be a float literal (e.g., 1e-6) */
+  /* Use strtod for f64 and strtof for f32 */
+  if (type == IR_TYPE_F64) {
+    double dval = strtod(cleaned, NULL);
+    /* Type pun double bits to unsigned long long */
+    union { double d; unsigned long long u; } pun;
+    pun.d = dval;
+    if (out) *out = pun.u;
+    free(cleaned);
+    return true;
+  } else if (type == IR_TYPE_F32) {
+    float fval = strtof(cleaned, NULL);
+    /* Type pun float bits to unsigned long long */
+    union { float f; uint32_t u; } pun;
+    pun.f = fval;
+    if (out) *out = (unsigned long long)pun.u;
+    free(cleaned);
+    return true;
+  }
+  
+  free(cleaned);
+  return false;
+}
+
+/* Check if a number literal looks like a float (has . or e/E) */
+static bool ir_looks_like_float_literal(const char *text) {
+  if (!text || !text[0]) return false;
+  for (size_t i = 0; text[i]; i++) {
+    if (text[i] == '.') return true;
+    if ((text[i] == 'e' || text[i] == 'E') && i > 0) return true;
+  }
+  return false;
 }
 
 static bool ir_string_literal_bytes(const Expr *expr, const unsigned char **out_bytes, size_t *out_len) {
@@ -1184,6 +1249,21 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         ir_mark_unsupported(ir, "direct backend numeric expression type is unsupported", expr->line, expr->column, expr->resolved_type);
         return false;
       }
+      
+      /* Handle float types */
+      if (ir_type_is_float(type)) {
+        unsigned long long parsed = 0;
+        if (!ir_parse_float_literal(expr->text, type, &parsed)) {
+          ir_mark_unsupported(ir, "direct backend float literal is malformed", expr->line, expr->column, expr->text);
+          return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_INT, type, expr->line, expr->column);
+        value->int_value = parsed;
+        *out = value;
+        return true;
+      }
+      
+      /* Handle integer types */
       unsigned long long parsed = 0;
       if (!ir_parse_integer_literal(expr->text, &parsed)) {
         ir_mark_unsupported(ir, "direct backend integer literal is malformed", expr->line, expr->column, expr->text);
@@ -1692,6 +1772,184 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         *out = value;
         return true;
       }
+      /* std.crypto.hash.sha384: (data: Span<u8>, out: MutSpan<u8>, world: World) -> u32 */
+      if (strcmp(callee_name, "std.crypto.hash.sha384") == 0 && expr->args.len == 3) {
+        IrValue *view = NULL;
+        IrValue *out_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &view)) {
+          ir_free_value(view); free(callee_name); return false;
+        }
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[1], &out_view)) {
+          ir_free_value(view); ir_free_value(out_view); free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_SHA384;
+        ir_value_push_arg(ir, value, view);
+        ir_value_push_arg(ir, value, out_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.hash.sha3_256: (data: Span<u8>, out: MutSpan<u8>, world: World) -> u32 */
+      if (strcmp(callee_name, "std.crypto.hash.sha3_256") == 0 && expr->args.len == 3) {
+        IrValue *view = NULL;
+        IrValue *out_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &view)) {
+          ir_free_value(view); free(callee_name); return false;
+        }
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[1], &out_view)) {
+          ir_free_value(view); ir_free_value(out_view); free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_SHA3_256;
+        ir_value_push_arg(ir, value, view);
+        ir_value_push_arg(ir, value, out_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.hash.sha3_512: (data: Span<u8>, out: MutSpan<u8>, world: World) -> u32 */
+      if (strcmp(callee_name, "std.crypto.hash.sha3_512") == 0 && expr->args.len == 3) {
+        IrValue *view = NULL;
+        IrValue *out_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &view)) {
+          ir_free_value(view); free(callee_name); return false;
+        }
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[1], &out_view)) {
+          ir_free_value(view); ir_free_value(out_view); free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_SHA3_512;
+        ir_value_push_arg(ir, value, view);
+        ir_value_push_arg(ir, value, out_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.hash.blake2b: (data: Span<u8>, out: MutSpan<u8>, world: World) -> u32 */
+      if (strcmp(callee_name, "std.crypto.hash.blake2b") == 0 && expr->args.len == 3) {
+        IrValue *view = NULL;
+        IrValue *out_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &view)) {
+          ir_free_value(view); free(callee_name); return false;
+        }
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[1], &out_view)) {
+          ir_free_value(view); ir_free_value(out_view); free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_BLAKE2B;
+        ir_value_push_arg(ir, value, view);
+        ir_value_push_arg(ir, value, out_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.hash.sha3_384: (data: Span<u8>, out: MutSpan<u8>, world: World) -> u32 */
+      if (strcmp(callee_name, "std.crypto.hash.sha3_384") == 0 && expr->args.len == 3) {
+        IrValue *view = NULL;
+        IrValue *out_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &view)) {
+          ir_free_value(view); free(callee_name); return false;
+        }
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[1], &out_view)) {
+          ir_free_value(view); ir_free_value(out_view); free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_SHA3_384;
+        ir_value_push_arg(ir, value, view);
+        ir_value_push_arg(ir, value, out_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.hash.shake128: (data: Span<u8>, out_len: u32, out: MutSpan<u8>, world: World) -> u32 */
+      if (strcmp(callee_name, "std.crypto.hash.shake128") == 0 && expr->args.len == 4) {
+        IrValue *view = NULL, *size = NULL, *out_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &view) ||
+            !ir_lower_expr(program, ir, fun, expr->args.items[1], &size) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[2], &out_view)) {
+          ir_free_value(view); ir_free_value(size); ir_free_value(out_view); free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_SHAKE128;
+        ir_value_push_arg(ir, value, view);
+        ir_value_push_arg(ir, value, size);
+        ir_value_push_arg(ir, value, out_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.hash.shake256: (data: Span<u8>, out_len: u32, out: MutSpan<u8>, world: World) -> u32 */
+      if (strcmp(callee_name, "std.crypto.hash.shake256") == 0 && expr->args.len == 4) {
+        IrValue *view = NULL, *size = NULL, *out_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &view) ||
+            !ir_lower_expr(program, ir, fun, expr->args.items[1], &size) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[2], &out_view)) {
+          ir_free_value(view); ir_free_value(size); ir_free_value(out_view); free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_SHAKE256;
+        ir_value_push_arg(ir, value, view);
+        ir_value_push_arg(ir, value, size);
+        ir_value_push_arg(ir, value, out_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.hash.blake2s: (data: Span<u8>, out: MutSpan<u8>, world: World) -> u32 */
+      if (strcmp(callee_name, "std.crypto.hash.blake2s") == 0 && expr->args.len == 3) {
+        IrValue *view = NULL;
+        IrValue *out_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &view)) {
+          ir_free_value(view); free(callee_name); return false;
+        }
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[1], &out_view)) {
+          ir_free_value(view); ir_free_value(out_view); free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_BLAKE2S;
+        ir_value_push_arg(ir, value, view);
+        ir_value_push_arg(ir, value, out_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.hash.hmacSha384: (key, data, out, world) -> u32 */
+      if (strcmp(callee_name, "std.crypto.hash.hmacSha384") == 0 && expr->args.len == 4) {
+        IrValue *key_view = NULL, *data_view = NULL, *out_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &key_view) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[1], &data_view) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[2], &out_view)) {
+          ir_free_value(key_view); ir_free_value(data_view); ir_free_value(out_view);
+          free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_HMAC_SHA384;
+        ir_value_push_arg(ir, value, key_view);
+        ir_value_push_arg(ir, value, data_view);
+        ir_value_push_arg(ir, value, out_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.hash.hmacSha512: (key, data, out, world) -> u32 */
+      if (strcmp(callee_name, "std.crypto.hash.hmacSha512") == 0 && expr->args.len == 4) {
+        IrValue *key_view = NULL, *data_view = NULL, *out_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &key_view) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[1], &data_view) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[2], &out_view)) {
+          ir_free_value(key_view); ir_free_value(data_view); ir_free_value(out_view);
+          free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_HMAC_SHA512;
+        ir_value_push_arg(ir, value, key_view);
+        ir_value_push_arg(ir, value, data_view);
+        ir_value_push_arg(ir, value, out_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
       /* std.crypto.hash.hmacSha256: (key, data, out, world) -> u32 */
       if (strcmp(callee_name, "std.crypto.hash.hmacSha256") == 0 && expr->args.len == 4) {
         IrValue *key_view = NULL, *data_view = NULL, *out_view = NULL;
@@ -1819,6 +2077,30 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         ir_value_push_arg(ir, value, key_view);
         ir_value_push_arg(ir, value, iv_view);
         ir_value_push_arg(ir, value, data_view);
+        ir_value_push_arg(ir, value, mode_val);
+        ir_value_push_arg(ir, value, out_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.aes.encryptGcm / decryptGcm: (key, iv, data, aad, out, world) -> u32 */
+      if ((strcmp(callee_name, "std.crypto.aes.encryptGcm") == 0 || strcmp(callee_name, "std.crypto.aes.decryptGcm") == 0) && expr->args.len == 6) {
+        IrValue *key_view = NULL, *iv_view = NULL, *data_view = NULL, *aad_view = NULL, *out_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &key_view) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[1], &iv_view) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[2], &data_view) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[3], &aad_view) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[4], &out_view)) {
+          ir_free_value(key_view); ir_free_value(iv_view); ir_free_value(data_view);
+          ir_free_value(aad_view); ir_free_value(out_view);
+          free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = strcmp(callee_name, "std.crypto.aes.encryptGcm") == 0 ? CRYPTO_AES_GCM_ENCRYPT : CRYPTO_AES_GCM_DECRYPT;
+        ir_value_push_arg(ir, value, key_view);
+        ir_value_push_arg(ir, value, iv_view);
+        ir_value_push_arg(ir, value, data_view);
+        ir_value_push_arg(ir, value, aad_view);
         ir_value_push_arg(ir, value, out_view);
         free(callee_name);
         *out = value;
@@ -2121,6 +2403,54 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         ir_value_push_arg(ir, value, key_view);
         ir_value_push_arg(ir, value, data_view);
         ir_value_push_arg(ir, value, sig_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.ecc.ed25519GenerateKeyPair: (pubOut, privOut, world) -> u32 */
+      if (strcmp(callee_name, "std.crypto.ecc.ed25519GenerateKeyPair") == 0 && expr->args.len == 3) {
+        IrValue *pub_view = NULL, *priv_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &pub_view) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[1], &priv_view)) {
+          ir_free_value(pub_view); ir_free_value(priv_view); free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_ECC_ED25519_GENERATE_KEYPAIR;
+        ir_value_push_arg(ir, value, pub_view);
+        ir_value_push_arg(ir, value, priv_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.ecc.x25519Ecdh: (privKey, peerPublic, out, world) -> u32 */
+      if (strcmp(callee_name, "std.crypto.ecc.x25519Ecdh") == 0 && expr->args.len == 4) {
+        IrValue *key_view = NULL, *peer_view = NULL, *out_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &key_view) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[1], &peer_view) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[2], &out_view)) {
+          ir_free_value(key_view); ir_free_value(peer_view); ir_free_value(out_view);
+          free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_ECC_X25519_ECDH;
+        ir_value_push_arg(ir, value, key_view);
+        ir_value_push_arg(ir, value, peer_view);
+        ir_value_push_arg(ir, value, out_view);
+        free(callee_name);
+        *out = value;
+        return true;
+      }
+      /* std.crypto.ecc.x25519GenerateKeyPair: (pubOut, privOut, world) -> u32 */
+      if (strcmp(callee_name, "std.crypto.ecc.x25519GenerateKeyPair") == 0 && expr->args.len == 3) {
+        IrValue *pub_view = NULL, *priv_view = NULL;
+        if (!ir_lower_byte_view(program, ir, fun, expr->args.items[0], &pub_view) ||
+            !ir_lower_byte_view(program, ir, fun, expr->args.items[1], &priv_view)) {
+          ir_free_value(pub_view); ir_free_value(priv_view); free(callee_name); return false;
+        }
+        IrValue *value = ir_new_value(ir, IR_VALUE_CRYPTO_HELPER, IR_TYPE_U32, expr->line, expr->column);
+        value->error_code = CRYPTO_ECC_X25519_GENERATE_KEYPAIR;
+        ir_value_push_arg(ir, value, pub_view);
+        ir_value_push_arg(ir, value, priv_view);
         free(callee_name);
         *out = value;
         return true;
@@ -3056,7 +3386,7 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         if (!(left->type == IR_TYPE_BOOL || ir_type_is_value(left->type)) || left->type != right->type) {
           ir_free_value(left);
           ir_free_value(right);
-          ir_mark_unsupported(ir, "direct backend comparison operands must have the same primitive integer type", expr->line, expr->column, expr->text);
+          ir_mark_unsupported(ir, "direct backend comparison operands must have the same primitive type", expr->line, expr->column, expr->text);
           return false;
         }
         IrValue *value = ir_new_value(ir, IR_VALUE_COMPARE, IR_TYPE_BOOL, expr->line, expr->column);
@@ -3082,6 +3412,23 @@ static bool ir_lower_expr(const Program *program, IrProgram *ir, const IrFunctio
         ir_free_value(right);
         return false;
       }
+      
+      /* Convert integer ops to float ops for float types */
+      if (ir_type_is_float(type)) {
+        switch (op) {
+          case IR_BIN_ADD: op = IR_BIN_FADD; break;
+          case IR_BIN_SUB: op = IR_BIN_FSUB; break;
+          case IR_BIN_MUL: op = IR_BIN_FMUL; break;
+          case IR_BIN_DIV: op = IR_BIN_FDIV; break;
+          case IR_BIN_MOD: op = IR_BIN_FMOD; break;
+          default:
+            ir_free_value(left);
+            ir_free_value(right);
+            ir_mark_unsupported(ir, "direct backend float binary operator is unsupported", expr->line, expr->column, expr->text);
+            return false;
+        }
+      }
+      
       IrValue *value = ir_new_value(ir, IR_VALUE_BINARY, type, expr->line, expr->column);
       value->binary_op = op;
       value->left = left;

@@ -1,0 +1,4 @@
+export c fn main usize
+  let text String "abcdef"
+  let suffix Span<u8> text[2..]
+  ret std.mem.len suffix

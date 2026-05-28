@@ -1,0 +1,277 @@
+# std.math.complex
+#
+# Complex number arithmetic and transcendental functions.
+#
+# All functions operate on the Complex type which represents
+# a complex number z = x + i*y where x is the real part and
+# y is the imaginary part.
+
+# --- Complex Number Type ---
+
+# Complex number with f64 real and imaginary parts.
+#
+pub type Complex
+  real f64
+  imag f64
+
+# Create a complex number from real and imaginary parts.
+#
+pub fn cmp Complex real f64 imag f64
+  ret Complex . real real imag imag
+
+# Create a complex number from a real value (imag = 0).
+#
+pub fn cmpReal Complex real f64
+  ret Complex . real real imag 0.0
+
+# Create a purely imaginary number (real = 0).
+#
+pub fn cmpImag Complex imag f64
+  ret Complex . real 0.0 imag imag
+
+# --- Basic Arithmetic ---
+
+# Add two complex numbers: (a + ib) + (c + id) = (a+c) + i(b+d).
+#
+pub fn cadd Complex a Complex b Complex
+  ret Complex . real (+ a.real b.real) imag (+ a.imag b.imag)
+
+# Subtract two complex numbers: (a + ib) - (c + id) = (a-c) + i(b-d).
+#
+pub fn csub Complex a Complex b Complex
+  ret Complex . real (- a.real b.real) imag (- a.imag b.imag)
+
+# Multiply two complex numbers: (a + ib)(c + id) = (ac - bd) + i(ad + bc).
+#
+pub fn cmul Complex a Complex b Complex
+  ret Complex . real (- (* a.real b.real) (* a.imag b.imag)) imag (+ (* a.real b.imag) (* a.imag b.real))
+
+# Divide two complex numbers: (a + ib) / (c + id) = ((ac + bd) + i(bc - ad)) / (c^2 + d^2).
+#
+pub fn cdiv Complex a Complex b Complex
+  let den f64 + (* b.real b.real) (* b.imag b.imag)
+  if isZero den
+    ret Complex . real 0.0 imag 0.0
+  ret Complex . real (/ (+ (* a.real b.real) (* a.imag b.imag)) den) imag (/ (- (* a.imag b.real) (* a.real b.imag)) den)
+
+# --- Unary Operations ---
+
+# Compute complex conjugate: conj(a + ib) = a - ib.
+#
+pub fn conj Complex a Complex
+  ret Complex . real a.real imag (- 0.0 a.imag)
+
+# Compute modulus (absolute value): |z| = sqrt(real^2 + imag^2).
+#
+pub fn cmod f64 a Complex
+  ret hypot a.real a.imag
+
+# Compute argument (phase angle): arg(z) = atan2(imag, real).
+#
+pub fn carg f64 a Complex
+  ret atan2 a.imag a.real
+
+# Negate a complex number.
+#
+pub fn cneg Complex a Complex
+  ret Complex . real (- 0.0 a.real) imag (- 0.0 a.imag)
+
+# --- Polar Conversion ---
+
+# Create a complex number from polar coordinates: z = r * e^(i*theta).
+#
+pub fn fromPolar Complex r f64 theta f64
+  ret Complex . real (* r (cos theta)) imag (* r (sin theta))
+
+# Convert to polar coordinates: returns (r, theta).
+#
+pub type Polar
+  r f64
+  theta f64
+
+pub fn toPolar Polar a Complex
+  ret Polar . r (cmod a) theta (carg a)
+
+# --- Transcendental Functions ---
+
+# Complex exponential: e^z = e^real * (cos(imag) + i*sin(imag)).
+#
+pub fn cexp Complex a Complex
+  let r f64 exp a.real
+  ret Complex . real (* r (cos a.imag)) imag (* r (sin a.imag))
+
+# Complex natural logarithm: ln(z) = ln|z| + i*arg(z).
+#
+pub fn clog Complex a Complex
+  if && (isZero a.real) (isZero a.imag)
+    ret Complex . real 0.0 imag 0.0
+  ret Complex . real (ln (cmod a)) imag (carg a)
+
+# Complex power: a^b = e^(b * ln(a)).
+#
+pub fn cpow Complex a Complex b Complex
+  ret cexp (cmul b (clog a))
+
+# Complex square root: sqrt(z).
+# Uses: sqrt(z) = sqrt((|z| + Re(z))/2) + i*sgn(Im(z))*sqrt((|z| - Re(z))/2)
+#
+pub fn csqrt Complex a Complex
+  if && (isZero a.real) (isZero a.imag)
+    ret Complex . real 0.0 imag 0.0
+  let r f64 cmod a
+  let realPart f64 sqrt (/ (+ r a.real) 2.0)
+  let imagPart f64 sqrt (/ (- r a.real) 2.0)
+  if < a.imag 0.0
+    ret Complex . real realPart imag (- 0.0 imagPart)
+  ret Complex . real realPart imag imagPart
+
+# --- Complex Trigonometric Functions ---
+
+# Complex sine: sin(a + ib) = sin(a)*cosh(b) + i*cos(a)*sinh(b).
+#
+pub fn csin Complex a Complex
+  ret Complex . real (* (sin a.real) (cosh a.imag)) imag (* (cos a.real) (sinh a.imag))
+
+# Complex cosine: cos(a + ib) = cos(a)*cosh(b) - i*sin(a)*sinh(b).
+#
+pub fn ccos Complex a Complex
+  ret Complex . real (* (cos a.real) (cosh a.imag)) imag (- 0.0 (* (sin a.real) (sinh a.imag)))
+
+# Complex tangent: tan(z) = sin(z) / cos(z).
+#
+pub fn ctan Complex a Complex
+  ret cdiv (csin a) (ccos a)
+
+# --- Complex Hyperbolic Functions ---
+
+# Complex hyperbolic sine: sinh(a + ib) = sinh(a)*cos(b) + i*cosh(a)*sin(b).
+#
+pub fn csinh Complex a Complex
+  ret Complex . real (* (sinh a.real) (cos a.imag)) imag (* (cosh a.real) (sin a.imag))
+
+# Complex hyperbolic cosine: cosh(a + ib) = cosh(a)*cos(b) + i*sinh(a)*sin(b).
+#
+pub fn ccosh Complex a Complex
+  ret Complex . real (* (cosh a.real) (cos a.imag)) imag (* (sinh a.real) (sin a.imag))
+
+# Complex hyperbolic tangent: tanh(z) = sinh(z) / cosh(z).
+#
+pub fn ctanh Complex a Complex
+  ret cdiv (csinh a) (ccosh a)
+
+# --- Complex Inverse Trigonometric Functions ---
+
+# Complex arc sine: asin(z) = -i * ln(i*z + sqrt(1 - z^2)).
+#
+pub fn casin Complex a Complex
+  let one Complex cmpReal 1.0
+  let i Complex cmpImag 1.0
+  let iz Complex cmul i a
+  let z2 Complex cmul a a
+  let oneMinusZ2 Complex csub one z2
+  let sqrt1mz2 Complex csqrt oneMinusZ2
+  let sum Complex cadd iz sqrt1mz2
+  let logTerm Complex clog sum
+  ret Complex . real logTerm.imag imag (- 0.0 logTerm.real)
+
+# Complex arc cosine: acos(z) = pi/2 - asin(z).
+#
+pub fn cacos Complex a Complex
+  let halfPi Complex cmpReal PI_2
+  ret csub halfPi (casin a)
+
+# Complex arc tangent: atan(z) = (i/2) * ln((i + z) / (i - z)).
+#
+pub fn catan Complex a Complex
+  let i Complex cmpImag 1.0
+  let halfI Complex cmpImag 0.5
+  let iz Complex cadd i a
+  let iMinusz Complex csub i a
+  let ratio Complex cdiv iz iMinusz
+  let logTerm Complex clog ratio
+  ret cmul halfI logTerm
+
+# --- Complex Inverse Hyperbolic Functions ---
+
+# Complex inverse hyperbolic sine: asinh(z) = ln(z + sqrt(z^2 + 1)).
+#
+pub fn casinh Complex a Complex
+  let one Complex cmpReal 1.0
+  let z2 Complex cmul a a
+  let z2p1 Complex cadd z2 one
+  let sqrtTerm Complex csqrt z2p1
+  let sum Complex cadd a sqrtTerm
+  ret clog sum
+
+# Complex inverse hyperbolic cosine: acosh(z) = ln(z + sqrt(z^2 - 1)).
+#
+pub fn cacosh Complex a Complex
+  let one Complex cmpReal 1.0
+  let z2 Complex cmul a a
+  let z2m1 Complex csub z2 one
+  let sqrtTerm Complex csqrt z2m1
+  let sum Complex cadd a sqrtTerm
+  ret clog sum
+
+# Complex inverse hyperbolic tangent: atanh(z) = 0.5 * ln((1 + z) / (1 - z)).
+#
+pub fn catanh Complex a Complex
+  let one Complex cmpReal 1.0
+  let onePz Complex cadd one a
+  let oneMz Complex csub one a
+  let ratio Complex cdiv onePz oneMz
+  let logTerm Complex clog ratio
+  ret cscale logTerm 0.5
+
+# Scale a complex number by a real scalar.
+#
+pub fn cscale Complex a Complex s f64
+  ret Complex . real (* a.real s) imag (* a.imag s)
+
+# Test complex numbers
+test "complex arithmetic works"
+  let z1 Complex cmp 3.0 4.0
+  let z2 Complex cmp 1.0 2.0
+  let sum Complex cadd z1 z2
+  expect (approxEq sum.real 4.0 DEFAULT_TOLERANCE)
+  expect (approxEq sum.imag 6.0 DEFAULT_TOLERANCE)
+  let diff Complex csub z1 z2
+  expect (approxEq diff.real 2.0 DEFAULT_TOLERANCE)
+  expect (approxEq diff.imag 2.0 DEFAULT_TOLERANCE)
+  let prod Complex cmul z1 z2
+  expect (approxEq prod.real (- 0.0 5.0) 1.0e-6)
+  expect (approxEq prod.imag 10.0 1.0e-6)
+
+test "complex conjugate and modulus work"
+  let z Complex cmp 3.0 4.0
+  let c Complex conj z
+  expect (approxEq c.real 3.0 DEFAULT_TOLERANCE)
+  expect (approxEq c.imag (- 0.0 4.0) DEFAULT_TOLERANCE)
+  expect (approxEq (cmod z) 5.0 DEFAULT_TOLERANCE)
+  let z2 Complex cmp 1.0 0.0
+  expect (approxEq (carg z2) 0.0 DEFAULT_TOLERANCE)
+
+test "complex polar conversion works"
+  let z Complex fromPolar 2.0 PI_2
+  expect (approxEq z.real 0.0 1.0e-6)
+  expect (approxEq z.imag 2.0 1.0e-6)
+  let p Polar toPolar z
+  expect (approxEq p.r 2.0 1.0e-6)
+
+test "complex exp and log work"
+  let z Complex cmp 0.0 0.0
+  let ez Complex cexp z
+  expect (approxEq ez.real 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq ez.imag 0.0 DEFAULT_TOLERANCE)
+  let z2 Complex cmp 1.0 1.0
+  let lz Complex clog z2
+  expect (approxEq lz.real 0.34657359 1.0e-4)
+
+test "complex trig functions work"
+  let z Complex cmp 0.0 0.0
+  let sz Complex csin z
+  expect (approxEq sz.real 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq sz.imag 0.0 DEFAULT_TOLERANCE)
+  let cz Complex ccos z
+  expect (approxEq cz.real 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq cz.imag 0.0 DEFAULT_TOLERANCE)

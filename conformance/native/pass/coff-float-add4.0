@@ -1,0 +1,4 @@
+pub fn main Void world World !
+  let x f32 2.0
+  let y f32 + x 3.0
+  check world.out.write "after float add\n"

@@ -40,6 +40,18 @@ static bool coff_type_is_scalar32(IrTypeKind type) {
   return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_USIZE;
 }
 
+static bool coff_type_is_f32(IrTypeKind type) {
+  return type == IR_TYPE_F32;
+}
+
+static bool coff_type_is_f64(IrTypeKind type) {
+  return type == IR_TYPE_F64;
+}
+
+static bool coff_type_is_float(IrTypeKind type) {
+  return type == IR_TYPE_F32 || type == IR_TYPE_F64;
+}
+
 static void coff_emit_cast_normalize_rax(ZBuf *text, IrTypeKind target) {
   switch (target) {
     case IR_TYPE_BOOL:
@@ -91,6 +103,35 @@ static void coff_emit_store_local_from_reg(ZBuf *text, const IrFunction *fun, un
 
 static void coff_emit_store_local_slot_from_reg(ZBuf *text, const IrFunction *fun, unsigned local_index, unsigned reg, unsigned slot_offset, bool wide) {
   z_x64_emit_rbp_disp_reg(text, 0x89, reg, coff_local_slot_offset(fun, local_index, slot_offset), wide);
+}
+
+static void coff_emit_load_local_xmm(ZBuf *code, const IrFunction *fun, unsigned local_index) {
+  bool is_f64 = fun && local_index < fun->local_len && coff_type_is_f64(fun->locals[local_index].type);
+  unsigned disp = coff_local_offset(fun, local_index);
+  if (is_f64) {
+    z_x64_emit_movsd_xmm_ptr_rbp_disp(code, 0, disp);
+  } else {
+    z_x64_emit_movss_xmm_ptr_rbp_disp(code, 0, disp);
+  }
+}
+
+static void coff_emit_store_local_from_xmm(ZBuf *code, const IrFunction *fun, unsigned local_index, unsigned xmm_reg) {
+  bool is_f64 = fun && local_index < fun->local_len && coff_type_is_f64(fun->locals[local_index].type);
+  unsigned disp = coff_local_offset(fun, local_index);
+  if (is_f64) {
+    z_x64_emit_movsd_ptr_rbp_disp_xmm(code, xmm_reg, disp);
+  } else {
+    z_x64_emit_movss_ptr_rbp_disp_xmm(code, xmm_reg, disp);
+  }
+}
+
+static void coff_emit_store_field_from_xmm(ZBuf *code, const IrFunction *fun, unsigned local_index, unsigned field_offset, IrTypeKind type) {
+  unsigned offset = coff_local_slot_offset(fun, local_index, field_offset);
+  if (coff_type_is_f64(type)) {
+    z_x64_emit_movsd_ptr_rbp_disp_xmm(code, 0, offset);
+  } else {
+    z_x64_emit_movss_ptr_rbp_disp_xmm(code, 0, offset);
+  }
 }
 
 static void coff_emit_load_field_eax(ZBuf *text, const IrFunction *fun, unsigned local_index, unsigned field_offset, IrTypeKind type) {
@@ -265,12 +306,26 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
   switch (value->kind) {
     case IR_VALUE_BOOL:
     case IR_VALUE_INT:
+      if (coff_type_is_float(value->type)) {
+        /* Float literal: load bits into RAX, then move to XMM0 */
+        z_x64_emit_mov_rax_u64(text, (uint64_t)value->int_value);
+        if (coff_type_is_f64(value->type)) {
+          z_x64_emit_movq_xmm_from_gpr(text, 0, 0);
+        } else {
+          z_x64_emit_movd_xmm_from_gpr(text, 0, 0);
+        }
+        return true;
+      }
       z_x64_emit_mov_eax_u32(text, (uint32_t)value->int_value);
       return true;
     case IR_VALUE_LOCAL:
       if (value->local_index >= fun->local_len) return coff_diag_at(diag, "direct COFF local index is out of range", value->line, value->column, "invalid local");
       if (fun->locals[value->local_index].type == IR_TYPE_BYTE_VIEW) {
         return coff_diag_at(diag, "direct COFF byte-view local cannot be used as a scalar", value->line, value->column, "byte-view local");
+      }
+      if (coff_type_is_float(fun->locals[value->local_index].type)) {
+        coff_emit_load_local_xmm(text, fun, value->local_index);
+        return true;
       }
       coff_emit_load_local_eax(text, fun, value->local_index);
       return true;
@@ -279,7 +334,53 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
       coff_emit_cast_normalize_rax(text, value->type);
       return true;
     case IR_VALUE_BINARY:
-      if (value->binary_op != IR_BIN_ADD && value->binary_op != IR_BIN_SUB && value->binary_op != IR_BIN_MUL && value->binary_op != IR_BIN_XOR && value->binary_op != IR_BIN_SHL && value->binary_op != IR_BIN_SHR && value->binary_op != IR_BIN_ROL && value->binary_op != IR_BIN_ROR) return coff_diag_at(diag, "direct COFF binary operator is unsupported", value->line, value->column, "unsupported operator");
+      if (value->left && value->right && coff_type_is_float(value->left->type) && value->left->type == value->right->type) {
+        bool is_f64 = coff_type_is_f64(value->left->type);
+        /* Emit left to XMM0 */
+        if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
+        /* Save left via RAX push */
+        if (is_f64) {
+          z_x64_emit_movq_gpr_from_xmm(text, 0, 0);
+        } else {
+          z_x64_emit_movd_gpr_from_xmm(text, 0, 0);
+        }
+        z_x64_emit_push_rax(text);
+        /* Emit right to XMM0 */
+        if (!coff_emit_value(text, fun, value->right, ctx, diag)) return false;
+        /* Move right (XMM0) to XMM1 via RCX */
+        if (is_f64) {
+          z_x64_emit_movq_gpr_from_xmm(text, 1, 0);
+          z_x64_emit_movq_xmm_from_gpr(text, 1, 1);
+        } else {
+          z_x64_emit_movd_gpr_from_xmm(text, 1, 0);
+          z_x64_emit_movd_xmm_from_gpr(text, 1, 1);
+        }
+        /* Restore left from RAX to XMM0 */
+        z_x64_emit_pop_rax(text);
+        if (is_f64) {
+          z_x64_emit_movq_xmm_from_gpr(text, 0, 0);
+        } else {
+          z_x64_emit_movd_xmm_from_gpr(text, 0, 0);
+        }
+        /* Perform float operation */
+        if (value->binary_op == IR_BIN_FADD) {
+          if (is_f64) z_x64_emit_addsd_xmm_xmm(text, 0, 1);
+          else z_x64_emit_addss_xmm_xmm(text, 0, 1);
+        } else if (value->binary_op == IR_BIN_FSUB) {
+          if (is_f64) z_x64_emit_subsd_xmm_xmm(text, 0, 1);
+          else z_x64_emit_subss_xmm_xmm(text, 0, 1);
+        } else if (value->binary_op == IR_BIN_FMUL) {
+          if (is_f64) z_x64_emit_mulsd_xmm_xmm(text, 0, 1);
+          else z_x64_emit_mulss_xmm_xmm(text, 0, 1);
+        } else if (value->binary_op == IR_BIN_FDIV) {
+          if (is_f64) z_x64_emit_divsd_xmm_xmm(text, 0, 1);
+          else z_x64_emit_divss_xmm_xmm(text, 0, 1);
+        } else {
+          return coff_diag_at(diag, "direct COFF float binary operator is unsupported", value->line, value->column, "unsupported float operator");
+        }
+        return true;
+      }
+      if (value->binary_op != IR_BIN_ADD && value->binary_op != IR_BIN_SUB && value->binary_op != IR_BIN_MUL && value->binary_op != IR_BIN_AND && value->binary_op != IR_BIN_OR && value->binary_op != IR_BIN_XOR && value->binary_op != IR_BIN_SHL && value->binary_op != IR_BIN_SHR && value->binary_op != IR_BIN_ROL && value->binary_op != IR_BIN_ROR) return coff_diag_at(diag, "direct COFF binary operator is unsupported", value->line, value->column, "unsupported operator");
       if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
       z_x64_emit_push_rax(text);
       if (!coff_emit_value(text, fun, value->right, ctx, diag)) return false;
@@ -289,6 +390,10 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
         z_x64_emit_add_rax_rcx(text, false);
       } else if (value->binary_op == IR_BIN_SUB) {
         z_x64_emit_sub_rax_rcx(text, false);
+      } else if (value->binary_op == IR_BIN_AND) {
+        z_x64_emit_and_rax_rcx(text, false);
+      } else if (value->binary_op == IR_BIN_OR) {
+        z_x64_emit_or_rax_rcx(text, false);
       } else if (value->binary_op == IR_BIN_XOR) {
         z_x64_emit_xor_rax_rcx(text, false);
       } else if (value->binary_op == IR_BIN_SHL) {
@@ -305,6 +410,55 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
       return true;
     case IR_VALUE_COMPARE:
       if (!value->left || !value->right) return coff_diag_at(diag, "direct COFF comparison requires two operands", value->line, value->column, "invalid comparison");
+      if (coff_type_is_float(value->left->type) && value->left->type == value->right->type) {
+        bool is_f64 = coff_type_is_f64(value->left->type);
+        /* Emit left to XMM0 */
+        if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
+        /* Save left via RAX push */
+        if (is_f64) {
+          z_x64_emit_movq_gpr_from_xmm(text, 0, 0);
+        } else {
+          z_x64_emit_movd_gpr_from_xmm(text, 0, 0);
+        }
+        z_x64_emit_push_rax(text);
+        /* Emit right to XMM0 */
+        if (!coff_emit_value(text, fun, value->right, ctx, diag)) return false;
+        /* Move right (XMM0) to XMM1 via RCX */
+        if (is_f64) {
+          z_x64_emit_movq_gpr_from_xmm(text, 1, 0);
+          z_x64_emit_movq_xmm_from_gpr(text, 1, 1);
+        } else {
+          z_x64_emit_movd_gpr_from_xmm(text, 1, 0);
+          z_x64_emit_movd_xmm_from_gpr(text, 1, 1);
+        }
+        /* Restore left to XMM0 */
+        z_x64_emit_pop_rax(text);
+        if (is_f64) {
+          z_x64_emit_movq_xmm_from_gpr(text, 0, 0);
+        } else {
+          z_x64_emit_movd_xmm_from_gpr(text, 0, 0);
+        }
+        /* Compare: sets ZF, PF, CF flags */
+        if (is_f64) {
+          z_x64_emit_ucomisd_xmm_xmm(text, 0, 1);
+        } else {
+          z_x64_emit_ucomiss_xmm_xmm(text, 0, 1);
+        }
+        /* Convert comparison predicate to boolean (0 or 1) in RAX */
+        /* Float comparisons use unsigned opcodes because ucomiss/ucomisd set CF/ZF/PF like unsigned cmp */
+        unsigned setcc_op;
+        switch (value->compare_op) {
+          case IR_CMP_EQ: setcc_op = 0x94; break;
+          case IR_CMP_NE: setcc_op = 0x95; break;
+          case IR_CMP_LT: setcc_op = 0x92; break;
+          case IR_CMP_LE: setcc_op = 0x96; break;
+          case IR_CMP_GT: setcc_op = 0x97; break;
+          case IR_CMP_GE: setcc_op = 0x93; break;
+          default: setcc_op = 0x94; break;
+        }
+        z_x64_emit_setcc_al_to_bool(text, setcc_op);
+        return true;
+      }
       if (!coff_emit_value(text, fun, value->left, ctx, diag)) return false;
       z_x64_emit_push_rax(text);
       if (!coff_emit_value(text, fun, value->right, ctx, diag)) return false;
@@ -314,13 +468,51 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
       return true;
     case IR_VALUE_CALL: {
       static const unsigned param_regs[] = {1, 2, 8, 9};
-      if (value->arg_len > 4) return coff_diag_at(diag, "direct COFF call supports at most four integer arguments", value->line, value->column, "too many arguments");
+      if (value->arg_len > 4) return coff_diag_at(diag, "direct COFF call supports at most four arguments", value->line, value->column, "too many arguments");
+      /* Count float arguments to determine if XMM handling is needed */
+      size_t float_arg_count = 0;
       for (size_t i = 0; i < value->arg_len; i++) {
-        if (!coff_emit_value(text, fun, value->args[i], ctx, diag)) return false;
-        z_x64_emit_push_rax(text);
+        if (value->args[i] && coff_type_is_float(value->args[i]->type)) float_arg_count++;
       }
-      for (size_t i = value->arg_len; i > 0; i--) {
-        z_x64_emit_pop_reg64(text, param_regs[i - 1]);
+      if (float_arg_count > 0) {
+        /* Push all arguments onto stack in order */
+        for (size_t i = 0; i < value->arg_len; i++) {
+          if (!coff_emit_value(text, fun, value->args[i], ctx, diag)) return false;
+          if (value->args[i] && coff_type_is_float(value->args[i]->type)) {
+            /* Float value is in XMM0; move to RAX for pushing */
+            if (coff_type_is_f64(value->args[i]->type)) {
+              z_x64_emit_movq_gpr_from_xmm(text, 0, 0);
+            } else {
+              z_x64_emit_movd_gpr_from_xmm(text, 0, 0);
+            }
+          }
+          z_x64_emit_push_rax(text);
+        }
+        /* Pop arguments in reverse, placing each into the correct register */
+        for (size_t i = value->arg_len; i > 0; i--) {
+          size_t idx = i - 1;
+          IrValue *arg = value->args[idx];
+          if (arg && coff_type_is_float(arg->type)) {
+            /* Pop into RAX, move to XMM register (XMM0-XMM3 for positions 0-3) */
+            z_x64_emit_pop_reg64(text, 0);
+            if (coff_type_is_f64(arg->type)) {
+              z_x64_emit_movq_xmm_from_gpr(text, (unsigned)idx, 0);
+            } else {
+              z_x64_emit_movd_xmm_from_gpr(text, (unsigned)idx, 0);
+            }
+          } else {
+            z_x64_emit_pop_reg64(text, param_regs[idx]);
+          }
+        }
+      } else {
+        /* All integer arguments: use existing GPR-only path */
+        for (size_t i = 0; i < value->arg_len; i++) {
+          if (!coff_emit_value(text, fun, value->args[i], ctx, diag)) return false;
+          z_x64_emit_push_rax(text);
+        }
+        for (size_t i = value->arg_len; i > 0; i--) {
+          z_x64_emit_pop_reg64(text, param_regs[i - 1]);
+        }
       }
       z_x64_emit_sub_rsp(text, 32);
       size_t patch = z_x64_emit_call32_placeholder(text);
@@ -416,6 +608,15 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
     case IR_VALUE_FIELD_LOAD:
       if (value->local_index >= fun->local_len) return coff_diag_at(diag, "direct COFF field load record is out of range", value->line, value->column, "invalid record local");
       if (!fun->locals[value->local_index].is_record) return coff_diag_at(diag, "direct COFF field load requires record local", value->line, value->column, "non-record local");
+      if (coff_type_is_float(value->type)) {
+        unsigned offset = coff_local_slot_offset(fun, value->local_index, value->field_offset);
+        if (coff_type_is_f64(value->type)) {
+          z_x64_emit_movsd_xmm_ptr_rbp_disp(text, 0, offset);
+        } else {
+          z_x64_emit_movss_xmm_ptr_rbp_disp(text, 0, offset);
+        }
+        return true;
+      }
       coff_emit_load_field_eax(text, fun, value->local_index, value->field_offset, value->type);
       return true;
     case IR_VALUE_CRYPTO_HELPER: {
@@ -455,6 +656,21 @@ static bool coff_emit_value(ZBuf *text, const IrFunction *fun, const IrValue *va
         case CRYPTO_ECC_ECDH: helper = COFF_RUNTIME_CRYPTO_ECC_ECDH; break;
         case CRYPTO_ECC_ED25519_SIGN: helper = COFF_RUNTIME_CRYPTO_ECC_ED25519_SIGN; break;
         case CRYPTO_ECC_ED25519_VERIFY: helper = COFF_RUNTIME_CRYPTO_ECC_ED25519_VERIFY; break;
+        case CRYPTO_SHA384: helper = COFF_RUNTIME_CRYPTO_SHA384; break;
+        case CRYPTO_SHA3_256: helper = COFF_RUNTIME_CRYPTO_SHA3_256; break;
+        case CRYPTO_SHA3_512: helper = COFF_RUNTIME_CRYPTO_SHA3_512; break;
+        case CRYPTO_BLAKE2B: helper = COFF_RUNTIME_CRYPTO_BLAKE2B; break;
+        case CRYPTO_BLAKE2S: helper = COFF_RUNTIME_CRYPTO_BLAKE2S; break;
+        case CRYPTO_HMAC_SHA384: helper = COFF_RUNTIME_CRYPTO_HMAC_SHA384; break;
+        case CRYPTO_SHA3_384: helper = COFF_RUNTIME_CRYPTO_SHA3_384; break;
+        case CRYPTO_SHAKE128: helper = COFF_RUNTIME_CRYPTO_SHAKE128; break;
+        case CRYPTO_SHAKE256: helper = COFF_RUNTIME_CRYPTO_SHAKE256; break;
+        case CRYPTO_HMAC_SHA512: helper = COFF_RUNTIME_CRYPTO_HMAC_SHA512; break;
+        case CRYPTO_ECC_ED25519_GENERATE_KEYPAIR: helper = COFF_RUNTIME_CRYPTO_ECC_ED25519_GENERATE_KEYPAIR; break;
+        case CRYPTO_ECC_X25519_ECDH: helper = COFF_RUNTIME_CRYPTO_ECC_X25519_ECDH; break;
+        case CRYPTO_AES_GCM_ENCRYPT: helper = COFF_RUNTIME_CRYPTO_AES_GCM_ENCRYPT; break;
+        case CRYPTO_AES_GCM_DECRYPT: helper = COFF_RUNTIME_CRYPTO_AES_GCM_DECRYPT; break;
+        case CRYPTO_ECC_X25519_GENERATE_KEYPAIR: helper = COFF_RUNTIME_CRYPTO_ECC_X25519_GENERATE_KEYPAIR; break;
         default: return coff_diag_at(diag, "direct COFF unsupported crypto operation", value->line, value->column, "unknown crypto kind");
       }
       /* Push all arguments in reverse order, expanding byte views into ptr/len pairs */
@@ -584,6 +800,11 @@ static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *in
       z_x64_patch_rel32(text, end_patch, text->len);
       return true;
     }
+    if (coff_type_is_float(fun->locals[instr->local_index].type)) {
+      if (!coff_emit_value(text, fun, instr->value, ctx, diag)) return false;
+      coff_emit_store_local_from_xmm(text, fun, instr->local_index, 0);
+      return true;
+    }
     if (!coff_emit_value(text, fun, instr->value, ctx, diag)) return false;
     coff_emit_store_local_from_reg(text, fun, instr->local_index, 0);
     return true;
@@ -591,6 +812,11 @@ static bool coff_emit_instr(ZBuf *text, const IrFunction *fun, const IrInstr *in
   if (instr->kind == IR_INSTR_FIELD_STORE) {
     if (instr->local_index >= fun->local_len) return coff_diag_at(diag, "direct COFF field store record is out of range", instr->line, instr->column, "invalid record local");
     if (!fun->locals[instr->local_index].is_record) return coff_diag_at(diag, "direct COFF field store requires record local", instr->line, instr->column, "non-record local");
+    if (coff_type_is_float(instr->value ? instr->value->type : IR_TYPE_VOID)) {
+      if (!coff_emit_value(text, fun, instr->value, ctx, diag)) return false;
+      coff_emit_store_field_from_xmm(text, fun, instr->local_index, instr->field_offset, instr->value->type);
+      return true;
+    }
     if (!coff_emit_value(text, fun, instr->value, ctx, diag)) return false;
     coff_emit_store_field_from_eax(text, fun, instr->local_index, instr->field_offset, instr->value ? instr->value->type : IR_TYPE_I32);
     return true;
@@ -675,8 +901,8 @@ static bool coff_emit_instrs(ZBuf *text, const IrFunction *fun, const IrInstr *i
 
 static bool coff_validate_function(const IrFunction *fun, ZDiag *diag) {
   if (fun->param_count > 8) return coff_diag_at(diag, "direct COFF object backend supports at most eight integer parameters", fun->line, fun->column, fun->name);
-  if (fun->return_type != IR_TYPE_VOID && !coff_type_is_scalar32(fun->return_type)) {
-    return coff_diag_at(diag, "direct COFF object backend currently supports only Void and 32-bit-or-smaller integer returns", fun->line, fun->column, fun->name);
+  if (fun->return_type != IR_TYPE_VOID && !coff_type_is_scalar32(fun->return_type) && !coff_type_is_float(fun->return_type)) {
+    return coff_diag_at(diag, "direct COFF object backend currently supports only Void, scalar, and float returns", fun->line, fun->column, fun->name);
   }
   for (size_t i = 0; i < fun->local_len; i++) {
     if (fun->locals[i].type == IR_TYPE_BYTE_VIEW) {
@@ -689,8 +915,8 @@ static bool coff_validate_function(const IrFunction *fun, ZDiag *diag) {
     if (fun->locals[i].is_record) continue;
     if (fun->locals[i].type == IR_TYPE_ALLOC || fun->locals[i].type == IR_TYPE_MAYBE_BYTE_VIEW) continue;
     if (fun->locals[i].type == IR_TYPE_VEC) continue;
-    if (fun->locals[i].is_array || !coff_type_is_scalar32(fun->locals[i].type)) {
-      return coff_diag_at(diag, "direct COFF object backend currently supports only primitive scalar locals", fun->locals[i].line, fun->locals[i].column, fun->locals[i].name);
+    if (fun->locals[i].is_array || (!coff_type_is_scalar32(fun->locals[i].type) && !coff_type_is_float(fun->locals[i].type))) {
+      return coff_diag_at(diag, "direct COFF object backend currently supports only primitive scalar and float locals", fun->locals[i].line, fun->locals[i].column, fun->locals[i].name);
     }
   }
   return true;
@@ -701,11 +927,26 @@ static bool coff_emit_function_text(ZBuf *text, const IrFunction *fun, CoffEmitC
   unsigned frame_size = (unsigned)z_coff_align(fun ? fun->frame_bytes : 0, 16);
   z_x64_emit_prologue(text, frame_size);
   for (size_t i = 0; i < fun->param_count; i++) {
-    if (i < 4) {
-      coff_emit_store_local_from_reg(text, fun, (unsigned)i, param_regs[i]);
+    if (coff_type_is_float(fun->locals[i].type)) {
+      /* Float parameters arrive in XMM0-XMM3 in Microsoft x64 */
+      if (i < 4) {
+        coff_emit_store_local_from_xmm(text, fun, (unsigned)i, (unsigned)i);
+      } else {
+        /* Float param beyond the first 4 XMM registers is on the stack */
+        if (coff_type_is_f64(fun->locals[i].type)) {
+          z_x64_emit_movsd_xmm_ptr_rbp_disp(text, 0, 48u + (unsigned)(i - 4u) * 8u);
+        } else {
+          z_x64_emit_movss_xmm_ptr_rbp_disp(text, 0, 48u + (unsigned)(i - 4u) * 8u);
+        }
+        coff_emit_store_local_from_xmm(text, fun, (unsigned)i, 0);
+      }
     } else {
-      z_x64_emit_load_rbp_positive_reg(text, 0, 48u + (unsigned)(i - 4u) * 8u, false);
-      coff_emit_store_local_from_reg(text, fun, (unsigned)i, 0);
+      if (i < 4) {
+        coff_emit_store_local_from_reg(text, fun, (unsigned)i, param_regs[i]);
+      } else {
+        z_x64_emit_load_rbp_positive_reg(text, 0, 48u + (unsigned)(i - 4u) * 8u, false);
+        coff_emit_store_local_from_reg(text, fun, (unsigned)i, 0);
+      }
     }
   }
   if (!coff_emit_instrs(text, fun, fun->instrs, fun->instr_len, ctx, diag)) return false;

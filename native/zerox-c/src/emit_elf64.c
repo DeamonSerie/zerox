@@ -33,8 +33,20 @@ static bool elf_ir_diag(ZDiag *diag, const IrProgram *ir) {
   return false;
 }
 
+static bool elf_type_is_float(IrTypeKind type) {
+  return type == IR_TYPE_F32 || type == IR_TYPE_F64;
+}
+
+static bool elf_type_is_f32(IrTypeKind type) {
+  return type == IR_TYPE_F32;
+}
+
+static bool elf_type_is_f64(IrTypeKind type) {
+  return type == IR_TYPE_F64;
+}
+
 static bool elf_type_is_scalar(IrTypeKind type) {
-  return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_USIZE || type == IR_TYPE_I32 || type == IR_TYPE_U32;
+  return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_USIZE || type == IR_TYPE_I32 || type == IR_TYPE_U32 || elf_type_is_float(type);
 }
 
 static bool elf_type_is_i64(IrTypeKind type) {
@@ -84,6 +96,8 @@ static const char *elf_type_name(IrTypeKind type) {
     case IR_TYPE_U32: return "u32";
     case IR_TYPE_I64: return "i64";
     case IR_TYPE_U64: return "u64";
+    case IR_TYPE_F32: return "f32";
+    case IR_TYPE_F64: return "f64";
     case IR_TYPE_MAYBE_SCALAR: return "Maybe<usize>";
     default: return "unsupported";
   }
@@ -102,6 +116,26 @@ static void elf_emit_load_local_rax(ZBuf *code, const IrFunction *fun, unsigned 
 static void elf_emit_store_local_from_reg(ZBuf *code, const IrFunction *fun, unsigned local_index, unsigned reg) {
   bool wide = fun && local_index < fun->local_len && elf_type_is_i64(fun->locals[local_index].type);
   z_x64_emit_rbp_disp_reg(code, 0x89, reg, elf_local_offset(fun, local_index), wide);
+}
+
+static void elf_emit_load_local_xmm(ZBuf *code, const IrFunction *fun, unsigned local_index) {
+  bool is_f64 = fun && local_index < fun->local_len && elf_type_is_f64(fun->locals[local_index].type);
+  unsigned disp = elf_local_offset(fun, local_index);
+  if (is_f64) {
+    z_x64_emit_movsd_xmm_ptr_rbp_disp(code, 0, disp);
+  } else {
+    z_x64_emit_movss_xmm_ptr_rbp_disp(code, 0, disp);
+  }
+}
+
+static void elf_emit_store_local_from_xmm(ZBuf *code, const IrFunction *fun, unsigned local_index, unsigned xmm_reg) {
+  bool is_f64 = fun && local_index < fun->local_len && elf_type_is_f64(fun->locals[local_index].type);
+  unsigned disp = elf_local_offset(fun, local_index);
+  if (is_f64) {
+    z_x64_emit_movsd_ptr_rbp_disp_xmm(code, xmm_reg, disp);
+  } else {
+    z_x64_emit_movss_ptr_rbp_disp_xmm(code, xmm_reg, disp);
+  }
 }
 
 static unsigned elf_record_field_disp(const IrLocal *local, unsigned field_offset) {
@@ -132,9 +166,19 @@ static void elf_emit_store_field_from_rax(ZBuf *code, const IrLocal *local, unsi
   }
 }
 
+static void elf_emit_store_field_from_xmm(ZBuf *code, const IrLocal *local, unsigned field_offset, IrTypeKind type) {
+  unsigned disp = elf_record_field_disp(local, field_offset);
+  if (elf_type_is_f64(type)) {
+    z_x64_emit_movsd_ptr_rbp_disp_xmm(code, 0, disp);
+  } else {
+    z_x64_emit_movss_ptr_rbp_disp_xmm(code, 0, disp);
+  }
+}
+
 static unsigned elf_type_byte_size(IrTypeKind type) {
   if (type == IR_TYPE_U8 || type == IR_TYPE_BOOL) return 1;
-  if (elf_type_is_i64(type)) return 8;
+  if (type == IR_TYPE_F64 || elf_type_is_i64(type)) return 8;
+  if (type == IR_TYPE_F32) return 4;
   return 4;
 }
 
@@ -898,6 +942,21 @@ static ElfRuntimeHelper elf_crypto_kind_to_runtime(unsigned crypto_kind) {
     case CRYPTO_ECC_ECDH: return ELF_RUNTIME_CRYPTO_ECC_ECDH;
     case CRYPTO_ECC_ED25519_SIGN: return ELF_RUNTIME_CRYPTO_ECC_ED25519_SIGN;
     case CRYPTO_ECC_ED25519_VERIFY: return ELF_RUNTIME_CRYPTO_ECC_ED25519_VERIFY;
+    case CRYPTO_SHA384: return ELF_RUNTIME_CRYPTO_SHA384;
+    case CRYPTO_SHA3_256: return ELF_RUNTIME_CRYPTO_SHA3_256;
+    case CRYPTO_SHA3_512: return ELF_RUNTIME_CRYPTO_SHA3_512;
+    case CRYPTO_BLAKE2B: return ELF_RUNTIME_CRYPTO_BLAKE2B;
+    case CRYPTO_BLAKE2S: return ELF_RUNTIME_CRYPTO_BLAKE2S;
+    case CRYPTO_HMAC_SHA384: return ELF_RUNTIME_CRYPTO_HMAC_SHA384;
+    case CRYPTO_SHA3_384: return ELF_RUNTIME_CRYPTO_SHA3_384;
+    case CRYPTO_SHAKE128: return ELF_RUNTIME_CRYPTO_SHAKE128;
+    case CRYPTO_SHAKE256: return ELF_RUNTIME_CRYPTO_SHAKE256;
+    case CRYPTO_HMAC_SHA512: return ELF_RUNTIME_CRYPTO_HMAC_SHA512;
+    case CRYPTO_ECC_ED25519_GENERATE_KEYPAIR: return ELF_RUNTIME_CRYPTO_ECC_ED25519_GENERATE_KEYPAIR;
+    case CRYPTO_ECC_X25519_ECDH: return ELF_RUNTIME_CRYPTO_ECC_X25519_ECDH;
+    case CRYPTO_AES_GCM_ENCRYPT: return ELF_RUNTIME_CRYPTO_AES_GCM_ENCRYPT;
+    case CRYPTO_AES_GCM_DECRYPT: return ELF_RUNTIME_CRYPTO_AES_GCM_DECRYPT;
+    case CRYPTO_ECC_X25519_GENERATE_KEYPAIR: return ELF_RUNTIME_CRYPTO_ECC_X25519_GENERATE_KEYPAIR;
     default: return ELF_RUNTIME_HELPER_COUNT;
   }
 }
@@ -957,19 +1016,84 @@ static bool elf_emit_core_value(ZBuf *code, const IrFunction *fun, const IrValue
   switch (value->kind) {
     case IR_VALUE_BOOL:
     case IR_VALUE_INT:
+      if (elf_type_is_float(value->type)) {
+        /* Float literal: load bits into RAX, then move to XMM0 */
+        z_x64_emit_mov_rax_u64(code, (uint64_t)value->int_value);
+        if (elf_type_is_f64(value->type)) {
+          z_x64_emit_movq_xmm_from_gpr(code, 0, 0);
+        } else {
+          z_x64_emit_movd_xmm_from_gpr(code, 0, 0);
+        }
+        return true;
+      }
       if (elf_type_is_i64(value->type)) z_x64_emit_mov_rax_u64(code, (uint64_t)value->int_value);
       else z_x64_emit_mov_eax_u32(code, (uint32_t)value->int_value);
       return true;
     case IR_VALUE_LOCAL:
       if (value->local_index >= fun->local_len) return elf_diag(diag, "direct ELF64 local index is out of range", value->line, value->column, "invalid local");
       if (fun->locals[value->local_index].is_array) return elf_diag(diag, "direct ELF64 cannot use fixed array locals as scalar values", value->line, value->column, "array local");
+      if (elf_type_is_float(fun->locals[value->local_index].type)) {
+        elf_emit_load_local_xmm(code, fun, value->local_index);
+        return true;
+      }
       elf_emit_load_local_rax(code, fun, value->local_index);
       return true;
     case IR_VALUE_CAST:
+      if (elf_type_is_float(value->type) || (value->left && elf_type_is_float(value->left->type))) {
+        return elf_diag(diag, "direct ELF64 float casts not yet supported", value->line, value->column, "float cast");
+      }
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
       elf_emit_cast_normalize_rax(code, value->left ? value->left->type : IR_TYPE_UNSUPPORTED, value->type);
       return true;
     case IR_VALUE_BINARY: {
+      /* Float binary operations (FADD, FSUB, FMUL, FDIV) */
+      if (elf_type_is_float(value->type)) {
+        bool is_f64 = elf_type_is_f64(value->type);
+        /* Emit left operand to XMM0 */
+        if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
+        /* Save left via RAX push */
+        if (is_f64) {
+          z_x64_emit_movq_gpr_from_xmm(code, 0, 0);
+        } else {
+          z_x64_emit_movd_gpr_from_xmm(code, 0, 0);
+        }
+        z_x64_emit_push_rax(code);
+        /* Emit right operand (now in XMM0) */
+        if (!elf_emit_value(code, fun, value->right, ctx, diag)) return false;
+        /* Move right (XMM0) to XMM1 via RCX */
+        if (is_f64) {
+          z_x64_emit_movq_gpr_from_xmm(code, 1, 0);
+          z_x64_emit_movq_xmm_from_gpr(code, 1, 1);
+        } else {
+          z_x64_emit_movd_gpr_from_xmm(code, 1, 0);
+          z_x64_emit_movd_xmm_from_gpr(code, 1, 1);
+        }
+        /* Restore left from RAX to XMM0 */
+        z_x64_emit_pop_rax(code);
+        if (is_f64) {
+          z_x64_emit_movq_xmm_from_gpr(code, 0, 0);
+        } else {
+          z_x64_emit_movd_xmm_from_gpr(code, 0, 0);
+        }
+        /* Perform the float operation */
+        if (value->binary_op == IR_BIN_FADD) {
+          if (is_f64) z_x64_emit_addsd_xmm_xmm(code, 0, 1);
+          else z_x64_emit_addss_xmm_xmm(code, 0, 1);
+        } else if (value->binary_op == IR_BIN_FSUB) {
+          if (is_f64) z_x64_emit_subsd_xmm_xmm(code, 0, 1);
+          else z_x64_emit_subss_xmm_xmm(code, 0, 1);
+        } else if (value->binary_op == IR_BIN_FMUL) {
+          if (is_f64) z_x64_emit_mulsd_xmm_xmm(code, 0, 1);
+          else z_x64_emit_mulss_xmm_xmm(code, 0, 1);
+        } else if (value->binary_op == IR_BIN_FDIV) {
+          if (is_f64) z_x64_emit_divsd_xmm_xmm(code, 0, 1);
+          else z_x64_emit_divss_xmm_xmm(code, 0, 1);
+        } else {
+          return elf_diag(diag, "direct ELF64 float binary operator is unsupported", value->line, value->column, "unsupported float operator");
+        }
+        return true;
+      }
+      /* Integer binary operations */
       bool wide = elf_type_is_i64(value->type);
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
       z_x64_emit_push_rax(code);
@@ -1006,6 +1130,45 @@ static bool elf_emit_core_value(ZBuf *code, const IrFunction *fun, const IrValue
       return true;
     }
     case IR_VALUE_COMPARE: {
+      /* Float comparison (ucomiss/ucomisd) */
+      if (value->left && value->right && elf_type_is_float(value->left->type) && value->left->type == value->right->type) {
+        bool is_f64 = elf_type_is_f64(value->left->type);
+        /* Emit left to XMM0 */
+        if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
+        /* Save left via RAX push */
+        if (is_f64) {
+          z_x64_emit_movq_gpr_from_xmm(code, 0, 0);
+        } else {
+          z_x64_emit_movd_gpr_from_xmm(code, 0, 0);
+        }
+        z_x64_emit_push_rax(code);
+        /* Emit right to XMM0 */
+        if (!elf_emit_value(code, fun, value->right, ctx, diag)) return false;
+        /* Move right (XMM0) to XMM1 via RCX */
+        if (is_f64) {
+          z_x64_emit_movq_gpr_from_xmm(code, 1, 0);
+          z_x64_emit_movq_xmm_from_gpr(code, 1, 1);
+        } else {
+          z_x64_emit_movd_gpr_from_xmm(code, 1, 0);
+          z_x64_emit_movd_xmm_from_gpr(code, 1, 1);
+        }
+        /* Restore left to XMM0 */
+        z_x64_emit_pop_rax(code);
+        if (is_f64) {
+          z_x64_emit_movq_xmm_from_gpr(code, 0, 0);
+        } else {
+          z_x64_emit_movd_xmm_from_gpr(code, 0, 0);
+        }
+        /* Compare: sets ZF, PF, CF flags (same as integer cmp) */
+        if (is_f64) {
+          z_x64_emit_ucomisd_xmm_xmm(code, 0, 1);
+        } else {
+          z_x64_emit_ucomiss_xmm_xmm(code, 0, 1);
+        }
+        z_x64_emit_setcc_al_to_bool(code, elf_setcc_opcode(value->compare_op, true));
+        return true;
+      }
+      /* Integer comparison */
       if (!value->left || !value->right || !elf_type_is_supported_scalar(value->left->type) || value->left->type != value->right->type) return elf_diag(diag, "direct ELF64 comparison operands must have the same supported integer type", value->line, value->column, "unsupported comparison");
       bool wide = elf_type_is_i64(value->left->type);
       if (!elf_emit_value(code, fun, value->left, ctx, diag)) return false;
@@ -1019,6 +1182,62 @@ static bool elf_emit_core_value(ZBuf *code, const IrFunction *fun, const IrValue
     case IR_VALUE_CALL: {
       static const unsigned param_regs[] = {7, 6, 2, 1, 8, 9};
       if (value->arg_len > 6) return elf_diag(diag, "direct ELF64 call supports at most six arguments", value->line, value->column, "too many arguments");
+      /* Count float arguments to determine if XMM handling is needed */
+      size_t float_arg_count = 0;
+      for (size_t i = 0; i < value->arg_len; i++) {
+        if (value->args[i] && elf_type_is_float(value->args[i]->type)) float_arg_count++;
+      }
+      if (float_arg_count > 0) {
+        /* Precompute GPR/XMM slot assignments for each argument */
+        unsigned *int_slot = calloc(value->arg_len, sizeof(unsigned));
+        unsigned *xmm_slot = calloc(value->arg_len, sizeof(unsigned));
+        unsigned gpr_counter = 0;
+        unsigned xmm_counter = 0;
+        for (size_t i = 0; i < value->arg_len; i++) {
+          IrValue *arg = value->args[i];
+          if (arg && elf_type_is_float(arg->type)) {
+            int_slot[i] = (unsigned)-1; /* Not a GPR argument */
+            xmm_slot[i] = xmm_counter++;
+          } else {
+            int_slot[i] = gpr_counter++;
+            xmm_slot[i] = (unsigned)-1; /* Not an XMM argument */
+          }
+        }
+        /* Push all arguments onto stack in order */
+        for (size_t i = 0; i < value->arg_len; i++) {
+          if (!elf_emit_value(code, fun, value->args[i], ctx, diag)) { free(int_slot); free(xmm_slot); return false; }
+          if (value->args[i] && elf_type_is_float(value->args[i]->type)) {
+            /* Float value is in XMM0; move to RAX for pushing */
+            if (elf_type_is_f64(value->args[i]->type)) {
+              z_x64_emit_movq_gpr_from_xmm(code, 0, 0);
+            } else {
+              z_x64_emit_movd_gpr_from_xmm(code, 0, 0);
+            }
+          }
+          elf_emit_push_rax(code);
+        }
+        /* Pop arguments in reverse, placing each into the correct register */
+        for (size_t i = value->arg_len; i > 0; i--) {
+          size_t idx = i - 1;
+          IrValue *arg = value->args[idx];
+          if (arg && elf_type_is_float(arg->type)) {
+            /* Pop into RAX, move to XMM register */
+            z_x64_emit_pop_reg64(code, 0);
+            if (elf_type_is_f64(arg->type)) {
+              z_x64_emit_movq_xmm_from_gpr(code, xmm_slot[idx], 0);
+            } else {
+              z_x64_emit_movd_xmm_from_gpr(code, xmm_slot[idx], 0);
+            }
+          } else {
+            z_x64_emit_pop_reg64(code, param_regs[int_slot[idx]]);
+          }
+        }
+        free(int_slot);
+        free(xmm_slot);
+        size_t patch = z_x64_emit_call32_placeholder(code);
+        return z_elf_record_call_patch(ctx, patch, value->callee_index, diag, value);
+      }
+      /* All integer arguments: use existing GPR-only path */
       for (size_t i = 0; i < value->arg_len; i++) {
         if (!elf_emit_value(code, fun, value->args[i], ctx, diag)) return false;
         elf_emit_push_rax(code);
@@ -1176,6 +1395,15 @@ static bool elf_emit_memory_access_value(ZBuf *code, const IrFunction *fun, cons
       if (value->local_index >= fun->local_len) return elf_diag(diag, "direct ELF64 field load record is out of range", value->line, value->column, "invalid record local");
       const IrLocal *local = &fun->locals[value->local_index];
       if (!local->is_record) return elf_diag(diag, "direct ELF64 field load requires record local", value->line, value->column, "non-record local");
+      if (elf_type_is_float(value->type)) {
+        unsigned disp = elf_record_field_disp(local, value->field_offset);
+        if (elf_type_is_f64(value->type)) {
+          z_x64_emit_movsd_xmm_ptr_rbp_disp(code, 0, disp);
+        } else {
+          z_x64_emit_movss_xmm_ptr_rbp_disp(code, 0, disp);
+        }
+        return true;
+      }
       elf_emit_load_field_rax(code, local, value->field_offset, value->type);
       return true;
     }
@@ -1326,7 +1554,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
       value->kind != IR_VALUE_MAYBE_HAS && value->kind != IR_VALUE_VEC_LEN && value->kind != IR_VALUE_VEC_CAPACITY &&
       value->kind != IR_VALUE_VEC_PUSH && value->kind != IR_VALUE_ARGS_LEN &&
       value->type != IR_TYPE_MAYBE_SCALAR && value->kind != IR_VALUE_FS_CLOSE_FILE) {
-    return elf_diag(diag, "direct ELF64 object backend currently supports only primitive integer values", value->line, value->column, elf_type_name(value->type));
+    return elf_diag(diag, "direct ELF64 object backend currently supports only primitive integer and float values", value->line, value->column, elf_type_name(value->type));
   }
   switch (value->kind) {
     case IR_VALUE_BOOL: case IR_VALUE_INT: case IR_VALUE_LOCAL: case IR_VALUE_CAST: case IR_VALUE_BINARY: case IR_VALUE_COMPARE: case IR_VALUE_CALL:
@@ -1370,7 +1598,7 @@ static bool elf_emit_value(ZBuf *code, const IrFunction *fun, const IrValue *val
 static bool elf_validate_function(const IrFunction *fun, ZDiag *diag) {
   if (fun->param_count > 8) return elf_diag(diag, "direct ELF64 object backend supports at most eight parameters", fun->line, fun->column, fun->name);
   if (fun->return_type != IR_TYPE_VOID && !elf_type_is_supported_scalar(fun->return_type)) {
-    return elf_diag(diag, "direct ELF64 object backend currently supports only Void and primitive integer returns", fun->line, fun->column, elf_type_name(fun->return_type));
+    return elf_diag(diag, "direct ELF64 object backend currently supports only Void, primitive integer, and float returns", fun->line, fun->column, elf_type_name(fun->return_type));
   }
   for (size_t i = 0; i < fun->local_len; i++) {
     if (fun->locals[i].is_array) {
@@ -1389,7 +1617,7 @@ static bool elf_validate_function(const IrFunction *fun, ZDiag *diag) {
     if (fun->locals[i].type == IR_TYPE_ALLOC || fun->locals[i].type == IR_TYPE_VEC ||
         fun->locals[i].type == IR_TYPE_MAYBE_BYTE_VIEW || fun->locals[i].type == IR_TYPE_MAYBE_SCALAR) continue;
     if (!elf_type_is_supported_scalar(fun->locals[i].type)) {
-      return elf_diag(diag, "direct ELF64 object backend currently supports only primitive integer locals", fun->locals[i].line, fun->locals[i].column, elf_type_name(fun->locals[i].type));
+      return elf_diag(diag, "direct ELF64 object backend currently supports only primitive integer and float locals", fun->locals[i].line, fun->locals[i].column, elf_type_name(fun->locals[i].type));
     }
   }
   return true;
@@ -1791,6 +2019,11 @@ static bool elf_emit_local_set_instr(ZBuf *text, const IrFunction *fun, const Ir
   if (local && local->type == IR_TYPE_VEC) return elf_emit_vec_local_set(text, fun, instr, local, ctx, diag);
   if (local && local->type == IR_TYPE_MAYBE_BYTE_VIEW) return elf_emit_maybe_byte_view_local_set(text, fun, instr, local, ctx, diag);
   if (local && local->type == IR_TYPE_MAYBE_SCALAR) return elf_emit_maybe_scalar_local_set(text, fun, instr, local, ctx, diag);
+  if (local && elf_type_is_float(local->type)) {
+    if (!elf_emit_value(text, fun, instr->value, ctx, diag)) return false;
+    elf_emit_store_local_from_xmm(text, fun, instr->local_index, 0);
+    return true;
+  }
   if (!elf_emit_value(text, fun, instr->value, ctx, diag)) return false;
   elf_emit_store_local_from_reg(text, fun, instr->local_index, 0);
   return true;
@@ -1812,6 +2045,11 @@ static bool elf_emit_store_instr(ZBuf *text, const IrFunction *fun, const IrInst
   if (instr->local_index >= fun->local_len) return elf_diag(diag, "direct ELF64 field store record is out of range", instr->line, instr->column, "invalid record local");
   const IrLocal *local = &fun->locals[instr->local_index];
   if (!local->is_record) return elf_diag(diag, "direct ELF64 field store requires record local", instr->line, instr->column, "non-record local");
+  if (instr->value && elf_type_is_float(instr->value->type)) {
+    if (!elf_emit_value(text, fun, instr->value, ctx, diag)) return false;
+    elf_emit_store_field_from_xmm(text, local, instr->field_offset, instr->value->type);
+    return true;
+  }
   if (!elf_emit_value(text, fun, instr->value, ctx, diag)) return false;
   elf_emit_store_field_from_rax(text, local, instr->field_offset, instr->value ? instr->value->type : IR_TYPE_I32);
   return true;
@@ -1901,11 +2139,26 @@ static bool elf_emit_function_text(ZBuf *text, const IrFunction *fun, ElfEmitCon
     z_x64_emit_pop_reg64(text, 13);
   }
   for (size_t i = 0; i < fun->param_count; i++) {
-    if (i < 6) {
-      elf_emit_store_local_from_reg(text, fun, (unsigned)i, param_regs[i]);
+    if (elf_type_is_float(fun->locals[i].type)) {
+      /* Float parameters arrive in XMM0-XMM7 in System V AMD64 */
+      if (i < 6) {
+        elf_emit_store_local_from_xmm(text, fun, (unsigned)i, (unsigned)i);
+      } else {
+        /* Float param beyond the first 6 XMM registers is on the stack */
+        if (elf_type_is_f64(fun->locals[i].type)) {
+          z_x64_emit_movsd_xmm_ptr_rbp_disp(text, 0, 16u + (unsigned)(i - 6u) * 8u);
+        } else {
+          z_x64_emit_movss_xmm_ptr_rbp_disp(text, 0, 16u + (unsigned)(i - 6u) * 8u);
+        }
+        elf_emit_store_local_from_xmm(text, fun, (unsigned)i, 0);
+      }
     } else {
-      z_x64_emit_load_rbp_positive_reg(text, 0, 16u + (unsigned)(i - 6u) * 8u, false);
-      elf_emit_store_local_from_reg(text, fun, (unsigned)i, 0);
+      if (i < 6) {
+        elf_emit_store_local_from_reg(text, fun, (unsigned)i, param_regs[i]);
+      } else {
+        z_x64_emit_load_rbp_positive_reg(text, 0, 16u + (unsigned)(i - 6u) * 8u, false);
+        elf_emit_store_local_from_reg(text, fun, (unsigned)i, 0);
+      }
     }
   }
   if (!elf_emit_instrs(text, fun, fun->instrs, fun->instr_len, ctx, diag)) return false;

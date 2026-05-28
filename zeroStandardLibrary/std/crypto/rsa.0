@@ -19,24 +19,19 @@ const RSA_PAD_PSS u32 2_u32
 # --- Generate RSA Key Pair ---
 
 pub fn generateKeyPair u32 keyBits u32 pubOut MutSpan<u8> privOut MutSpan<u8> world World !
-  ret 0_u32
 
 # --- RSA Encrypt ---
 
 pub fn encrypt u32 publicKey Span<u8> data Span<u8> padding u32 out MutSpan<u8> world World !
-  ret 0_u32
 
 # --- RSA Decrypt ---
 
 pub fn decrypt u32 privateKey Span<u8> data Span<u8> padding u32 out MutSpan<u8> world World !
-  ret 0_u32
 
 # --- RSA Sign ---
 
 pub fn sign u32 privateKey Span<u8> data Span<u8> hashAlgo u32 padding u32 out MutSpan<u8> world World !
-  ret 0_u32
 
 # --- RSA Verify ---
 
 pub fn verify Bool publicKey Span<u8> data Span<u8> signature Span<u8> hashAlgo u32 padding u32 world World !
-  ret false

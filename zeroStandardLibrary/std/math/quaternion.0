@@ -1,0 +1,211 @@
+# std.math.quaternion
+#
+# Quaternion mathematics for 3D rotations and orientations.
+#
+# A quaternion q = w + x*i + y*j + z*k where w is the scalar part
+# and (x, y, z) is the vector part.
+#
+# All functions use f64 precision.
+
+# --- Quaternion Type ---
+
+# A quaternion with scalar part w and vector parts (x, y, z).
+#
+pub type Quaternion
+  w f64
+  x f64
+  y f64
+  z f64
+
+# Create a quaternion from components.
+#
+pub fn quat Quaternion w f64 x f64 y f64 z f64
+  ret Quaternion . w w x x y y z z
+
+# Create the identity quaternion (no rotation).
+#
+pub fn quatIdentity Quaternion
+  ret Quaternion . w 1.0 x 0.0 y 0.0 z 0.0
+
+# Create a quaternion from a 3D axis and angle (in radians).
+# q = cos(theta/2) + sin(theta/2) * (x, y, z)
+#
+pub fn fromAxisAngle Quaternion axisX f64 axisY f64 axisZ f64 angle f64
+  let halfAngle f64 / angle 2.0
+  let sinHalf f64 sin halfAngle
+  let len f64 sqrt (+ (+ (* axisX axisX) (* axisY axisY)) (* axisZ axisZ))
+  if isZero len
+    ret quatIdentity
+  let nx f64 / axisX len
+  let ny f64 / axisY len
+  let nz f64 / axisZ len
+  ret Quaternion . w (cos halfAngle) x (* nx sinHalf) y (* ny sinHalf) z (* nz sinHalf)
+
+# --- Basic Operations ---
+
+# Add two quaternions.
+#
+pub fn quatAdd Quaternion a Quaternion b Quaternion
+  ret Quaternion . w (+ a.w b.w) x (+ a.x b.x) y (+ a.y b.y) z (+ a.z b.z)
+
+# Subtract two quaternions.
+#
+pub fn quatSub Quaternion a Quaternion b Quaternion
+  ret Quaternion . w (- a.w b.w) x (- a.x b.x) y (- a.y b.y) z (- a.z b.z)
+
+# Multiply two quaternions (Hamilton product).
+# q1 * q2 = (w1*w2 - x1*x2 - y1*y2 - z1*z2) +
+#            (w1*x2 + x1*w2 + y1*z2 - z1*y2)*i +
+#            (w1*y2 - x1*z2 + y1*w2 + z1*x2)*j +
+#            (w1*z2 + x1*y2 - y1*x2 + z1*w2)*k
+#
+pub fn quatMul Quaternion a Quaternion b Quaternion
+  let w f64 (- (- (- (* a.w b.w) (* a.x b.x)) (* a.y b.y)) (* a.z b.z))
+  let x f64 (+ (+ (- (* a.w b.x) (* a.x b.w)) (* a.y b.z)) (* a.z b.y))
+  let y f64 (- (+ (- (* a.w b.y) (* a.x b.z)) (* a.y b.w)) (* a.z b.x))
+  let z f64 (+ (- (+ (* a.w b.z) (* a.x b.y)) (* a.y b.x)) (* a.z b.w))
+  ret Quaternion . w w x x y y z z
+
+# Scale a quaternion by a scalar.
+#
+pub fn quatScale Quaternion a Quaternion s f64
+  ret Quaternion . w (* a.w s) x (* a.x s) y (* a.y s) z (* a.z s)
+
+# --- Unary Operations ---
+
+# Compute the conjugate of a quaternion.
+# conj(q) = w - x*i - y*j - z*k
+#
+pub fn quatConj Quaternion a Quaternion
+  ret Quaternion . w a.w x (- 0.0 a.x) y (- 0.0 a.y) z (- 0.0 a.z)
+
+# Compute the norm (magnitude) of a quaternion.
+# |q| = sqrt(w^2 + x^2 + y^2 + z^2)
+#
+pub fn quatNorm f64 a Quaternion
+  ret sqrt (+ (+ (+ (* a.w a.w) (* a.x a.x)) (* a.y a.y)) (* a.z a.z))
+
+# Compute the squared norm of a quaternion.
+#
+pub fn quatNormSq f64 a Quaternion
+  ret + (+ (+ (* a.w a.w) (* a.x a.x)) (* a.y a.y)) (* a.z a.z)
+
+# Normalize a quaternion to unit length.
+#
+pub fn quatNormalize Quaternion a Quaternion
+  let ns f64 quatNormSq a
+  if isZero ns
+    ret quatIdentity
+  let invNorm f64 / 1.0 (sqrt ns)
+  ret quatScale a invNorm
+
+# Compute the inverse of a quaternion.
+# q^(-1) = conj(q) / |q|^2
+#
+pub fn quatInv Quaternion a Quaternion
+  let ns f64 quatNormSq a
+  if isZero ns
+    ret quatIdentity
+  let invNormSq f64 / 1.0 ns
+  ret quatScale (quatConj a) invNormSq
+
+# Negate a quaternion.
+#
+pub fn quatNeg Quaternion a Quaternion
+  ret Quaternion . w (- 0.0 a.w) x (- 0.0 a.x) y (- 0.0 a.y) z (- 0.0 a.z)
+
+# --- Rotation Operations ---
+
+# Rotate a 3D vector (as separate components) by a quaternion.
+# v' = q * v * conj(q)
+# The quaternion should be a unit quaternion.
+#
+pub type Vector3D
+  x f64
+  y f64
+  z f64
+
+pub fn rotateVector Vector3D q Quaternion vx f64 vy f64 vz f64
+  let p Quaternion quat 0.0 vx vy vz
+  let qInv Quaternion quatInv q
+  let temp Quaternion quatMul q p
+  let rotated Quaternion quatMul temp qInv
+  ret Vector3D . x rotated.x y rotated.y z rotated.z
+
+# Convert a unit quaternion to axis-angle representation.
+# Returns the axis (nx, ny, nz) and angle in radians.
+#
+pub type AxisAngle
+  x f64
+  y f64
+  z f64
+  angle f64
+
+pub fn toAxisAngle AxisAngle q Quaternion
+  let norm f64 quatNorm q
+  if isZero norm
+    ret AxisAngle . x 0.0 y 0.0 z 1.0 angle 0.0
+  let wNorm f64 / q.w norm
+  let angle f64 * 2.0 (acos (clamp wNorm (- 0.0 1.0) 1.0))
+  let sinHalf f64 sqrt (- 1.0 (* wNorm wNorm))
+  if < sinHalf 1.0e-12
+    ret AxisAngle . x 1.0 y 0.0 z 0.0 angle 0.0
+  let invSin f64 / 1.0 sinHalf
+  ret AxisAngle . x (* (/ q.x norm) invSin) y (* (/ q.y norm) invSin) z (* (/ q.z norm) invSin) angle angle
+
+# --- Interpolation ---
+
+# Spherical linear interpolation (slerp) between two quaternions.
+# Interpolates along the great circle arc at parameter t.
+#
+# Parameters:
+#   a - Start quaternion
+#   b - End quaternion
+#   t - Interpolation parameter [0, 1]
+#
+pub fn slerp Quaternion a Quaternion b Quaternion t f64
+  let cosOmega f64 + (+ (+ (* a.w b.w) (* a.x b.x)) (* a.y b.y)) (* a.z b.z)
+  mut cosOmegaClamped f64 cosOmega
+  mut bAdj Quaternion b
+  if < cosOmegaClamped 0.0
+    set cosOmegaClamped (- 0.0 cosOmegaClamped)
+    set bAdj quatNeg b
+  let omega f64 acos (clamp cosOmegaClamped (- 0.0 1.0) 1.0)
+  let sinOmega f64 sin omega
+  if < sinOmega 1.0e-12
+    # Nearly parallel: use linear interpolation
+    ret quatNormalize (quatAdd (quatScale a (- 1.0 t)) (quatScale bAdj t))
+  let coeffA f64 / (sin (* (- 1.0 t) omega)) sinOmega
+  let coeffB f64 / (sin (* t omega)) sinOmega
+  ret quatAdd (quatScale a coeffA) (quatScale bAdj coeffB)
+
+# Test quaternion functions
+test "quaternion basics work"
+  let q Quaternion quatIdentity
+  expect (approxEq q.w 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq q.x 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (quatNorm q) 1.0 DEFAULT_TOLERANCE)
+
+test "quaternion multiplication works"
+  let q1 Quaternion quat 1.0 2.0 3.0 4.0
+  let q2 Quaternion quat 5.0 6.0 7.0 8.0
+  let prod Quaternion quatMul q1 q2
+  # q1 * q2 should give specific result
+  let q1Inv Quaternion quatInv q1
+  let check Quaternion quatMul q1Inv q1
+  expect (approxEq check.w 1.0 1.0e-6)
+
+test "quaternion rotation works"
+  let axisAngle f64 PI_2
+  let q Quaternion fromAxisAngle 0.0 0.0 1.0 axisAngle
+  let rotated Vector3D rotateVector q 1.0 0.0 0.0
+  expect (approxEq rotated.x 0.0 1.0e-6)
+  expect (approxEq rotated.y 1.0 1.0e-6)
+  expect (approxEq rotated.z 0.0 1.0e-6)
+
+test "slerp works"
+  let q1 Quaternion quatIdentity
+  let q2 Quaternion fromAxisAngle 0.0 1.0 0.0 PI_2
+  let mid Quaternion slerp q1 q2 0.5
+  let norm f64 quatNorm mid
+  expect (approxEq norm 1.0 1.0e-6)

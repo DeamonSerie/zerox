@@ -1,0 +1,376 @@
+# std.math.ode
+#
+# Ordinary Differential Equation (ODE) solvers.
+#
+# Provides numerical integration methods for initial value problems
+# of the form dy/dt = f(t, y), y(t0) = y0.
+#
+# Functions support single equations and systems of equations.
+# System ODEs use Span/MutSpan for state vectors.
+
+# --- Single-Step Methods ---
+
+# Perform one step of Euler's method.
+# y_{n+1} = y_n + h * f(t_n, y_n)
+#
+# Parameters:
+#   fn - RHS function f(t, y) returning dy/dt
+#   t  - Current time
+#   y  - Current state
+#   h  - Step size
+#
+pub fn eulerStep f64 fn (fn f64) f64 f64 t f64 y f64 h f64
+  ret + y (* h (fn t y))
+
+# Solve an ODE from t0 to t1 using Euler's method with fixed step size.
+# Returns the final state value.
+#
+# Parameters:
+#   fn   - RHS function f(t, y)
+#   t0   - Initial time
+#   y0   - Initial state
+#   h    - Step size
+#   t1   - Final time
+#
+pub fn solveEuler f64 fn (fn f64) f64 f64 t0 f64 y0 f64 h f64 t1 f64
+  mut t f64 t0
+  mut y f64 y0
+  while < t t1
+    if > (+ t h) t1
+      set h (- t1 t)
+    set y + y (* h (fn t y))
+    set t + t h
+  ret y
+
+# Solve an ODE and record all steps to output arrays.
+# n is the number of steps (t1 - t0) / h.
+#
+pub fn solveEulerRecord UnsizedVoid fn (fn f64) f64 f64 t0 f64 y0 f64 h f64 n u32 tOut MutSpan<f64> yOut MutSpan<f64>
+  set tOut[0] t0
+  set yOut[0] y0
+  mut t f64 t0
+  mut y f64 y0
+  mut i u32 1
+  while < i n
+    set y + y (* h (fn t y))
+    set t + t h
+    set tOut[i] t
+    set yOut[i] y
+    set i + i 1
+
+# --- Runge-Kutta Methods ---
+
+# Perform one step of the classical 4th-order Runge-Kutta method.
+# y_{n+1} = y_n + (h/6) * (k1 + 2*k2 + 2*k3 + k4)
+# where:
+#   k1 = f(t_n, y_n)
+#   k2 = f(t_n + h/2, y_n + h*k1/2)
+#   k3 = f(t_n + h/2, y_n + h*k2/2)
+#   k4 = f(t_n + h, y_n + h*k3)
+#
+pub fn rk4Step f64 fn (fn f64) f64 f64 t f64 y f64 h f64
+  let k1 f64 fn t y
+  let halfH f64 / h 2.0
+  let k2 f64 fn (+ t halfH) (+ y (* halfH k1))
+  let k3 f64 fn (+ t halfH) (+ y (* halfH k2))
+  let k4 f64 fn (+ t h) (+ y (* h k3))
+  ret + y (* (/ h 6.0) (+ (+ (+ k1 (* 2.0 k2)) (* 2.0 k3)) k4))
+
+# Solve an ODE using RK4 with fixed step size.
+# Returns the final state value.
+#
+pub fn solveRK4 f64 fn (fn f64) f64 f64 t0 f64 y0 f64 h f64 t1 f64
+  mut t f64 t0
+  mut y f64 y0
+  mut stepH f64 h
+  while < t t1
+    if > (+ t stepH) t1
+      set stepH (- t1 t)
+    set y rk4Step fn t y stepH
+    set t + t stepH
+  ret y
+
+# Solve an ODE using RK4 and record all steps.
+#
+pub fn solveRK4Record UnsizedVoid fn (fn f64) f64 f64 t0 f64 y0 f64 h f64 n u32 tOut MutSpan<f64> yOut MutSpan<f64>
+  set tOut[0] t0
+  set yOut[0] y0
+  mut t f64 t0
+  mut y f64 y0
+  mut i u32 1
+  while < i n
+    set y rk4Step fn t y h
+    set t + t h
+    set tOut[i] t
+    set yOut[i] y
+    set i + i 1
+
+# --- Multi-Step Methods ---
+
+# Perform one step of the 2nd-order Adams-Bashforth method.
+# y_{n+2} = y_{n+1} + (h/2) * (3*f(t_{n+1}, y_{n+1}) - f(t_n, y_n))
+#
+# Requires the previous derivative value.
+#
+# Parameters:
+#   fn   - RHS function f(t, y)
+#   t    - Current time (t_{n+1})
+#   y    - Current state (y_{n+1})
+#   h    - Step size
+#   fPrev - Previous derivative value f(t_n, y_n)
+#
+# Returns the next state and updates fPrev to the current derivative.
+#
+pub type AB2Step
+  yNext f64
+  fCurr f64
+
+pub fn adamsBashforth2Step AB2Step fn (fn f64) f64 f64 t f64 y f64 h f64 fPrev f64
+  let fCurr f64 fn t y
+  let yNext f64 + y (* (/ h 2.0) (- (* 3.0 fCurr) fPrev))
+  ret AB2Step . yNext yNext fCurr fCurr
+
+# Solve an ODE using 2nd-order Adams-Bashforth.
+# Uses RK4 for the first step to bootstrap the multi-step method.
+#
+pub fn solveAdamsBashforth2 f64 fn (fn f64) f64 f64 t0 f64 y0 f64 h f64 t1 f64
+  mut t f64 t0
+  mut y f64 y0
+  # First step with RK4 to get f(t0, y0)
+  let fPrev f64 fn t y
+  let y1 f64 rk4Step fn t y h
+  set t + t h
+  set y y1
+  # Adams-Bashforth 2 steps
+  mut stepH f64 h
+  while < t t1
+    if > (+ t stepH) t1
+      set stepH (- t1 t)
+    let step AB2Step adamsBashforth2Step fn t y stepH fPrev
+    set y step.yNext
+    set fPrev step.fCurr
+    set t + t stepH
+  ret y
+
+# Perform one step of the 4th-order Adams-Bashforth method.
+# y_{n+4} = y_{n+3} + (h/24) * (55*f_{n+3} - 59*f_{n+2} + 37*f_{n+1} - 9*f_n)
+#
+pub type AB4Step
+  yNext f64
+  fCurr f64
+
+pub fn adamsBashforth4Step AB4Step fn (fn f64) f64 f64 t f64 y f64 h f64 f1 f64 f2 f64 f3 f64
+  let fCurr f64 fn t y
+  let yNext f64 + y (* (/ h 24.0) (- (+ (* 55.0 fCurr) (* (- 0.0 59.0) f1)) (- (* 37.0 f2) (* 9.0 f3))))
+  ret AB4Step . yNext yNext fCurr fCurr
+
+# --- ODE System Solvers (Vector State) ---
+#
+# Solve systems of ODEs dy/dt = f(t, y) where y is a vector of dimension n.
+# The system function takes the current time t, the state vector y,
+# and writes derivatives to the output vector dy.
+#
+# System function signature: (fn Void) f64 Span<f64> MutSpan<f64>
+#   arg[0] = current time t (f64)
+#   arg[1] = state vector y (Span<f64>)
+#   arg[2] = derivative vector dy/dt (MutSpan<f64>)
+
+# --- System Euler Step ---
+#
+# Perform one step of Euler's method for a system of ODEs.
+# y_{n+1} = y_n + h * f(t_n, y_n)
+#
+# Parameters:
+#   fn   - System function f(t, y, dy)
+#   t    - Current time
+#   h    - Step size
+#   n    - System dimension
+#   y    - Current state (length n), updated in place
+#   dy   - Workspace for derivatives (length n)
+#
+pub fn systemEulerStep Void fn (fn Void) f64 Span<f64> MutSpan<f64> t f64 h f64 n u32 y MutSpan<f64> dy MutSpan<f64>
+  let ySpan Span<f64> as Span<f64> y
+  fn t ySpan dy
+  mut i u32 0
+  while < i n
+    set y[i] + y[i] (* h dy[i])
+    set i + i 1
+
+# --- Solve ODE System with Euler ---
+#
+# Solve a system from t0 to t1 using Euler's method.
+# Records all steps to output arrays.
+#
+# Parameters:
+#   fn   - System function
+#   t0   - Initial time
+#   y0   - Initial state (length n)
+#   n    - System dimension
+#   h    - Step size
+#   steps - Number of steps
+#   tOut - Output time array (length steps + 1)
+#   yOut - Output state array, flat row-major (length (steps+1) * n)
+#   dy   - Workspace for derivatives (length n)
+#
+pub fn solveSystemEuler Void fn (fn Void) f64 Span<f64> MutSpan<f64> t0 f64 y0 Span<f64> n u32 h f64 steps u32 tOut MutSpan<f64> yOut MutSpan<f64> dy MutSpan<f64>
+  mut i u32 0
+  while < i n
+    set yOut[i] y0[i]
+    set i + i 1
+  set tOut[0] t0
+  mut t f64 t0
+  mut step u32 1
+  while <= step steps
+    let tSpan Span<f64> tOut
+    # Compute derivatives
+    let ySlice Span<f64> yOut
+    let dySlice MutSpan<f64> dy
+    fn t ySlice dySlice
+    # Euler step for each variable
+    mut j u32 0
+    while < j n
+      let idx usize (as usize (+ (* step n) j))
+      let prevIdx usize (as usize (+ (* (- step 1_u32) n) j))
+      set yOut[idx] + yOut[prevIdx] (* h dy[j])
+      set j + j 1
+    set t + t h
+    set tOut[step] t
+    set step + step 1
+
+# --- System RK4 Step ---
+#
+# Perform one step of the classical 4th-order Runge-Kutta method
+# for a system of ODEs.
+#
+# Parameters:
+#   fn     - System function
+#   t      - Current time
+#   h      - Step size
+#   n      - System dimension
+#   y      - Current state (length n), updated in place
+#   k1-k4  - Workspace arrays (length n each)
+#   temp   - Workspace array (length n)
+#   dy     - Workspace for derivatives (length n)
+#
+pub fn systemRK4Step Void fn (fn Void) f64 Span<f64> MutSpan<f64> t f64 h f64 n u32 y MutSpan<f64> k1 MutSpan<f64> k2 MutSpan<f64> k3 MutSpan<f64> k4 MutSpan<f64> temp MutSpan<f64> dy MutSpan<f64>
+  let ySpan Span<f64> as Span<f64> y
+  # k1 = f(t, y)
+  fn t ySpan dy
+  mut i u32 0
+  while < i n
+    set k1[i] dy[i]
+    set temp[i] + y[i] (* (/ h 2.0) k1[i])
+    set i + i 1
+  # k2 = f(t + h/2, y + h*k1/2)
+  let tempSpan Span<f64> as Span<f64> temp
+  fn (+ t (/ h 2.0)) tempSpan dy
+  mut i2 u32 0
+  while < i2 n
+    set k2[i2] dy[i2]
+    set temp[i2] + y[i2] (* (/ h 2.0) k2[i2])
+    set i2 + i2 1
+  # k3 = f(t + h/2, y + h*k2/2)
+  let tempSpan2 Span<f64> as Span<f64> temp
+  fn (+ t (/ h 2.0)) tempSpan2 dy
+  mut i3 u32 0
+  while < i3 n
+    set k3[i3] dy[i3]
+    set temp[i3] + y[i3] (* h k3[i3])
+    set i3 + i3 1
+  # k4 = f(t + h, y + h*k3)
+  let tempSpan3 Span<f64> as Span<f64> temp
+  fn (+ t h) tempSpan3 dy
+  mut i4 u32 0
+  while < i4 n
+    set k4[i4] dy[i4]
+    set i4 + i4 1
+  # y_{n+1} = y_n + (h/6) * (k1 + 2*k2 + 2*k3 + k4)
+  mut i5 u32 0
+  while < i5 n
+    set y[i5] + y[i5] (* (/ h 6.0) (+ (+ (+ k1[i5] (* 2.0 k2[i5])) (* 2.0 k3[i5])) k4[i5]))
+    set i5 + i5 1
+
+# --- Solve ODE System with RK4 ---
+#
+# Solve a system from t0 to t1 using RK4.
+# Records all steps to output arrays.
+#
+pub fn solveSystemRK4 Void fn (fn Void) f64 Span<f64> MutSpan<f64> t0 f64 y0 Span<f64> n u32 h f64 steps u32 tOut MutSpan<f64> yOut MutSpan<f64> k1 MutSpan<f64> k2 MutSpan<f64> k3 MutSpan<f64> k4 MutSpan<f64> temp MutSpan<f64> dy MutSpan<f64>
+  mut i u32 0
+  while < i n
+    set yOut[i] y0[i]
+    set i + i 1
+  set tOut[0] t0
+  mut t f64 t0
+  mut step u32 1
+  while <= step steps
+    # Get current state from output array
+    let curIdx usize (as usize (* (- step 1_u32) n))
+    let yCurr MutSpan<f64> yOut[curIdx .. (+ curIdx (as usize n))]
+    # Compute RK4 step
+    let tSpan Span<f64> tOut
+    systemRK4Step fn t h n yCurr k1 k2 k3 k4 temp dy
+    set t + t h
+    set tOut[step] t
+    # Copy result to next position
+    let nextIdx usize (as usize (* step n))
+    mut j u32 0
+    while < j n
+      set yOut[nextIdx + (as usize j)] yCurr[(as usize j)]
+      set j + j 1
+    set step + step 1
+
+# Test ODE system functions
+test "system euler works"
+  # Simple system: dy1/dt = y2, dy2/dt = -y1 (harmonic oscillator)
+  let rhs (fn Void) f64 Span<f64> MutSpan<f64> let t f64 args[0]; let y Span<f64> args[1]; let dy MutSpan<f64> args[2]; set dy[0] y[1]; set dy[1] (- 0.0 y[0])
+  mut y [2]f64 [0.0, 1.0]
+  mut dy [2]f64 [0.0, 0.0]
+  let ySpan Span<f64> y
+  let dySpan MutSpan<f64> dy
+  ySpan[0] = 0.0 using ...
+  # Simpler test: use a known function
+  # dy/dt = y (single equation as system)
+  let sys (fn Void) f64 Span<f64> MutSpan<f64> let t2 f64 args[0]; let ys Span<f64> args[1]; let dys MutSpan<f64> args[2]; set dys[0] ys[0]
+  mut y2 [1]f64 [1.0]
+  mut dy2 [1]f64 [0.0]
+  systemEulerStep sys 0.0 0.1 1_u32 y2 dy2
+  expect (approxEq y2[0] 1.1 1.0e-6)
+
+test "system RK4 step works"
+  # dy/dt = -y (decay)
+  let sys (fn Void) f64 Span<f64> MutSpan<f64> let t2 f64 args[0]; let ys Span<f64> args[1]; let dys MutSpan<f64> args[2]; set dys[0] (- 0.0 ys[0])
+  mut y [1]f64 [1.0]
+  mut k1 [1]f64 [0.0]
+  mut k2 [1]f64 [0.0]
+  mut k3 [1]f64 [0.0]
+  mut k4 [1]f64 [0.0]
+  mut temp [1]f64 [0.0]
+  mut dy [1]f64 [0.0]
+  systemRK4Step sys 0.0 0.1 1_u32 y k1 k2 k3 k4 temp dy
+  # Exact: e^(-0.1) ≈ 0.904837
+  expect (approxEq y[0] 0.904837 1.0e-3)
+
+# Test ODE solvers
+test "euler step works"
+  let rhs (fn f64) f64 f64 let t f64 args[0]; let y f64 args[1]; ret y
+  let result eulerStep rhs 0.0 1.0 0.1
+  expect (approxEq result 1.1 1.0e-6)
+
+test "rk4 step works"
+  let rhs (fn f64) f64 f64 let t f64 args[0]; let y f64 args[1]; ret y
+  let result rk4Step rhs 0.0 1.0 0.1
+  # Exact: e^0.1 ≈ 1.10517
+  expect (approxEq result 1.10517 1.0e-3)
+
+test "solveEuler works"
+  let rhs (fn f64) f64 f64 let t f64 args[0]; let y f64 args[1]; ret y
+  let result solveEuler rhs 0.0 1.0 0.01 1.0
+  # Exact: e^1 ≈ 2.71828
+  expect (approxEq result 2.71828 1.0e-1)
+
+test "solveRK4 works"
+  let rhs (fn f64) f64 f64 let t f64 args[0]; let y f64 args[1]; ret (- 0.0 y)
+  let result solveRK4 rhs 0.0 1.0 0.01 1.0
+  # Exact: e^(-1) ≈ 0.3679
+  expect (approxEq result 0.3679 1.0e-2)

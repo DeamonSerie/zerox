@@ -35,17 +35,16 @@ pub fn derive u32 password Span<u8> salt Span<u8> iterations u32 outLen u32 out 
 pub fn exchange u32 keyA Span<u8> keyB Span<u8> out MutSpan<u8> world World !
   let lenA u32 std.mem.len keyA
   let lenB u32 std.mem.len keyB
-  let minLen u32 lenA
-  if < lenB minLen
-    let minLen u32 lenB
+  if not == lenA lenB
+    ret 0_u32
   let i u32 0_u32
-  while < i minLen
+  while < i lenA
     let a u8 keyA[i]
     let b u8 keyB[i]
     let x u8 ^ a b
     store<u8> x out i
     let i u32 + i 1_u32
-  ret minLen
+  ret lenA
 
 # --- Obfuscate (XOR-based) ---
 #

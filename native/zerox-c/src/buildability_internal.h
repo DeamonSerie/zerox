@@ -13,7 +13,7 @@ typedef struct {
 } ZBuildability;
 
 enum {
-  BUILD_MACHO_SCRATCH_SLOT_COUNT = 32u
+  BUILD_VOID_SCRATCH_SLOT_COUNT = 32u
 };
 
 const char *z_build_type_name(IrTypeKind type);
@@ -24,8 +24,8 @@ bool z_build_diag(const ZBuildability *ctx, ZDiag *diag, const char *message, in
 bool z_build_select(const IrProgram *ir, const ZTargetInfo *target, const char *emit_kind, ZBuildability *ctx, ZDiag *diag);
 bool z_build_check_coff_byte_view_len(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag);
 bool z_build_check_coff_byte_view(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag);
-bool z_build_check_macho_byte_view_len(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag);
-bool z_build_check_macho_byte_view(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag);
+bool z_build_check_void_byte_view_len(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag);
+bool z_build_check_void_byte_view(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag);
 bool z_build_check_aarch64_literal_shape(const ZBuildability *ctx, const IrFunction *fun, ZDiag *diag);
 
 #endif

@@ -1,0 +1,1010 @@
+# std.math.matrix
+#
+# Matrix operations: addition, multiplication, transposition,
+# determinant, inversion, and linear system solving.
+#
+# Matrices are stored in row-major order as flat f64 arrays.
+# A matrix with R rows and C columns has R*C elements where
+# element (i, j) is at index i*C + j.
+
+# --- Matrix Type ---
+#
+# Describes a matrix stored in a flat f64 array.
+#
+pub type Matrix
+  rows u32
+  cols u32
+  data Span<f64>
+  cap usize
+
+# Mutable variant for output matrices.
+#
+pub type MatrixMut
+  rows u32
+  cols u32
+  data MutSpan<f64>
+  cap usize
+
+# --- Matrix Creation ---
+
+# Create a Matrix view from a flat array with given dimensions.
+#
+pub fn matrixView Matrix rows u32 cols u32 data Span<f64>
+  let len usize * (as usize rows) (as usize cols)
+  ret Matrix . rows rows cols cols data data cap len
+
+# Create a mutable MatrixMut view.
+#
+pub fn matrixMutView MatrixMut rows u32 cols u32 data MutSpan<f64>
+  let len usize * (as usize rows) (as usize cols)
+  ret MatrixMut . rows rows cols cols data data cap len
+
+# --- Element Access ---
+
+# Get element at (row, col). Returns 0 if out of bounds.
+#
+pub fn get f64 mat Matrix row u32 col u32
+  if || (>= row mat.rows) (>= col mat.cols)
+    ret 0.0
+  ret mat.data[(as usize (+ (* row mat.cols) col))]
+
+# Set element at (row, col). No-op if out of bounds.
+#
+pub fn set Void mat MatrixMut row u32 col u32 value f64
+  if || (>= row mat.rows) (>= col mat.cols)
+    ret
+  set mat.data[(as usize (+ (* row mat.cols) col))] value
+
+# --- Basic Operations ---
+
+# Add two matrices element-wise. Stores result in out.
+# All matrices must have the same dimensions.
+# Returns true on success.
+#
+pub fn add Matrix a Matrix b MatrixMut out
+  if || (!= a.rows b.rows) (|| (!= a.cols b.cols) (|| (!= a.rows out.rows) (!= a.cols out.cols)))
+    ret false
+  let count usize * (as usize a.rows) (as usize a.cols)
+  mut i usize 0
+  while < i count
+    set out.data[i] + a.data[i] b.data[i]
+    set i + i 1
+  ret true
+
+# Subtract two matrices element-wise. Stores result in out.
+# Returns true on success.
+#
+pub fn sub Matrix a Matrix b MatrixMut out
+  if || (!= a.rows b.rows) (|| (!= a.cols b.cols) (|| (!= a.rows out.rows) (!= a.cols out.cols)))
+    ret false
+  let count usize * (as usize a.rows) (as usize a.cols)
+  mut i usize 0
+  while < i count
+    set out.data[i] - a.data[i] b.data[i]
+    set i + i 1
+  ret true
+
+# Multiply a matrix by a scalar.
+#
+pub fn scale Matrix a f64 scalar f64 MatrixMut out
+  if || (!= a.rows out.rows) (!= a.cols out.cols)
+    ret false
+  let count usize * (as usize a.rows) (as usize a.cols)
+  mut i usize 0
+  while < i count
+    set out.data[i] * a.data[i] scalar
+    set i + i 1
+  ret true
+
+# Multiply two matrices: out = a * b.
+# a must have dimensions (m x n), b must have (n x p).
+# out must have dimensions (m x p).
+# Returns true on success.
+#
+pub fn mul Matrix a Matrix b MatrixMut out
+  if || (!= a.cols b.rows) (|| (!= a.rows out.rows) (!= b.cols out.cols))
+    ret false
+  mut i u32 0
+  while < i a.rows
+    mut k u32 0
+    while < k a.cols
+      let aik f64 a.data[(as usize (+ (* i a.cols) k))]
+      if != aik 0.0
+        mut j u32 0
+        while < j b.cols
+          set out.data[(as usize (+ (* i b.cols) j))]
+            + out.data[(as usize (+ (* i b.cols) j))]
+            (* aik b.data[(as usize (+ (* k b.cols) j))])
+          set j + j 1
+      set k + k 1
+    set i + i 1
+  ret true
+
+# Transpose a matrix: out = a^T.
+# a must have dimensions (m x n), out must have (n x m).
+#
+pub fn transpose Matrix a MatrixMut out
+  if || (!= a.rows out.cols) (!= a.cols out.rows)
+    ret false
+  mut i u32 0
+  while < i a.rows
+    mut j u32 0
+    while < j a.cols
+      set out.data[(as usize (+ (* j a.rows) i))] a.data[(as usize (+ (* i a.cols) j))]
+      set j + j 1
+    set i + i 1
+  ret true
+
+# --- Matrix Norms ---
+
+# Compute the Frobenius norm of a matrix.
+#
+pub fn normFrobenius f64 mat Matrix
+  mut sum f64 0.0
+  let count usize * (as usize mat.rows) (as usize mat.cols)
+  mut i usize 0
+  while < i count
+    set sum + sum (* mat.data[i] mat.data[i])
+    set i + i 1
+  ret sqrt sum
+
+# Compute the infinity norm (maximum absolute row sum).
+#
+pub fn normInf f64 mat Matrix
+  mut maxNorm f64 0.0
+  mut i u32 0
+  while < i mat.rows
+    mut rowSum f64 0.0
+    mut j u32 0
+    while < j mat.cols
+      set rowSum + rowSum (abs mat.data[(as usize (+ (* i mat.cols) j))])
+      set j + j 1
+    if > rowSum maxNorm
+      set maxNorm rowSum
+    set i + i 1
+  ret maxNorm
+
+# --- 2x2 Matrix Determinant ---
+#
+pub fn det2 f64 a Matrix
+  if || (!= a.rows 2_u32) (!= a.cols 2_u32)
+    ret 0.0
+  ret (- (* a.data[0] a.data[3]) (* a.data[1] a.data[2]))
+
+# --- 3x3 Matrix Determinant ---
+#
+pub fn det3 f64 a Matrix
+  if || (!= a.rows 3_u32) (!= a.cols 3_u32)
+    ret 0.0
+  let a0 f64 a.data[0]
+  let a1 f64 a.data[1]
+  let a2 f64 a.data[2]
+  let a3 f64 a.data[3]
+  let a4 f64 a.data[4]
+  let a5 f64 a.data[5]
+  let a6 f64 a.data[6]
+  let a7 f64 a.data[7]
+  let a8 f64 a.data[8]
+  ret - (- (+ (* a0 (- (* a4 a8) (* a5 a7))) (* a1 (- (* a5 a6) (* a3 a8)))) (* a2 (- (* a3 a7) (* a4 a6)))
+
+# --- 2x2 Matrix Inverse ---
+#
+# Invert a 2x2 matrix. Returns true if invertible.
+# Writes result to out.
+#
+pub fn inv2 Matrix a MatrixMut out
+  if || (!= a.rows 2_u32) (|| (!= a.cols 2_u32) (|| (!= out.rows 2_u32) (!= out.cols 2_u32)))
+    ret false
+  let det f64 (- (* a.data[0] a.data[3]) (* a.data[1] a.data[2]))
+  if isZero det
+    ret false
+  let invDet f64 / 1.0 det
+  set out.data[0] * a.data[3] invDet
+  set out.data[1] * (- 0.0 a.data[1]) invDet
+  set out.data[2] * (- 0.0 a.data[2]) invDet
+  set out.data[3] * a.data[0] invDet
+  ret true
+
+# --- 3x3 Matrix Inverse via Cofactors ---
+#
+# Invert a 3x3 matrix. Returns true if invertible.
+#
+pub fn inv3 Matrix a MatrixMut out
+  if || (!= a.rows 3_u32) (|| (!= a.cols 3_u32) (|| (!= out.rows 3_u32) (!= out.cols 3_u32)))
+    ret false
+  let a0 f64 a.data[0]
+  let a1 f64 a.data[1]
+  let a2 f64 a.data[2]
+  let a3 f64 a.data[3]
+  let a4 f64 a.data[4]
+  let a5 f64 a.data[5]
+  let a6 f64 a.data[6]
+  let a7 f64 a.data[7]
+  let a8 f64 a.data[8]
+  let det f64 - (- (+ (* a0 (- (* a4 a8) (* a5 a7))) (* a1 (- (* a5 a6) (* a3 a8)))) (* a2 (- (* a3 a7) (* a4 a6)))
+  if isZero det
+    ret false
+  let invDet f64 / 1.0 det
+  set out.data[0] * (- (* a4 a8) (* a5 a7)) invDet
+  set out.data[1] * (- (* a2 a7) (* a1 a8)) invDet
+  set out.data[2] * (- (* a1 a5) (* a2 a4)) invDet
+  set out.data[3] * (- (* a5 a6) (* a3 a8)) invDet
+  set out.data[4] * (- (* a0 a8) (* a2 a6)) invDet
+  set out.data[5] * (- (* a2 a3) (* a0 a5)) invDet
+  set out.data[6] * (- (* a3 a7) (* a4 a6)) invDet
+  set out.data[7] * (- (* a1 a6) (* a0 a7)) invDet
+  set out.data[8] * (- (* a0 a4) (* a1 a3)) invDet
+  ret true
+
+# --- Identity Matrix ---
+#
+# Fill out with the identity matrix.
+#
+pub fn identity Void n u32 out MatrixMut
+  mut i u32 0
+  while < i n
+    mut j u32 0
+    while < j n
+      if == i j
+        set out.data[(as usize (+ (* i n) j))] 1.0
+      else
+        set out.data[(as usize (+ (* i n) j))] 0.0
+      set j + j 1
+    set i + i 1
+
+# --- Trace (sum of diagonal elements) ---
+#
+pub fn trace f64 mat Matrix
+  if != mat.rows mat.cols
+    ret 0.0
+  mut sum f64 0.0
+  mut i u32 0
+  while < i mat.rows
+    set sum + sum mat.data[(as usize (+ (* i mat.cols) i))]
+    set i + i 1
+  ret sum
+
+# --- LU Decomposition (Doolittle) ---
+#
+# Compute PA = LU decomposition.
+# Stores L (lower triangular with unit diagonal) and U (upper triangular)
+# compactly into out: L in the lower triangle (excluding diagonal),
+# U in the upper triangle and diagonal.
+#
+# Returns true on success, false if matrix is singular.
+#
+pub type LUResult
+  ok Bool
+  pivot u32
+
+pub fn lu LUResult a Matrix lufactor MatrixMut perm MutSpan<u32> permCount u32
+  if || (!= a.rows a.cols) (|| (!= a.rows lufactor.rows) (!= a.cols lufactor.cols))
+    ret LUResult . ok false pivot 0_u32
+  let n u32 a.rows
+  # Copy a into lufactor
+  let count usize * (as usize n) (as usize n)
+  mut i usize 0
+  while < i count
+    set lufactor.data[i] a.data[i]
+    set i + i 1
+  # Initialize permutation
+  mut i2 u32 0
+  while < i2 n
+    set perm[i2] i2
+    set i2 + i2 1
+  mut parity u32 0_u32
+  mut k u32 0
+  while < k n
+    # Find pivot
+    mut maxVal f64 abs lufactor.data[(as usize (+ (* k n) k))]
+    mut maxRow u32 k
+    mut i3 u32 (+ k 1_u32)
+    while < i3 n
+      let val f64 abs lufactor.data[(as usize (+ (* i3 n) k))]
+      if > val maxVal
+        set maxVal val
+        set maxRow i3
+      set i3 + i3 1
+    if isZero maxVal
+      ret LUResult . ok false pivot k
+    # Swap rows if needed
+    if != maxRow k
+      mut j u32 0
+      while < j n
+        let tmp f64 lufactor.data[(as usize (+ (* k n) j))]
+        set lufactor.data[(as usize (+ (* k n) j))] lufactor.data[(as usize (+ (* maxRow n) j))]
+        set lufactor.data[(as usize (+ (* maxRow n) j))] tmp
+        set j + j 1
+      let tmpPerm u32 perm[k]
+      set perm[k] perm[maxRow]
+      set perm[maxRow] tmpPerm
+      set parity + parity 1_u32
+    # Compute L and U factors
+    mut i4 u32 (+ k 1_u32)
+    while < i4 n
+      let factor f64 / lufactor.data[(as usize (+ (* i4 n) k))] lufactor.data[(as usize (+ (* k n) k))]
+      set lufactor.data[(as usize (+ (* i4 n) k))] factor
+      mut j2 u32 (+ k 1_u32)
+      while < j2 n
+        set lufactor.data[(as usize (+ (* i4 n) j2))]
+          - lufactor.data[(as usize (+ (* i4 n) j2))]
+          (* factor lufactor.data[(as usize (+ (* k n) j2))])
+        set j2 + j2 1
+      set i4 + i4 1
+    set k + k 1
+  ret LUResult . ok true pivot parity
+
+# --- Forward and Back Substitution ---
+#
+# Solve L * y = b (forward substitution) where L is lower triangular
+# with unit diagonal. L is stored compactly in the lufactor matrix.
+#
+pub fn forwardSub Void lufactor Matrix b Span<f64> y MutSpan<f64>
+  let n u32 lufactor.rows
+  mut i u32 0
+  while < i n
+    mut sum f64 0.0
+    mut j u32 0
+    while < j i
+      set sum + sum (* lufactor.data[(as usize (+ (* i n) j))] y[j])
+      set j + j 1
+    set y[i] - b[i] sum
+    set i + i 1
+
+# Solve U * x = y (back substitution) where U is upper triangular.
+# U is stored in the upper triangle of lufactor.
+#
+pub fn backSub Void lufactor Matrix y Span<f64> x MutSpan<f64>
+  let n u32 lufactor.rows
+  mut i i32 (as i32 (- n 1_u32))
+  while >= i 0
+    mut sum f64 0.0
+    mut j u32 (+ (as u32 i) 1_u32)
+    while < j n
+      set sum + sum (* lufactor.data[(as usize (+ (* (as u32 i) n) j))] x[j])
+      set j + j 1
+    set x[(as u32 i)] / (- y[(as u32 i)] sum) lufactor.data[(as usize (+ (* (as u32 i) n) (as u32 i)))]
+    set i - i 1
+
+# --- Solve Linear System Ax = b ---
+#
+# Solve A * x = b using LU decomposition.
+#
+# Parameters:
+#   a      - Coefficient matrix (n x n)
+#   b      - Right-hand side vector (length n)
+#   x      - Output solution vector (length n)
+#   lufactor - Workspace matrix (n x n)
+#   perm   - Workspace permutation vector (length n)
+#   y      - Workspace vector (length n)
+#
+# Returns true if the system was solved successfully.
+#
+pub fn solve LinearSystem f64 a Matrix b Span<f64> x MutSpan<f64> lufactor MatrixMut perm MutSpan<u32> y MutSpan<f64>
+  if != a.rows a.cols
+    ret false
+  let n u32 a.rows
+  # LU decompose
+  let luRes LUResult lu a (matrixView lufactor.rows lufactor.cols (as Span<f64> lufactor.data)) perm n
+  if ! luRes.ok
+    ret false
+  # Apply permutation to b -> y
+  mut i u32 0
+  while < i n
+    set y[i] b[perm[i]]
+    set i + i 1
+  # Forward substitution: L * z = P*b
+  let lufactorRead Matrix matrixView lufactor.rows lufactor.cols (as Span<f64> lufactor.data)
+  forwardSub lufactorRead (as Span<f64> y[0..n]) (as MutSpan<f64> y[0..n])
+  # Back substitution: U * x = z
+  backSub lufactorRead (as Span<f64> y[0..n]) x
+  ret true
+
+# --- QR Decomposition (Modified Gram-Schmidt) ---
+#
+# Decompose A = Q * R where Q has orthonormal columns and R is upper triangular.
+# A is m x n, Q is m x n, R is n x n.
+#
+# Parameters:
+#   a - Input matrix (m x n)
+#   q - Output matrix for Q (m x n)
+#   r - Output matrix for R (n x n)
+#
+# Returns true on success.
+#
+pub type QRResult
+  ok Bool
+  qrows u32
+  qcols u32
+  rrows u32
+  rcols u32
+
+pub fn qrDecomp QRResult a Matrix q MatrixMut r MatrixMut
+  let m u32 a.rows
+  let n u32 a.cols
+  if || (!= q.rows m) (|| (!= q.cols n) (|| (!= r.rows n) (!= r.cols n)))
+    ret QRResult . ok false qrows 0_u32 qcols 0_u32 rrows 0_u32 rcols 0_u32
+  # Copy A into Q
+  let count usize * (as usize m) (as usize n)
+  mut ic usize 0
+  while < ic count
+    set q.data[ic] a.data[ic]
+    set ic + ic 1
+  # Modified Gram-Schmidt
+  mut j u32 0
+  while < j n
+    # R[j,j] = ||Q[:,j]||
+    mut normSq f64 0.0
+    mut i2 u32 0
+    while < i2 m
+      let val f64 q.data[(as usize (+ (* i2 n) j))]
+      set normSq + normSq (* val val)
+      set i2 + i2 1
+    let norm f64 sqrt normSq
+    if isZero norm
+      ret QRResult . ok false qrows m qcols n rrows n rcols n
+    set r.data[(as usize (+ (* j n) j))] norm
+    # Normalize column j of Q
+    let invNorm f64 / 1.0 norm
+    mut i3 u32 0
+    while < i3 m
+      set q.data[(as usize (+ (* i3 n) j))] * q.data[(as usize (+ (* i3 n) j))] invNorm
+      set i3 + i3 1
+    # Orthogonalize remaining columns
+    mut k u32 (+ j 1_u32)
+    while < k n
+      mut dot f64 0.0
+      mut i4 u32 0
+      while < i4 m
+        set dot + dot (* q.data[(as usize (+ (* i4 n) j))] q.data[(as usize (+ (* i4 n) k))])
+        set i4 + i4 1
+      set r.data[(as usize (+ (* j n) k))] dot
+      mut i5 u32 0
+      while < i5 m
+        set q.data[(as usize (+ (* i5 n) k))] - q.data[(as usize (+ (* i5 n) k))] (* dot q.data[(as usize (+ (* i5 n) j))])
+        set i5 + i5 1
+      set k + k 1
+    set j + j 1
+  ret QRResult . ok true qrows m qcols n rrows n rcols n
+
+# --- Cholesky Decomposition ---
+#
+# Decompose a symmetric positive-definite matrix A = L * L^T
+# where L is lower triangular.
+# Only the lower triangle of A is accessed.
+#
+# Parameters:
+#   a - Input symmetric positive-definite matrix (n x n)
+#   l - Output lower triangular matrix (n x n)
+#
+# Returns true on success, false if A is not positive-definite.
+#
+pub fn cholesky Bool a Matrix l MatrixMut
+  if || (!= a.rows a.cols) (|| (!= l.rows a.rows) (!= l.cols a.rows))
+    ret false
+  let n u32 a.rows
+  mut i u32 0
+  while < i n
+    mut j u32 0
+    while <= j i
+      mut sum f64 0.0
+      mut k u32 0
+      while < k j
+        set sum + sum (* l.data[(as usize (+ (* i n) k))] l.data[(as usize (+ (* j n) k))])
+        set k + k 1
+      let aij f64 a.data[(as usize (+ (* i n) j))]
+      if == i j
+        let val f64 - aij sum
+        if <= val 0.0
+          ret false
+        set l.data[(as usize (+ (* i n) j))] sqrt val
+      else
+        set l.data[(as usize (+ (* i n) j))] / (- aij sum) l.data[(as usize (+ (* j n) j))]
+      set j + j 1
+    set i + i 1
+  ret true
+
+# --- Power Iteration (Dominant Eigenvalue) ---
+#
+# Find the dominant eigenvalue and corresponding eigenvector
+# of a matrix using power iteration.
+#
+# Parameters:
+#   a      - Input matrix (n x n)
+#   v      - Initial guess / output eigenvector (length n)
+#   w      - Workspace vector (length n)
+#   n      - Matrix dimension
+#   maxIter - Maximum iterations
+#   tol    - Convergence tolerance
+#
+# Returns the dominant eigenvalue.
+#
+pub fn powerIteration f64 a Matrix v MutSpan<f64> w MutSpan<f64> n u32 maxIter u32 tol f64
+  if != a.rows a.cols
+    ret 0.0
+  if != a.rows n
+    ret 0.0
+  # Normalize initial vector
+  mut vNorm f64 0.0
+  mut i u32 0
+  while < i n
+    set vNorm + vNorm (* v[i] v[i])
+    set i + i 1
+  if > vNorm 0.0
+    let invNorm f64 / 1.0 (sqrt vNorm)
+    mut i2 u32 0
+    while < i2 n
+      set v[i2] * v[i2] invNorm
+      set i2 + i2 1
+  mut lambda f64 0.0
+  mut iter u32 0
+  while < iter maxIter
+    # Compute w = A * v
+    mut i3 u32 0
+    while < i3 n
+      set w[i3] 0.0
+      mut j u32 0
+      while < j n
+        set w[i3] + w[i3] (* a.data[(as usize (+ (* i3 n) j))] v[j])
+        set j + j 1
+      set i3 + i3 1
+    # Rayleigh quotient
+    mut newLambda f64 0.0
+    mut vNorm2 f64 0.0
+    mut i4 u32 0
+    while < i4 n
+      set newLambda + newLambda (* v[i4] w[i4])
+      set vNorm2 + vNorm2 (* v[i4] v[i4])
+      set i4 + i4 1
+    set newLambda / newLambda vNorm2
+    # Copy w to v and normalize
+    mut wNorm f64 0.0
+    mut i5 u32 0
+    while < i5 n
+      set wNorm + wNorm (* w[i5] w[i5])
+      set i5 + i5 1
+    if > wNorm 0.0
+      let invWNorm f64 / 1.0 (sqrt wNorm)
+      mut i6 u32 0
+      while < i6 n
+        set v[i6] * w[i6] invWNorm
+        set i6 + i6 1
+    if < (abs (- newLambda lambda)) tol
+      ret newLambda
+    set lambda newLambda
+    set iter + iter 1
+  ret lambda
+
+# --- Conjugate Gradient Solver ---
+#
+# Solve the linear system A * x = b for symmetric positive-definite A
+# using the conjugate gradient method. This is an iterative method
+# particularly efficient for large sparse systems.
+#
+# Parameters:
+#   a      - Coefficient matrix (n x n, symmetric positive-definite)
+#   b      - Right-hand side vector (length n)
+#   x      - Initial guess / output solution (length n)
+#   r      - Workspace residual vector (length n)
+#   p      - Workspace direction vector (length n)
+#   ap     - Workspace vector (length n)
+#   n      - Matrix dimension
+#   maxIter - Maximum iterations
+#   tol    - Convergence tolerance on residual
+#
+# Returns true if converged.
+#
+pub fn conjugateGradient Bool a Matrix b Span<f64> x MutSpan<f64> r MutSpan<f64> p MutSpan<f64> ap MutSpan<f64> n u32 maxIter u32 tol f64
+  if != a.rows a.cols
+    ret false
+  if != a.rows n
+    ret false
+  # r = b - A * x
+  mut i u32 0
+  while < i n
+    set r[i] b[i]
+    mut j u32 0
+    while < j n
+      set r[i] - r[i] (* a.data[(as usize (+ (* i n) j))] x[j])
+      set j + j 1
+    set p[i] r[i]
+    set i + i 1
+  # Compute initial residual norm
+  mut rNormSq f64 0.0
+  mut i2 u32 0
+  while < i2 n
+    set rNormSq + rNormSq (* r[i2] r[i2])
+    set i2 + i2 1
+  let bNormSq f64 rNormSq
+  if isZero rNormSq
+    ret true
+  mut iter u32 0
+  while < iter maxIter
+    # Compute ap = A * p
+    mut i3 u32 0
+    while < i3 n
+      set ap[i3] 0.0
+      mut j2 u32 0
+      while < j2 n
+        set ap[i3] + ap[i3] (* a.data[(as usize (+ (* i3 n) j2))] p[j2])
+        set j2 + j2 1
+      set i3 + i3 1
+    # alpha = r^T * r / (p^T * A * p)
+    mut pAp f64 0.0
+    mut i4 u32 0
+    while < i4 n
+      set pAp + pAp (* p[i4] ap[i4])
+      set i4 + i4 1
+    if isZero pAp
+      ret false
+    let alpha f64 / rNormSq pAp
+    # x = x + alpha * p
+    # r = r - alpha * ap
+    mut i5 u32 0
+    while < i5 n
+      set x[i5] + x[i5] (* alpha p[i5])
+      set r[i5] - r[i5] (* alpha ap[i5])
+      set i5 + i5 1
+    # Check convergence
+    mut newRNormSq f64 0.0
+    mut i6 u32 0
+    while < i6 n
+      set newRNormSq + newRNormSq (* r[i6] r[i6])
+      set i6 + i6 1
+    if < (sqrt (/ newRNormSq bNormSq)) tol
+      ret true
+    # beta = r_new^T * r_new / (r^T * r)
+    let beta f64 / newRNormSq rNormSq
+    # p = r + beta * p
+    mut i7 u32 0
+    while < i7 n
+      set p[i7] + r[i7] (* beta p[i7])
+      set i7 + i7 1
+    set rNormSq newRNormSq
+    set iter + iter 1
+  ret false
+
+fn wilkinsonShift f64 a Matrix activeSize u32
+  if <= activeSize 1_u32
+    ret a.data[0]
+  let i u32 - activeSize 2_u32
+  let j u32 - activeSize 1_u32
+  let a00 f64 a.data[(as usize (+ (* i a.cols) i))]
+  let a01 f64 a.data[(as usize (+ (* i a.cols) j))]
+  let a11 f64 a.data[(as usize (+ (* j a.cols) j))]
+  let delta f64 / (- a00 a11) 2.0
+  let denom f64 + (abs delta) (sqrt (+ (* delta delta) (* a01 a01)))
+  if isZero denom
+    ret a11
+  mut signed f64 / (* a01 a01) denom
+  if >= delta 0.0
+    set signed (- 0.0 signed)
+  ret + a11 signed
+
+# --- QR Algorithm (Eigenvalues) ---
+#
+# Compute all eigenvalues of a real matrix using the shifted QR algorithm.
+# A_{k+1} = R_k * Q_k where Q_k * R_k = A_k (QR decomposition).
+# Diagonal elements of A_k converge to eigenvalues.
+#
+# Parameters:
+#   a        - Input matrix (n x n)
+#   eigenvals - Output eigenvalues (length n)
+#   workQ    - Workspace/output matrix (n x n)
+#   workR    - Workspace matrix (n x n)
+#   temp     - Workspace matrix (n x n)
+#   n        - Matrix dimension
+#   maxIter  - Maximum iterations
+#   tol      - Convergence tolerance on sub-diagonal elements
+#
+pub fn qrAlgorithm Bool a Matrix eigenvals MutSpan<f64> workQ MatrixMut workR MatrixMut temp MatrixMut n u32 maxIter u32 tol f64
+  if != a.rows a.cols
+    ret false
+  if != a.rows n
+    ret false
+  if || (!= workQ.rows n) (|| (!= workQ.cols n) (|| (!= workR.rows n) (!= workR.cols n)))
+    ret false
+  if || (!= temp.rows n) (!= temp.cols n)
+    ret false
+  # Copy A into workQ
+  let count usize * (as usize n) (as usize n)
+  mut ic usize 0
+  while < ic count
+    set workQ.data[ic] a.data[ic]
+    set ic + ic 1
+  mut activeSize u32 n
+  mut iter u32 0
+  while && (> activeSize 1_u32) (< iter maxIter)
+    let subIdx usize as usize (+ (* (- activeSize 1_u32) n) (- activeSize 2_u32))
+    if <= (abs workQ.data[subIdx]) tol
+      set workQ.data[subIdx] 0.0
+      set eigenvals[- activeSize 1_u32] workQ.data[(as usize (+ (* (- activeSize 1_u32) n) (- activeSize 1_u32)))]
+      set activeSize - activeSize 1_u32
+    else
+      let aView Matrix matrixView n n (as Span<f64> workQ.data)
+      let mu f64 wilkinsonShift aView activeSize
+      mut i0 u32 0
+      while < i0 activeSize
+        mut j0 u32 0
+        while < j0 activeSize
+          let src usize as usize (+ (* i0 n) j0)
+          let dst usize as usize (+ (* i0 activeSize) j0)
+          set temp.data[dst] workQ.data[src]
+          if == i0 j0
+            set temp.data[dst] - temp.data[dst] mu
+          set j0 + j0 1
+        set i0 + i0 1
+      let qMat Matrix matrixView activeSize activeSize (as Span<f64> temp.data)
+      let qWork MatrixMut matrixMutView activeSize activeSize temp.data
+      let rWork MatrixMut matrixMutView activeSize activeSize workR.data
+      let tmpWork MatrixMut matrixMutView activeSize activeSize workQ.data
+      let qrResult QRResult qrDecomp qMat qWork rWork
+      if ! qrResult.ok
+        ret false
+      let rMat Matrix matrixView activeSize activeSize (as Span<f64> workR.data)
+      let qAfter Matrix matrixView activeSize activeSize (as Span<f64> temp.data)
+      mul rMat qAfter tmpWork
+      mut i2 u32 0
+      while < i2 activeSize
+        mut j2 u32 0
+        while < j2 activeSize
+          let src2 usize as usize (+ (* i2 activeSize) j2)
+          let dst2 usize as usize (+ (* i2 n) j2)
+          set temp.data[dst2] workQ.data[src2]
+          if == i2 j2
+            set temp.data[dst2] + temp.data[dst2] mu
+          set j2 + j2 1
+        set i2 + i2 1
+      mut i3 u32 0
+      while < i3 activeSize
+        mut j3 u32 0
+        while < j3 activeSize
+          set workQ.data[(as usize (+ (* i3 n) j3))] temp.data[(as usize (+ (* i3 n) j3))]
+          set j3 + j3 1
+        set i3 + i3 1
+      set iter + iter 1
+  if == activeSize 1_u32
+    set eigenvals[0] workQ.data[0]
+    ret true
+  mut i6 u32 0
+  while < i6 n
+    set eigenvals[i6] workQ.data[(as usize (+ (* i6 n) i6))]
+    set i6 + i6 1
+  ret false
+
+# --- Singular Value Decomposition (One-sided Jacobi) ---
+#
+# Compute the thin SVD of a matrix A = U * Sigma * V^T.
+# A is m x n, U is m x n (orthogonal columns), Sigma is n x n (diagonal),
+# V is n x n (orthogonal).
+#
+# Uses the one-sided Jacobi method which is robust for any matrix.
+#
+# Parameters:
+#   a     - Input matrix (m x n)
+#   u     - Output U matrix (m x n)
+#   sigma - Output singular values (length n)
+#   vt    - Output V^T matrix (n x n)
+#   work1 - Workspace matrix (m x n, same size as A)
+#   work2 - Workspace matrix (n x n)
+#   m     - Number of rows
+#   n     - Number of columns
+#   maxSweeps - Maximum number of Jacobi sweeps
+#
+# Returns true on success.
+#
+pub type SVDResult
+  ok Bool
+  rank u32
+
+pub fn svdDecomp SVDResult a Matrix u MatrixMut sigma MutSpan<f64> vt MatrixMut work1 MatrixMut work2 MatrixMut m u32 n u32 maxSweeps u32
+  if || (> n m) (|| (!= a.rows m) (!= a.cols n))
+    ret SVDResult . ok false rank 0_u32
+  if || (!= u.rows m) (!= u.cols n)
+    ret SVDResult . ok false rank 0_u32
+  if || (!= vt.rows n) (!= vt.cols n)
+    ret SVDResult . ok false rank 0_u32
+  if || (!= work1.rows m) (!= work1.cols n)
+    ret SVDResult . ok false rank 0_u32
+  if || (!= work2.rows n) (!= work2.cols n)
+    ret SVDResult . ok false rank 0_u32
+  # Copy A into work1 (this will become U * Sigma)
+  let countMN usize * (as usize m) (as usize n)
+  mut ic usize 0
+  while < ic countMN
+    set work1.data[ic] a.data[ic]
+    set ic + ic 1
+  # Initialize V^T = I
+  mut i u32 0
+  while < i n
+    mut j u32 0
+    while < j n
+      if == i j
+        set vt.data[(as usize (+ (* i n) j))] 1.0
+      else
+        set vt.data[(as usize (+ (* i n) j))] 0.0
+      set j + j 1
+    set i + i 1
+  # Jacobi sweeps
+  mut sweep u32 0
+  while < sweep maxSweeps
+    mut maxC f64 0.0
+    mut converged Bool true
+    # Iterate over all column pairs (i, j) with i < j
+    mut i2 u32 0
+    while < i2 n
+      mut j2 u32 (+ i2 1_u32)
+      while < j2 n
+        # Compute column norms and dot product for columns i2 and j2 of work1
+        mut aNorm f64 0.0
+        mut bNorm f64 0.0
+        mut c f64 0.0
+        mut k u32 0
+        while < k m
+          let ai f64 work1.data[(as usize (+ (* k n) i2))]
+          let aj f64 work1.data[(as usize (+ (* k n) j2))]
+          set aNorm + aNorm (* ai ai)
+          set bNorm + bNorm (* aj aj)
+          set c + c (* ai aj)
+          set k + k 1
+        let absC f64 abs c
+        if > absC maxC
+          set maxC absC
+        let eps f64 1.0e-15
+        let threshold f64 * eps (sqrt (* aNorm bNorm))
+        if > absC threshold
+          set converged false
+          # Compute Jacobi rotation angle
+          let theta f64 / (- bNorm aNorm) (* 2.0 c)
+          let t f64 / 1.0 (+ (abs theta) (sqrt (+ 1.0 (* theta theta))))
+          if < theta 0.0
+            set t (- 0.0 t)
+          let cosA f64 / 1.0 (sqrt (+ 1.0 (* t t)))
+          let sinA f64 * t cosA
+          # Rotate columns i2 and j2 of work1 (A matrix)
+          mut k2 u32 0
+          while < k2 m
+            let ai2 f64 work1.data[(as usize (+ (* k2 n) i2))]
+            let aj2 f64 work1.data[(as usize (+ (* k2 n) j2))]
+            set work1.data[(as usize (+ (* k2 n) i2))] (- (* ai2 cosA) (* aj2 sinA))
+            set work1.data[(as usize (+ (* k2 n) j2))] (+ (* ai2 sinA) (* aj2 cosA))
+            set k2 + k2 1
+          # Rotate columns i2 and j2 of V^T
+          mut k3 u32 0
+          while < k3 n
+            let vi f64 vt.data[(as usize (+ (* k3 n) i2))]
+            let vj f64 vt.data[(as usize (+ (* k3 n) j2))]
+            set vt.data[(as usize (+ (* k3 n) i2))] (- (* vi cosA) (* vj sinA))
+            set vt.data[(as usize (+ (* k3 n) j2))] (+ (* vi sinA) (* vj cosA))
+            set k3 + k3 1
+        set j2 + j2 1
+      set i2 + i2 1
+    if converged
+      # Extract singular values and finalize
+      break_loop
+    set sweep + sweep 1
+  # Extract singular values and compute U
+  # Sort singular values in descending order using simple bubble sort
+  mut sv [100]f64 [0.0; 100]
+  mut ii u32 0
+  while < ii n
+    mut norm f64 0.0
+    mut k4 u32 0
+    while < k4 m
+      set norm + norm (* work1.data[(as usize (+ (* k4 n) ii))] work1.data[(as usize (+ (* k4 n) ii))])
+      set k4 + k4 1
+    set sv[ii] sqrt norm
+    set ii + ii 1
+  # Sort by bubble sort (descending)
+  mut i5 u32 0
+  while < i5 n
+    mut j5 u32 (+ i5 1_u32)
+    while < j5 n
+      if < sv[i5] sv[j5]
+        # Swap singular values
+        let tmpSv f64 sv[i5]
+        set sv[i5] sv[j5]
+        set sv[j5] tmpSv
+        # Swap columns in work1
+        mut k5 u32 0
+        while < k5 m
+          let tmp f64 work1.data[(as usize (+ (* k5 n) i5))]
+          set work1.data[(as usize (+ (* k5 n) i5))] work1.data[(as usize (+ (* k5 n) j5))]
+          set work1.data[(as usize (+ (* k5 n) j5))] tmp
+          set k5 + k5 1
+        # Swap rows in V^T
+        mut k6 u32 0
+        while < k6 n
+          let tmp2 f64 vt.data[(as usize (+ (* k6 n) i5))]
+          set vt.data[(as usize (+ (* k6 n) i5))] vt.data[(as usize (+ (* k6 n) j5))]
+          set vt.data[(as usize (+ (* k6 n) j5))] tmp2
+          set k6 + k6 1
+      set j5 + j5 1
+    set i5 + i5 1
+  # Compute U = work1 * Sigma^{-1} (normalize columns)
+  mut i7 u32 0
+  while < i7 n
+    let s f64 sv[i7]
+    if > s 1.0e-15
+      let invS f64 / 1.0 s
+      mut k7 u32 0
+      while < k7 m
+        set u.data[(as usize (+ (* k7 n) i7))] * work1.data[(as usize (+ (* k7 n) i7))] invS
+        set k7 + k7 1
+    else
+      mut k8 u32 0
+      while < k8 m
+        set u.data[(as usize (+ (* k8 n) i7))] 0.0
+        set k8 + k8 1
+    set sigma[i7] s
+    set i7 + i7 1
+  # Count rank
+  mut rank u32 0_u32
+  mut i8 u32 0
+  while < i8 n
+    if > sigma[i8] 1.0e-10
+      set rank + rank 1_u32
+    set i8 + i8 1
+  ret SVDResult . ok true rank rank
+
+# Test matrix operations
+test "matrix add and sub work"
+  mut a_data [4]f64 [1.0, 2.0, 3.0, 4.0]
+  mut b_data [4]f64 [5.0, 6.0, 7.0, 8.0]
+  mut out [4]f64 [0.0, 0.0, 0.0, 0.0]
+  let a Matrix matrixView 2_u32 2_u32 a_data
+  let b Matrix matrixView 2_u32 2_u32 b_data
+  let outMut MatrixMut matrixMutView 2_u32 2_u32 out
+  add a b outMut
+  expect (approxEq out[0] 6.0 DEFAULT_TOLERANCE)
+  expect (approxEq out[3] 12.0 DEFAULT_TOLERANCE)
+  set out[0] 0.0; set out[1] 0.0; set out[2] 0.0; set out[3] 0.0
+  sub a b outMut
+  expect (approxEq out[0] (- 0.0 4.0) DEFAULT_TOLERANCE)
+
+test "matrix multiply works"
+  mut a_data [6]f64 [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+  mut b_data [4]f64 [7.0, 8.0, 9.0, 10.0]
+  mut out [4]f64 [0.0, 0.0, 0.0, 0.0]
+  let a Matrix matrixView 2_u32 3_u32 a_data
+  let b Matrix matrixView 3_u32 2_u32 b_data
+  let outMut MatrixMut matrixMutView 2_u32 2_u32 out
+  mul a b outMut
+  expect (approxEq out[0] 25.0 DEFAULT_TOLERANCE)
+  expect (approxEq out[1] 28.0 DEFAULT_TOLERANCE)
+
+test "determinant works"
+  mut a2_data [4]f64 [1.0, 2.0, 3.0, 4.0]
+  let a2 Matrix matrixView 2_u32 2_u32 a2_data
+  expect (approxEq (det2 a2) (- 0.0 2.0) DEFAULT_TOLERANCE)
+
+test "2x2 inverse works"
+  mut a_data [4]f64 [4.0, 7.0, 2.0, 6.0]
+  mut inv_data [4]f64 [0.0, 0.0, 0.0, 0.0]
+  let a Matrix matrixView 2_u32 2_u32 a_data
+  let invMut MatrixMut matrixMutView 2_u32 2_u32 inv_data
+  let ok inv2 a invMut
+  expect ok
+  # A * A^-1 should equal I
+  mut prod_data [4]f64 [0.0, 0.0, 0.0, 0.0]
+  let prodMut MatrixMut matrixMutView 2_u32 2_u32 prod_data
+  let inv Matrix matrixView 2_u32 2_u32 inv_data
+  mul a inv prodMut
+  expect (approxEq prod_data[0] 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq prod_data[3] 1.0 DEFAULT_TOLERANCE)
+
+test "identity and trace work"
+  mut id_data [9]f64 [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  let idMut MatrixMut matrixMutView 3_u32 3_u32 id_data
+  identity 3_u32 idMut
+  let id Matrix matrixView 3_u32 3_u32 id_data
+  expect (approxEq (trace id) 3.0 DEFAULT_TOLERANCE)
+
+test "transpose works"
+  mut a_data [6]f64 [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+  mut out_data [6]f64 [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  let a Matrix matrixView 2_u32 3_u32 a_data
+  let outMut MatrixMut matrixMutView 3_u32 2_u32 out_data
+  transpose a outMut
+  expect (approxEq out_data[0] 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq out_data[3] 4.0 DEFAULT_TOLERANCE)

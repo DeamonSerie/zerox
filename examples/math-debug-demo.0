@@ -1,0 +1,106 @@
+# std.math.debug example
+#
+# Demonstrates the debugging and tracing capabilities for
+# mathematical computations. Shows how to trace intermediate
+# values without modifying computation logic.
+#
+# Build:  bin/zerox check examples/math-debug-demo.0
+# Test:   bin/zerox test examples/math-debug-demo.0
+
+# --- Direct trace passthrough ---
+#
+# The trace function records intermediate values transparently.
+# It wraps a computation step and passes the output through
+# unchanged while logging the step details.
+#
+test "trace records steps transparently"
+  mut ctx std.math.debug.MathContext (std.math.debug.new 5_usize)
+
+  # Simulate computing sqrt(2) with Newton's method
+  # x_{n+1} = (x_n + 2/x_n) / 2
+  let step1 f64 / (+ 2.0 (/ 2.0 2.0)) 2.0
+  let r1 f64 std.math.debug.trace (&mut ctx) 0.0 2.0 step1
+  expect (std.math.approxEq r1 1.5 std.math.DEFAULT_TOLERANCE)
+
+  let step2 f64 / (+ 1.5 (/ 2.0 1.5)) 2.0
+  let r2 f64 std.math.debug.trace (&mut ctx) 1.0 1.5 step2
+  expect (std.math.approxEq r2 1.4166667 1e-6)
+
+  # Should have recorded 2 steps
+  expect (== (std.math.debug.stepCount (& ctx)) 2_u32)
+
+  # Latest residual should be small (converging)
+  expect (std.math.debug.hasConverged (& ctx) 0.1)
+
+# --- Explicit residual trace ---
+#
+# For algorithms where the residual is computed differently
+# (not just |output - input|), use traceExplicit.
+#
+test "traceExplicit records custom residual"
+  mut ctx std.math.debug.MathContext (std.math.debug.new 5_usize)
+  let r f64 std.math.debug.traceExplicit (&mut ctx) 0.0 1.0 1.0001 0.0001
+  expect (std.math.approxEq r 1.0001 std.math.DEFAULT_TOLERANCE)
+
+# --- Iteration Monitoring ---
+#
+# The iterate function wraps an iterative computation and
+# records each step automatically. It detects convergence
+# by checking the step-to-step difference.
+#
+test "iterate monitors convergence"
+  mut ctx std.math.debug.MathContext (std.math.debug.new 20_usize)
+
+  # Step function for computing sqrt(a):
+  # x_{n+1} = (x_n + a/x_n) / 2
+  let a f64 2.0
+  let stepFn (fn f64) f64 let x f64 args[0]; ret / (+ x (/ a x)) 2.0
+
+  let result std.math.debug.iterate (&mut ctx) 2.0 20_u32 1e-8 stepFn
+  expect (std.math.approxEq result 1.41421356 1e-6)
+  expect (< (std.math.debug.stepCount (& ctx)) 20_u32)
+
+# --- Debug Evaluation ---
+#
+# debugEval wraps a function call and traces input/output.
+#
+test "debugEval traces function evaluation"
+  mut ctx std.math.debug.MathContext (std.math.debug.new 5_usize)
+  let f (fn f64) f64 let x f64 args[0]; ret * x x
+  let result std.math.debug.debugEval (&mut ctx) 1.0 3.0 f
+  expect (std.math.approxEq result 9.0 std.math.DEFAULT_TOLERANCE)
+
+# --- Context Reset ---
+#
+test "reset clears trace context"
+  mut ctx std.math.debug.MathContext (std.math.debug.new 10_usize)
+  let _ f64 std.math.debug.trace (&mut ctx) 1.0 10.0 20.0
+  expect (== (std.math.debug.stepCount (& ctx)) 1_u32)
+  std.math.debug.reset (&mut ctx)
+  expect (== (std.math.debug.stepCount (& ctx)) 0_u32)
+
+# --- Combined: Tracing a Newton Solve for sqrt(2) ---
+#
+# This demonstrates using the debug context to trace every
+# iteration of Newton's method. The residuals show the
+# quadratic convergence of the method.
+#
+test "newton sqrt convergence trace shows quadratic convergence"
+  mut ctx std.math.debug.MathContext (std.math.debug.new 10_usize)
+  let a f64 2.0
+
+  # Newton iteration for sqrt(a):
+  # f(x) = x^2 - a, f'(x) = 2x
+  # x_{n+1} = x_n - (x_n^2 - a)/(2*x_n) = (x_n + a/x_n) / 2
+  mut x f64 2.0
+  mut iter u32 0
+  while < iter 6_u32
+    let next f64 / (+ x (/ a x)) 2.0
+    set x std.math.debug.trace (&mut ctx) (as f64 iter) x next
+    set iter + iter 1
+
+  expect (std.math.approxEq x 1.41421356 1e-6)
+  expect (== (std.math.debug.stepCount (& ctx)) 6_u32)
+
+pub fn main Void world World !
+  check world.out.write "math debug demo: run 'bin/zerox test examples/math-debug-demo.0'\n"

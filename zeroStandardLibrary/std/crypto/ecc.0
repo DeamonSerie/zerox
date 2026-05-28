@@ -4,8 +4,11 @@
 # Supports ECDSA (signing) and ECDH (key exchange).
 # Curves: P-256 (secp256r1), P-384, P-521, Curve25519
 #
-# NOTE: Native runtime implementation pending. Returns 0 (error)
-# until big-number support is added to zero_crypto.c.
+# Native Botan-backed implementations for all core operations.
+# Legacy stubs (return 0/false) exist for the generic functions
+# (generateKeyPair, sign, verify, ecdh) — use the named ECC
+# functions where available (ed25519Sign, ed25519Verify,
+# ed25519GenerateKeyPair, x25519Ecdh).
 #
 
 # --- Curve Constants ---
@@ -19,6 +22,8 @@ const CURVE_ED25519 u32 4_u32
 # --- Generate ECC Key Pair ---
 
 pub fn generateKeyPair u32 curve u32 pubOut MutSpan<u8> privOut MutSpan<u8> world World !
+  if == curve CURVE_ED25519
+    ret ed25519GenerateKeyPair pubOut privOut world
   ret 0_u32
 
 # --- ECDSA Sign ---
@@ -45,3 +50,24 @@ pub fn ed25519Sign u32 privateKey Span<u8> data Span<u8> out MutSpan<u8> world W
 
 pub fn ed25519Verify Bool publicKey Span<u8> data Span<u8> signature Span<u8> world World !
   ret false
+
+# --- Ed25519 Generate Key Pair ---
+#
+# Generate an Ed25519 key pair using native Botan-backed runtime.
+# Returns public key length on success, 0 on error.
+#
+pub fn ed25519GenerateKeyPair u32 pubOut MutSpan<u8> privOut MutSpan<u8> world World !
+
+# --- X25519 Generate Key Pair ---
+#
+# Generate an X25519 key pair using native Botan-backed runtime.
+# Returns public key length on success, 0 on error.
+#
+pub fn x25519GenerateKeyPair u32 pubOut MutSpan<u8> privOut MutSpan<u8> world World !
+
+# --- X25519 ECDH (Curve25519 Key Exchange) ---
+#
+# Perform X25519 Diffie-Hellman key agreement using native Botan runtime.
+# Returns shared secret length on success, 0 on error.
+#
+pub fn x25519Ecdh u32 privateKey Span<u8> peerPublic Span<u8> out MutSpan<u8> world World !

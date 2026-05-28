@@ -9,7 +9,7 @@ const repoRoot = path.resolve(
 );
 const outPath = path.join(repoRoot, "native/zerox-c/src/embedded_skills.inc");
 const inputs = [
-  "skills/zerox/SKILL.md"
+  "skills/zerox/SKILL.md",
   ...fs
     .readdirSync(path.join(repoRoot, "skill-data"))
     .filter((name) => name.endsWith(".md"))

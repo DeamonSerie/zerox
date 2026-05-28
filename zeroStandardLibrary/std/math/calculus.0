@@ -1,0 +1,296 @@
+# std.math.calculus
+#
+# Numerical calculus operations: differentiation, integration,
+# and related utilities.
+#
+# All operations use numerical approximation since we work with
+# discrete function evaluations rather than symbolic expressions.
+
+# --- Numerical Differentiation ---
+
+# Compute the first derivative of a function at point x using
+# the central difference method.
+#
+# f'(x) ≈ (f(x + h) - f(x - h)) / (2h)
+#
+# Parameters:
+#   fn - A function that takes f64 and returns f64
+#   x  - Point at which to compute the derivative
+#   h  - Step size (default 1e-6 recommended)
+#
+pub fn derivative f64 fn (fn f64) f64 x f64 h f64
+  let fp f64 fn (+ x h)
+  let fm f64 fn (- x h)
+  ret / (- fp fm) (* 2.0 h)
+
+# Compute the first derivative using 5-point stencil for better accuracy.
+#
+# f'(x) ≈ (f(x - 2h) - 8f(x - h) + 8f(x + h) - f(x + 2h)) / (12h)
+#
+pub fn derivative5 f64 fn (fn f64) f64 x f64 h f64
+  let f2m f64 fn (- x (* 2.0 h))
+  let f1m f64 fn (- x h)
+  let f1p f64 fn (+ x h)
+  let f2p f64 fn (+ x (* 2.0 h))
+  ret / (+ (- (- f2m (* 8.0 f1m)) (* 8.0 f1p)) f2p) (* 12.0 h)
+
+# Compute the second derivative at point x using central difference.
+#
+# f''(x) ≈ (f(x + h) - 2f(x) + f(x - h)) / h²
+#
+pub fn secondDerivative f64 fn (fn f64) f64 x f64 h f64
+  let fp f64 fn (+ x h)
+  let f0 f64 fn x
+  let fm f64 fn (- x h)
+  ret / (- (+ fp fm) (* 2.0 f0)) (* h h)
+
+# Compute the second derivative using 5-point stencil.
+#
+# f''(x) ≈ (-f(x - 2h) + 16f(x - h) - 30f(x) + 16f(x + h) - f(x + 2h)) / (12h²)
+#
+pub fn secondDerivative5 f64 fn (fn f64) f64 x f64 h f64
+  let f2m f64 fn (- x (* 2.0 h))
+  let f1m f64 fn (- x h)
+  let f0 f64 fn x
+  let f1p f64 fn (+ x h)
+  let f2p f64 fn (+ x (* 2.0 h))
+  ret / (- (+ (- (+ (- 0.0 f2m) (* 16.0 f1m)) (* 30.0 f0)) (* 16.0 f1p)) f2p) (* 12.0 (* h h))
+
+# Compute the third derivative using central difference.
+#
+# f'''(x) ≈ (f(x + 2h) - 2f(x + h) + 2f(x - h) - f(x - 2h)) / (2h³)
+#
+pub fn thirdDerivative f64 fn (fn f64) f64 x f64 h f64
+  let f2p f64 fn (+ x (* 2.0 h))
+  let f1p f64 fn (+ x h)
+  let f1m f64 fn (- x h)
+  let f2m f64 fn (- x (* 2.0 h))
+  ret / (- (- (+ f2p (* 2.0 f1m)) (* 2.0 f1p)) f2m) (* 2.0 (* (* h h) h))
+
+# --- Numerical Integration ---
+
+# Numerically integrate fn from a to b using the trapezoidal rule.
+#
+# ∫_a^b f(x) dx ≈ h/2 * (f(a) + 2*Σ f(x_i) + f(b))
+#
+# Parameters:
+#   fn      - Function to integrate
+#   a       - Lower bound
+#   b       - Upper bound
+#   n       - Number of sub-intervals (higher = more accurate)
+#
+pub fn integrateTrapezoid f64 fn (fn f64) f64 a f64 b f64 n u32
+  if == n 0_u32
+    ret 0.0
+  let h f64 / (- b a) (as f64 n)
+  mut sum f64 / (+ (fn a) (fn b)) 2.0
+  mut i u32 1
+  while < i n
+    set sum + sum (fn (+ a (* (as f64 i) h)))
+    set i + i 1
+  ret * sum h
+
+# Integrate using Simpson's rule for better accuracy.
+#
+# ∫_a^b f(x) dx ≈ h/3 * (f(a) + 4*Σ f(x_odd) + 2*Σ f(x_even) + f(b))
+#
+# n must be even.
+#
+pub fn integrateSimpson f64 fn (fn f64) f64 a f64 b f64 n u32
+  if == n 0_u32
+    ret 0.0
+  if == (& n 1_u32) 1_u32
+    # n is odd, use trapezoidal rule instead
+    ret integrateTrapezoid fn a b n
+  let h f64 / (- b a) (as f64 n)
+  mut sum f64 + (fn a) (fn b)
+  mut i u32 1
+  while < i n
+    let x f64 + a (* (as f64 i) h)
+    if == (& i 1_u32) 1_u32
+      set sum + sum (* 4.0 (fn x))
+    else
+      set sum + sum (* 2.0 (fn x))
+    set i + i 1
+  ret / (* sum h) 3.0
+
+# Integrate using Simpson's 3/8 rule.
+#
+# ∫_a^b f(x) dx ≈ 3h/8 * (f(a) + 3Σ f(x_i) + 3Σ f(x_2i) + 2Σ f(x_3i) + f(b))
+#
+# n must be a multiple of 3.
+#
+pub fn integrateSimpson38 f64 fn (fn f64) f64 a f64 b f64 n u32
+  if == n 0_u32
+    ret 0.0
+  let h f64 / (- b a) (as f64 n)
+  mut sum f64 + (fn a) (fn b)
+  mut i u32 1
+  while < i n
+    let x f64 + a (* (as f64 i) h)
+    if == (% i 3_u32) 0_u32
+      set sum + sum (* 2.0 (fn x))
+    else
+      set sum + sum (* 3.0 (fn x))
+    set i + i 1
+  ret / (* (* sum h) 3.0) 8.0
+
+# Integrate using adaptive Simpson's rule.
+# Recursively subdivides until the estimated error is within tolerance.
+#
+# Parameters:
+#   fn        - Function to integrate
+#   a         - Lower bound
+#   b         - Upper bound
+#   tolerance - Desired accuracy
+#   maxDepth  - Maximum recursion depth
+#
+pub fn integrateAdaptive f64 fn (fn f64) f64 a f64 b f64 tolerance f64 maxDepth u32
+  if == maxDepth 0_u32
+    ret integrateSimpson fn a b 4_u32
+  let m f64 / (+ a b) 2.0
+  let s f64 (/ (- b a) 6.0)
+  let fa f64 fn a
+  let fb f64 fn b
+  let fm f64 fn m
+  let whole f64 * s (+ (+ fa fm) (* 4.0 (fn (/ (+ a m) 2.0))))
+  let left f64 * (/ (- m a) 6.0) (+ (+ fa (fn (/ (+ a m) 2.0))) (* 4.0 (fn (/ (+ a (* 3.0 (/ (- m a) 4.0))) 1.0))))
+  let right f64 * (/ (- b m) 6.0) (+ (+ (fn (/ (+ m b) 2.0)) fb) (* 4.0 (fn (/ (+ m (* 3.0 (/ (- b m) 4.0))) 1.0))))
+  let diff f64 abs (- (+ left right) whole)
+  if < diff (* 15.0 tolerance)
+    ret + (+ left right) (/ diff 15.0)
+  ret + (integrateAdaptive fn a m (/ tolerance 2.0) (- maxDepth 1_u32)) (integrateAdaptive fn m b (/ tolerance 2.0) (- maxDepth 1_u32))
+
+# --- Riemann Sum ---
+
+# Left Riemann sum.
+#
+pub fn riemannLeft f64 fn (fn f64) f64 a f64 b f64 n u32
+  if == n 0_u32
+    ret 0.0
+  let h f64 / (- b a) (as f64 n)
+  mut sum f64 0.0
+  mut i u32 0
+  while < i n
+    set sum + sum (fn (+ a (* (as f64 i) h)))
+    set i + i 1
+  ret * sum h
+
+# Right Riemann sum.
+#
+pub fn riemannRight f64 fn (fn f64) f64 a f64 b f64 n u32
+  if == n 0_u32
+    ret 0.0
+  let h f64 / (- b a) (as f64 n)
+  mut sum f64 0.0
+  mut i u32 1
+  while <= i n
+    set sum + sum (fn (+ a (* (as f64 i) h)))
+    set i + i 1
+  ret * sum h
+
+# Midpoint Riemann sum.
+#
+pub fn riemannMidpoint f64 fn (fn f64) f64 a f64 b f64 n u32
+  if == n 0_u32
+    ret 0.0
+  let h f64 / (- b a) (as f64 n)
+  let halfH f64 / h 2.0
+  mut sum f64 0.0
+  mut i u32 0
+  while < i n
+    set sum + sum (fn (+ a (+ (* (as f64 i) h) halfH)))
+    set i + i 1
+  ret * sum h
+
+# --- Numerical Integration Result type ---
+#
+# Wraps the integration result along with an error estimate.
+#
+pub type IntegrateResult
+  value f64
+  errorEstimate f64
+
+# Romberg integration for high-accuracy results.
+# Uses Richardson extrapolation on the trapezoidal rule.
+#
+# Parameters:
+#   fn    - Function to integrate
+#   a     - Lower bound
+#   b     - Upper bound
+#   order - Romberg table size (higher = more accurate, 4 is typical)
+#
+pub fn integrateRomberg IntegrateResult fn (fn f64) f64 a f64 b f64 order u32
+  let n u32 1_u32
+  # Romberg table as flat array: R[i*order + j]
+  mut table [100]f64 [0.0; 100]
+  mut i u32 0
+  while < i order
+    set table[i * order] (integrateTrapezoid fn a b n)
+    set n * n 2_u32
+    mut j u32 1
+    while <= j i
+      let factor f64 powi 4.0 (as i32 j)
+      let num f64 (- (* factor table[((i - j + 1_u32) * order) + (j - 1_u32)]) table[(i * order) + (j - 1_u32)])
+      set table[(i * order) + j] / num (- factor 1.0)
+      set j + j 1
+    set i + i 1
+  let result f64 table[((order - 1_u32) * order) + (order - 1_u32)]
+  let prev f64 table[((order - 2_u32) * order) + (order - 2_u32)]
+  let error f64 abs (- result prev)
+  ret IntegrateResult . value result errorEstimate error
+
+# --- Numerical Derivatives of a data set ---
+#
+# Compute approximate derivatives from sampled data points.
+# Assumes evenly spaced samples at distance h apart.
+#
+# Parameters:
+#   y     - Span of sampled function values
+#   count - Number of samples
+#   h     - Step size between samples
+#   out   - Output buffer for derivatives (must have count elements)
+#
+pub fn diffData UnsizedVoid y Span<f64> count u32 h f64 out MutSpan<f64>
+  if <= count 1_u32
+    ret
+  # Forward difference for first point
+  set out[0] / (- y[1] y[0]) h
+  # Central difference for interior points
+  mut i u32 1
+  while < i (- count 1_u32)
+    set out[i] / (- y[i + 1_u32] y[i - 1_u32]) (* 2.0 h)
+    set i + i 1
+  # Backward difference for last point
+  set out[count - 1_u32] / (- y[count - 1_u32] y[count - 2_u32]) h
+
+# Test calculus functions
+test "derivative works"
+  let f1 (fn f64) f64 let x f64 args[0]; ret * x x
+  let f2 (fn f64) f64 let x f64 args[0]; ret sin x
+  expect (approxEq (derivative f1 2.0 1.0e-6) 4.0 1.0e-4)
+  expect (approxEq (secondDerivative f1 2.0 1.0e-4) 2.0 1.0e-3)
+  expect (approxEq (derivative f2 PI_2 1.0e-6) 0.0 1.0e-4)
+
+test "integration works"
+  let f (fn f64) f64 let x f64 args[0]; ret * x x
+  let result integrateTrapezoid f 0.0 1.0 100_u32
+  expect (approxEq result 0.333333 1.0e-3)
+  let result2 integrateSimpson f 0.0 1.0 100_u32
+  expect (approxEq result2 0.333333 1.0e-4)
+
+test "riemann sums work"
+  let f (fn f64) f64 let x f64 args[0]; ret x
+  let left riemannLeft f 0.0 1.0 10_u32
+  let right riemannRight f 0.0 1.0 10_u32
+  let mid riemannMidpoint f 0.0 1.0 10_u32
+  expect (approxEq left 0.45 1.0e-2)
+  expect (approxEq right 0.55 1.0e-2)
+  expect (approxEq mid 0.5 1.0e-2)
+
+test "diffData works"
+  mut y [4]f64 [0.0, 1.0, 4.0, 9.0]
+  mut out [4]f64 [0.0, 0.0, 0.0, 0.0]
+  diffData y 4_u32 1.0 out
+  expect (approxEq out[0] 1.0 1.0e-6)
+  expect (approxEq out[2] 5.0 1.0e-6)

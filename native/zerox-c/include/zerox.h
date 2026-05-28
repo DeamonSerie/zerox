@@ -427,6 +427,8 @@ typedef enum {
   IR_TYPE_U32,
   IR_TYPE_I64,
   IR_TYPE_U64,
+  IR_TYPE_F32,
+  IR_TYPE_F64,
   IR_TYPE_BYTE_VIEW,
   IR_TYPE_ALLOC,
   IR_TYPE_VEC,
@@ -555,6 +557,21 @@ typedef enum {
 #define CRYPTO_ECC_ECDH         32
 #define CRYPTO_ECC_ED25519_SIGN 33
 #define CRYPTO_ECC_ED25519_VERIFY 34
+#define CRYPTO_SHA384        35
+#define CRYPTO_SHA3_256      36
+#define CRYPTO_SHA3_512      37
+#define CRYPTO_BLAKE2B       38
+#define CRYPTO_BLAKE2S       39
+#define CRYPTO_HMAC_SHA384   40
+#define CRYPTO_SHA3_384       41
+#define CRYPTO_SHAKE128       42
+#define CRYPTO_SHAKE256       43
+#define CRYPTO_HMAC_SHA512    44
+#define CRYPTO_ECC_ED25519_GENERATE_KEYPAIR 45
+#define CRYPTO_ECC_X25519_ECDH 46
+#define CRYPTO_AES_GCM_ENCRYPT  47
+#define CRYPTO_AES_GCM_DECRYPT  48
+#define CRYPTO_ECC_X25519_GENERATE_KEYPAIR 49
 
 typedef enum {
   IR_BIN_ADD,
@@ -568,7 +585,13 @@ typedef enum {
   IR_BIN_SHL,
   IR_BIN_SHR,
   IR_BIN_ROL,
-  IR_BIN_ROR
+  IR_BIN_ROR,
+  /* Floating-point binary operations */
+  IR_BIN_FADD,
+  IR_BIN_FSUB,
+  IR_BIN_FMUL,
+  IR_BIN_FDIV,
+  IR_BIN_FMOD
 } IrBinaryOp;
 
 typedef enum {
@@ -834,7 +857,7 @@ typedef enum {
   Z_DIRECT_BACKEND_NONE,
   Z_DIRECT_BACKEND_ELF64,
   Z_DIRECT_BACKEND_ELF_AARCH64,
-  Z_DIRECT_BACKEND_MACHO64,
+  Z_DIRECT_BACKEND_VOID64,
   Z_DIRECT_BACKEND_COFF_X64
 } ZDirectBackend;
 
@@ -908,10 +931,10 @@ bool z_emit_elf64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *dia
 bool z_emit_elf64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_elf_aarch64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_elf_aarch64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
-size_t z_macho64_stack_bytes_from_ir(const IrProgram *program);
-size_t z_macho64_max_frame_bytes_from_ir(const IrProgram *program);
-bool z_emit_macho64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
-bool z_emit_macho64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
+size_t z_void64_stack_bytes_from_ir(const IrProgram *program);
+size_t z_void64_max_frame_bytes_from_ir(const IrProgram *program);
+bool z_emit_void64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
+bool z_emit_void64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_coff_x64_object_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 bool z_emit_coff_x64_exe_from_ir(const IrProgram *program, ZBuf *out, ZDiag *diag);
 

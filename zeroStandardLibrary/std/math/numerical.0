@@ -1,0 +1,999 @@
+# std.math.numerical
+#
+# Numerical analysis: root finding, interpolation,
+# least-squares fitting, and special functions.
+
+# --- Root Finding: Bisection Method ---
+#
+# Find a root of fn(x) = 0 in the interval [a, b] using bisection.
+# fn(a) and fn(b) must have opposite signs.
+#
+# Parameters:
+#   fn  - Function to find root of
+#   a   - Left bracket
+#   b   - Right bracket
+#   tol - Convergence tolerance
+#
+# Returns the root estimate, or 0 if bracketing fails.
+#
+pub fn bisect f64 fn (fn f64) f64 a f64 b f64 tol f64
+  let fa f64 fn a
+  let fb f64 fn b
+  if > (* fa fb) 0.0
+    ret 0.0
+  mut left f64 a
+  mut right f64 b
+  mut fleft f64 fa
+  while > (abs (- left right)) tol
+    let mid f64 / (+ left right) 2.0
+    let fmid f64 fn mid
+    if == fmid 0.0
+      ret mid
+    if > (* fleft fmid) 0.0
+      set left mid
+      set fleft fmid
+    else
+      set right mid
+  ret / (+ left right) 2.0
+
+# --- Root Finding: Newton's Method ---
+#
+# Find a root of fn(x) = 0 using Newton's method.
+# Requires the derivative fn'(x).
+#
+# Parameters:
+#   fn      - Function
+#   dfn     - Derivative function
+#   guess   - Initial guess
+#   tol     - Convergence tolerance
+#   maxIter - Maximum iterations
+#
+# Returns the root estimate, or 0 if it doesn't converge.
+#
+pub fn newton f64 fn (fn f64) f64 dfn (fn f64) f64 guess f64 tol f64 maxIter u32
+  mut x f64 guess
+  mut iter u32 0
+  while < iter maxIter
+    let fx f64 fn x
+    if approxEq fx 0.0 tol
+      ret x
+    let dfx f64 dfn x
+    if isZero dfx
+      ret 0.0
+    let dx f64 / fx dfx
+    set x - x dx
+    if < (abs dx) tol
+      ret x
+    set iter + iter 1
+  ret x
+
+# --- Root Finding: Secant Method ---
+#
+# Find a root using the secant method (doesn't need derivative).
+#
+pub fn secant f64 fn (fn f64) f64 x0 f64 x1 f64 tol f64 maxIter u32
+  mut xPrev f64 x0
+  mut xCurr f64 x1
+  mut iter u32 0
+  while < iter maxIter
+    let fPrev f64 fn xPrev
+    let fCurr f64 fn xCurr
+    let denom f64 (- fCurr fPrev)
+    if isZero denom
+      ret xCurr
+    let xNext f64 - xCurr (/ (* fCurr (- xCurr xPrev)) denom)
+    if < (abs (- xNext xCurr)) tol
+      ret xNext
+    set xPrev xCurr
+    set xCurr xNext
+    set iter + iter 1
+  ret xCurr
+
+# --- Linear Interpolation (1D) ---
+#
+# Given data points (x_i, y_i), interpolate at point x.
+# Assumes x values are sorted in ascending order.
+#
+# Parameters:
+#   xData - X coordinates (sorted ascending)
+#   yData - Y coordinates
+#   count - Number of data points
+#   x     - Point to interpolate at
+#
+pub fn interpolateLinear f64 xData Span<f64> yData Span<f64> count u32 x f64
+  if <= count 1_u32
+    if == count 1_u32
+      ret yData[0]
+    ret 0.0
+  # Bracket x
+  if <= x xData[0]
+    ret yData[0]
+  if >= x xData[count - 1_u32]
+    ret yData[count - 1_u32]
+  # Find interval
+  mut i u32 0
+  while < i (- count 1_u32)
+    if && (>= x xData[i]) (<= x xData[i + 1_u32])
+      let t f64 / (- x xData[i]) (- xData[i + 1_u32] xData[i])
+      ret + yData[i] (* t (- yData[i + 1_u32] yData[i]))
+    set i + i 1
+  ret yData[count - 1_u32]
+
+# --- Lagrange Interpolation ---
+#
+# Interpolate using Lagrange polynomial through all data points.
+#
+pub fn interpolateLagrange f64 xData Span<f64> yData Span<f64> count u32 x f64
+  mut result f64 0.0
+  mut i u32 0
+  while < i count
+    mut term f64 yData[i]
+    mut j u32 0
+    while < j count
+      if != j i
+        set term * term (/ (- x xData[j]) (- xData[i] xData[j]))
+      set j + j 1
+    set result + result term
+    set i + i 1
+  ret result
+
+# --- Least Squares Linear Regression ---
+#
+# Fit y = a + b*x to data points.
+#
+# Parameters:
+#   xData - X coordinates
+#   yData - Y coordinates
+#   count - Number of data points
+#   a     - Output: intercept
+#   b     - Output: slope
+#
+pub type LinearFit
+  a f64
+  b f64
+  r2 f64
+
+pub fn linearRegression LinearFit xData Span<f64> yData Span<f64> count u32
+  if <= count 1_u32
+    ret LinearFit . a 0.0 . b 0.0 . r2 0.0
+  # Compute means
+  mut sumX f64 0.0
+  mut sumY f64 0.0
+  mut i u32 0
+  while < i count
+    set sumX + sumX xData[i]
+    set sumY + sumY yData[i]
+    set i + i 1
+  let meanX f64 / sumX (as f64 count)
+  let meanY f64 / sumY (as f64 count)
+  # Compute sums for slope
+  mut num f64 0.0
+  mut den f64 0.0
+  mut i2 u32 0
+  while < i2 count
+    let dx f64 - xData[i2] meanX
+    let dy f64 - yData[i2] meanY
+    set num + num (* dx dy)
+    set den + den (* dx dx)
+    set i2 + i2 1
+  if isZero den
+    ret LinearFit . a meanY . b 0.0 . r2 0.0
+  let slope f64 / num den
+  let intercept f64 - meanY (* slope meanX)
+  # Compute R²
+  mut ssRes f64 0.0
+  mut ssTot f64 0.0
+  mut i3 u32 0
+  while < i3 count
+    let residual f64 - yData[i3] (+ intercept (* slope xData[i3]))
+    set ssRes + ssRes (* residual residual)
+    let d f64 - yData[i3] meanY
+    set ssTot + ssTot (* d d)
+    set i3 + i3 1
+  let r2 f64 0.0
+  if > ssTot 0.0
+    set r2 - 1.0 (/ ssRes ssTot)
+  ret LinearFit . a intercept . b slope . r2 r2
+
+# --- Polynomial Regression (degree 2) ---
+#
+# Fit y = c0 + c1*x + c2*x² to data points.
+# Returns an array of 3 coefficients [c0, c1, c2].
+#
+# Parameters:
+#   xData - X coordinates
+#   yData - Y coordinates
+#   count - Number of data points
+#
+pub fn polyFit2 Bool xData Span<f64> yData Span<f64> count u32 coeffs MutSpan<f64>
+  if <= count 2_u32
+    ret false
+  # Normal equations using the data directly
+  # We form the system using sums of x^i and x^i * y
+  mut s0 f64 0.0  # n
+  mut s1 f64 0.0  # sum x
+  mut s2 f64 0.0  # sum x^2
+  mut s3 f64 0.0  # sum x^3
+  mut s4 f64 0.0  # sum x^4
+  mut t0 f64 0.0  # sum y
+  mut t1 f64 0.0  # sum x*y
+  mut t2 f64 0.0  # sum x^2*y
+  mut i u32 0
+  while < i count
+    let x f64 xData[i]
+    let y f64 yData[i]
+    let x2 f64 * x x
+    let x3 f64 * x2 x
+    let x4 f64 * x3 x
+    set s0 + s0 1.0
+    set s1 + s1 x
+    set s2 + s2 x2
+    set s3 + s3 x3
+    set s4 + s4 x4
+    set t0 + t0 y
+    set t1 + t1 (* x y)
+    set t2 + t2 (* x2 y)
+    set i + i 1
+  # Solve 3x3 system using Cramer's rule
+  # | s0  s1  s2 | |c0|   |t0|
+  # | s1  s2  s3 | |c1| = |t1|
+  # | s2  s3  s4 | |c2|   |t2|
+  let det f64 - (- (+ (* s0 (- (* s2 s4) (* s3 s3))) (* s1 (- (* s3 s2) (* s1 s4)))) (* s2 (- (* s1 s3) (* s2 s1)))
+  if isZero det
+    ret false
+  let invDet f64 / 1.0 det
+  # Cramer's rule
+  set coeffs[0] * (- (+ (* t0 (- (* s2 s4) (* s3 s3))) (* s1 (- (* s3 t2) (* s1 t1)))) (* s2 (- (* s1 t1) (* s2 t0)))) invDet
+  set coeffs[1] * (- (+ (* s0 (- (* t1 s4) (* s3 t2))) (* t0 (- (* s3 s2) (* s1 s4)))) (* s2 (- (* s1 t2) (* t1 s2)))) invDet
+  set coeffs[2] * (- (+ (* s0 (- (* s2 t2) (* t1 s3))) (* s1 (- (* t1 s2) (* s1 t2)))) (* t0 (- (* s1 s3) (* s2 s2)))) invDet
+  ret true
+
+# --- Numerical Derivative via Finite Difference ---
+#
+# Estimate f'(x) using forward difference: (f(x+h) - f(x)) / h
+#
+pub fn forwardDiff f64 fn (fn f64) f64 x f64 h f64
+  ret / (- (fn (+ x h)) (fn x)) h
+
+# --- Numerical Derivative via Backward Difference ---
+#
+pub fn backwardDiff f64 fn (fn f64) f64 x f64 h f64
+  ret / (- (fn x) (fn (- x h))) h
+
+# --- Finite Difference Coefficients for uniform grid ---
+#
+# Compute first derivative coefficients for a given stencil size.
+#
+pub fn fdCoeffs1 UnsizedVoid stencil u32 h f64 coeffs MutSpan<f64>
+  if == stencil 2_u32
+    set coeffs[0] / (- 0.0 1.0) h
+    set coeffs[1] / 1.0 h
+  if == stencil 4_u32
+    set coeffs[0] / 1.0 (* 12.0 h)
+    set coeffs[1] / (- 0.0 8.0) (* 12.0 h)
+    set coeffs[2] / 8.0 (* 12.0 h)
+    set coeffs[3] / (- 0.0 1.0) (* 12.0 h)
+
+# --- Trapezoidal Rule for Discrete Data ---
+#
+pub fn trapz f64 y Span<f64> count u32 h f64
+  if <= count 1_u32
+    ret 0.0
+  mut sum f64 + y[0] y[count - 1_u32]
+  mut i u32 1
+  while < i (- count 1_u32)
+    set sum + sum (* 2.0 y[i])
+    set i + i 1
+  ret * (/ h 2.0) sum
+
+# --- Special Function: Sinc ---
+#
+# sin(πx) / (πx), with sinc(0) = 1.
+#
+pub fn sinc f64 x f64
+  if isZero x
+    ret 1.0
+  let pix f64 * PI x
+  ret / (sin pix) pix
+
+# --- Special Function: Error Function (erf) ---
+#
+# Approximate using Abramowitz & Stegun approximation.
+# |error| <= 1.5e-7
+#
+pub fn erf f64 x f64
+  if == x 0.0
+    ret 0.0
+  let absX f64 abs x
+  if > absX 5.0
+    if > x 0.0
+      ret 1.0
+    ret (- 0.0 1.0)
+  # Constants for approximation
+  let a1 f64 0.254829592
+  let a2 f64 (- 0.0 0.284496736)
+  let a3 f64 1.421413741
+  let a4 f64 (- 0.0 1.453152027)
+  let a5 f64 1.061405429
+  let p f64 0.3275911
+  let t f64 / 1.0 (+ 1.0 (* p absX))
+  let y f64 - 1.0 (* (+ (+ (+ (+ (* a1 t) (* a2 (* t t))) (* a3 (* (* t t) t))) (* a4 (* (* (* t t) t) t))) (* a5 (* (* (* (* t t) t) t) t))) (exp (- (* absX absX))))
+  if > x 0.0
+    ret y
+  ret (- 0.0 y)
+
+# --- Special Function: Complementary Error Function ---
+#
+pub fn erfc f64 x f64
+  ret - 1.0 (erf x)
+
+# --- Special Function: Gamma Function (Stirling's approximation) ---
+#
+# Compute Γ(x) using Lanczos approximation for x > 0.
+# For x <= 0, returns 0.
+#
+pub fn gamma f64 x f64
+  if <= x 0.0
+    ret 0.0
+  if approxEq x 1.0 DEFAULT_TOLERANCE
+    ret 1.0
+  if approxEq x 0.5 DEFAULT_TOLERANCE
+    ret sqrt PI
+  # Lanczos approximation
+  let g f64 7.0
+  let p [9]f64 [
+    0.99999999999980993,
+    676.5203681218851,
+    (- 0.0 1259.1392167224028),
+    771.32342877765313,
+    (- 0.0 176.61502916214059),
+    12.507343278686905,
+    (- 0.0 0.13857109526572012),
+    9.9843695780195716e-6,
+    1.5056327351493116e-7
+  ]
+  let z f64 - x 1.0
+  mut sumF f64 p[0]
+  mut i u32 1
+  while < i 9_u32
+    set sumF + sumF (/ p[i] (+ z (as f64 i)))
+    set i + i 1
+  let t f64 + z g 0.5
+  ret * (* (sqrt TAU) (pow t (+ z 0.5))) (exp (- 0.0 t)) sumF
+
+# --- Special Function: Beta Function ---
+#
+pub fn beta f64 x f64 y f64
+  ret / (* (gamma x) (gamma y)) (gamma (+ x y))
+
+# --- Bessel Functions of the First Kind ---
+
+# Miller's downward recurrence helper for J_0 and J_1.
+# Computes both values together to avoid redundant computation.
+# Algorithm:
+#   1. Choose N = max(n_target + 20, ceil(x) + 20, 50) where n_target = 1
+#   2. Initialise f[N] = 0, f[N-1] = 1 (arbitrary non-zero seed)
+#   3. Apply downward recurrence: f[m-1] = (2m/x)*f[m] - f[m+1]
+#   4. Normalise using J_0(x) + 2*sum_{k=1}^{inf} J_{2k}(x) = 1
+#
+fn millerRecurrence Void
+  x    f64
+  j0   MutSpan<f64>  -- output: J_0(x), length 1
+  j1   MutSpan<f64>  -- output: J_1(x), length 1
+  # Special case: x = 0
+  if isZero x
+    set j0[0] 1.0
+    set j1[0] 0.0
+    ret
+  # Choose starting order N
+  let nTarget i32 1
+  let ceilX i32 (as i32 (ceil (abs x)))
+  mut nMax i32 max (+ nTarget 20) (+ ceilX 20)
+  if < nMax 50
+    set nMax 50
+  if > nMax 254
+    set nMax 254
+  # Allocate recurrence array. The fixed size keeps the helper stack-only and deterministic.
+  mut f [256]f64 [0.0; 256]
+  # Initialise: f[N] = 0, f[N-1] = 1
+  let N i32 nMax
+  set f[N] 0.0
+  set f[-1 + N] 1.0
+  # Downward recurrence: f[m-1] = (2m/x)*f[m] - f[m+1]
+  mut m i32 -1 + N
+  while > m 0
+    let twoM f64 * 2.0 (as f64 m)
+    let fPlus1 f64 f[+ m 1]
+    let fCurr f64 f m
+    set f[-1 + m] - (/ (* twoM fCurr) x) fPlus1
+    set m - m 1
+  # Compute normalisation sum: S = f[0] + 2*(f[2] + f[4] + ... + f[2K])
+  mut sum f64 f[0]
+  mut k i32 1
+  while <= k 25
+    let idx i32 * 2 k
+    if > idx N
+      break
+    set sum + sum (* 2.0 f[idx])
+    set k + k 1
+  # Normalise: J_m(x) = f[m] / S
+  set j0[0] / f[0] sum
+  set j1[0] / f[1] sum
+  if < x 0.0
+    set j1[0] (- 0.0 j1[0])
+
+# Bessel function J_0(x) using Miller's downward recurrence.
+#
+pub fn besselJ0 f64 x f64
+  mut j0 f64 0.0
+  mut j1 f64 0.0
+  millerRecurrence x &j0 &j1
+  ret j0
+
+# Bessel function J_1(x) using Miller's downward recurrence.
+#
+pub fn besselJ1 f64 x f64
+  mut j0 f64 0.0
+  mut j1 f64 0.0
+  millerRecurrence x &j0 &j1
+  ret j1
+
+# Bessel function J_n(x) for integer n using recurrence.
+# Uses downward recurrence for stability.
+#
+pub fn besselJ f64 n i32 x f64
+  if == n 0
+    ret besselJ0 x
+  if == n 1
+    ret besselJ1 x
+  if < n 0
+    if == (& (- 0 n) 1) 1
+      ret (- 0.0 (besselJ (- 0 n) x))
+    ret besselJ (- 0 n) x
+  if == x 0.0
+    ret 0.0
+  # Downward recurrence
+  let start i32 50
+  if < n start
+    set start n
+  # Large enough for convergence
+  set start + start 20
+  mut jPrev f64 0.0
+  mut jCurr f64 1.0
+  mut jNext f64 0.0
+  mut m i32 start
+  while > m 0
+    set jNext / (- (* 2.0 (as f64 m) jCurr) (* x jPrev)) x
+    set jPrev jCurr
+    set jCurr jNext
+    if == m n
+      set jPrev jCurr
+    set m - m 1
+  # Normalize using J_0(x) + 2*sum_{k=1}^{inf} J_{2k}(x) = 1
+  let norm f64 besselJ0 x
+  ret / jPrev norm
+
+# --- Lambert W Function ---
+
+# Compute the principal branch W_0(x) of the Lambert W function.
+# W(x) satisfies: W(x) * e^W(x) = x
+# Uses Newton's method with Halley's method for robustness.
+# Returns 0 for x < -1/e (outside principal branch domain).
+#
+pub fn lambertW f64 x f64
+  let minArg f64 / (- 0.0 1.0) E
+  if < x minArg
+    ret 0.0
+  if isZero x
+    ret 0.0
+  # Initial guess
+  mut w f64 x
+  if > x 0.0
+    set w ln x
+  if > x E
+    set w ln x
+  if && (> x 0.0) (< x E)
+    set w / x E
+  # Newton iteration: w_{n+1} = w_n - (w*e^w - x) / (e^w*(w+1))
+  mut iter u32 0
+  while < iter 100_u32
+    let ew f64 exp w
+    let f f64 (- (* w ew) x)
+    if approxEq f 0.0 DEFAULT_TOLERANCE
+      ret w
+    let df f64 (* ew (+ w 1.0))
+    if isZero df
+      ret w
+    let dw f64 / f df
+    set w - w dw
+    if < (abs dw) DEFAULT_TOLERANCE
+      ret w
+    set iter + iter 1
+  ret w
+
+# --- Riemann Zeta Function ---
+
+# Compute the Riemann zeta function zeta(s) for real s > 0, s != 1.
+# Uses direct summation for s > 1 and functional equation for 0 < s < 1.
+# Returns 0 for s <= 0 or s == 1.
+#
+pub fn zeta f64 s f64
+  if approxEq s 1.0 DEFAULT_TOLERANCE
+    ret 0.0
+  if <= s 0.0
+    ret 0.0
+  if < s 1.0
+    # Use series for s > 0.5 with enough terms
+    mut sum1 f64 0.0
+    mut n u32 1
+    while <= n 200_u32
+      set sum1 + sum1 (/ 1.0 (pow (as f64 n) s))
+      set n + n 1
+    ret sum1
+  mut sum f64 0.0
+  mut n2 u32 1
+  while <= n2 200_u32
+    set sum + sum (/ 1.0 (pow (as f64 n2) s))
+    set n2 + n2 1
+  ret sum
+
+# --- Bessel Functions of the Second Kind (Y_n) ---
+
+# Bessel function Y_0(x) for x > 0 using series approximation.
+# Y_0(x) = (2/pi) * (ln(x/2) + gamma) * J_0(x) - (2/pi) * sum
+#
+pub fn besselY0 f64 x f64
+  if <= x 0.0
+    ret 0.0
+  if isZero x
+    ret (- 0.0 MAX)
+  let j0 f64 besselJ0 x
+  let halfX f64 / x 2.0
+  let lnHalfX f64 ln halfX
+  # Series for the sum term
+  mut sum f64 0.0
+  mut term f64 1.0
+  mut n i32 1
+  while <= n 10
+    set term * term (- 0.0 (/ (* halfX halfX) (* (as f64 n) (as f64 n))))
+    # Harmonic number H_n
+    mut hn f64 0.0
+    mut k i32 1
+    while <= k n
+      set hn + hn (/ 1.0 (as f64 k))
+      set k + k 1
+    set sum + sum (* term hn)
+    set n + n 1
+  ret - (* (/ 2.0 PI) (+ (- (* j0 (- lnHalfX GAMMA)) sum))) (/ (* 2.0 sum) PI)
+  # Simplified: use approximation
+  let y0 f64 * (/ 2.0 PI) (- (* j0 (+ lnHalfX GAMMA)) sum)
+  ret y0
+
+# Bessel function Y_1(x) for x > 0.
+# Uses the relation: J_1(x)*Y_0(x) - J_0(x)*Y_1(x) = 2/(pi*x)
+#
+pub fn besselY1 f64 x f64
+  if <= x 0.0
+    ret 0.0
+  let j0 f64 besselJ0 x
+  let j1 f64 besselJ1 x
+  let y0 f64 besselY0 x
+  ret / (- (* j1 y0) (/ 2.0 (* PI x))) j0
+
+# Bessel function Y_n(x) using recurrence.
+#
+pub fn besselY f64 n i32 x f64
+  if == n 0
+    ret besselY0 x
+  if == n 1
+    ret besselY1 x
+  if < x 0.0
+    ret 0.0
+  mut yPrev f64 besselY0 x
+  mut yCurr f64 besselY1 x
+  mut m i32 1
+  while < m n
+    let yNext f64 / (- (* 2.0 (as f64 m) yCurr) (* x yPrev)) x
+    set yPrev yCurr
+    set yCurr yNext
+    set m + m 1
+  ret yCurr
+
+# --- Modified Bessel Functions of the First Kind (I_n) ---
+
+# Modified Bessel function I_0(x) using series.
+#
+pub fn besselI0 f64 x f64
+  if isZero x
+    ret 1.0
+  let halfX f64 / x 2.0
+  let halfX2 f64 * halfX halfX
+  mut term f64 1.0
+  mut sum f64 1.0
+  mut n i32 1
+  while <= n 20
+    set term * term (/ halfX2 (* (as f64 n) (as f64 n)))
+    set sum + sum term
+    set n + n 1
+  ret sum
+
+# Modified Bessel function I_1(x) using series.
+#
+pub fn besselI1 f64 x f64
+  if isZero x
+    ret 0.0
+  let halfX f64 / x 2.0
+  let halfX2 f64 * halfX halfX
+  mut term f64 halfX
+  mut sum f64 halfX
+  mut n i32 1
+  while <= n 20
+    set term * term (/ halfX2 (* (as f64 n) (as f64 (+ n 1))))
+    set sum + sum term
+    set n + n 1
+  ret sum
+
+# Modified Bessel function I_n(x) using recurrence.
+#
+pub fn besselI f64 n i32 x f64
+  if == n 0
+    ret besselI0 x
+  if == n 1
+    ret besselI1 x
+  if < n 0
+    ret besselI (- 0 n) x
+  mut iPrev f64 besselI0 x
+  mut iCurr f64 besselI1 x
+  mut m i32 1
+  while < m n
+    let iNext f64 - iPrev (* (/ (* 2.0 (as f64 m)) x) iCurr)
+    set iPrev iCurr
+    set iCurr iNext
+    set m + m 1
+  ret iCurr
+
+# --- Modified Bessel Functions of the Second Kind (K_n) ---
+
+# Modified Bessel function K_0(x) for x > 0.
+# Uses the relation with I_0.
+#
+pub fn besselK0 f64 x f64
+  if <= x 0.0
+    ret 0.0
+  if isZero x
+    ret MAX
+  let i0 f64 besselI0 x
+  let halfX f64 / x 2.0
+  let lnHalfX f64 ln halfX
+  mut sum f64 0.0
+  mut term f64 1.0
+  mut n i32 1
+  while <= n 10
+    set term * term (/ (* halfX halfX) (* (as f64 n) (as f64 n)))
+    mut hn f64 0.0
+    mut k i32 1
+    while <= k n
+      set hn + hn (/ 1.0 (as f64 k))
+      set k + k 1
+    set sum + sum (* term hn)
+    set n + n 1
+  ret - (* (- 0.0 i0) (+ lnHalfX GAMMA)) sum
+
+# Modified Bessel function K_1(x) for x > 0.
+#
+pub fn besselK1 f64 x f64
+  if <= x 0.0
+    ret 0.0
+  let i0 f64 besselI0 x
+  let i1 f64 besselI1 x
+  let k0 f64 besselK0 x
+  ret / (- (* k0 i1) (/ 1.0 x)) i0
+
+# Modified Bessel function K_n(x) using recurrence.
+#
+pub fn besselK f64 n i32 x f64
+  if == n 0
+    ret besselK0 x
+  if == n 1
+    ret besselK1 x
+  if <= x 0.0
+    ret 0.0
+  mut kPrev f64 besselK0 x
+  mut kCurr f64 besselK1 x
+  mut m i32 1
+  while < m n
+    let kNext f64 + kPrev (* (/ (* 2.0 (as f64 m)) x) kCurr)
+    set kPrev kCurr
+    set kCurr kNext
+    set m + m 1
+  ret kCurr
+
+# --- Elliptic Integrals ---
+
+# Result type for elliptic integral functions
+pub type EllipticPiResult
+  ok Bool
+  value f64
+
+# Complete elliptic integral of the first kind K(k).
+# K(k) = integral_0^{pi/2} d(theta) / sqrt(1 - k^2 * sin^2(theta))
+# Uses the arithmetic-geometric mean (AGM).
+#
+pub fn ellipticK f64 k f64
+  let m f64 * k k
+  if >= (abs m) 1.0
+    ret 0.0
+  if isZero m
+    ret PI_2
+  ret / PI_2 (agm 1.0 (sqrt (- 1.0 m)))
+
+# Complete elliptic integral of the second kind E(k).
+# E(k) = integral_0^{pi/2} sqrt(1 - k^2 * sin^2(theta)) d(theta)
+# Uses Carlson's form.
+#
+pub fn ellipticE f64 k f64
+  let m f64 * k k
+  if >= (abs m) 1.0
+    ret 0.0
+  if isZero m
+    ret PI_2
+  let a f64 1.0
+  let b f64 sqrt (- 1.0 m)
+  let c f64 sqrt m
+  mut aN f64 a
+  mut bN f64 b
+  mut cN f64 c
+  mut sum f64 0.0
+  let tol f64 1.0e-12
+  while > (abs cN) tol
+    set sum + sum (* (powi 2.0 (as i32 (- (as i32 (as f64 0.0)) 1))) (* cN cN))
+    let nextA f64 / (+ aN bN) 2.0
+    set cN / (- aN bN) 2.0
+    set bN sqrt (* aN bN)
+    set aN nextA
+  ret * PI_2 (/ (- 1.0 sum) aN)
+
+fn ellipticPiIntegrand f64 theta f64 n f64 k f64
+  let s f64 sin theta
+  let s2 f64 * s s
+  let pole f64 - 1.0 (* n s2)
+  let rad f64 - 1.0 (* (* k k) s2)
+  if || (<= pole 0.0) (<= rad 0.0)
+    ret 0.0
+  ret / 1.0 (* pole (sqrt rad))
+
+fn ellipticPiQuadrature f64 phi f64 n f64 k f64
+  if isZero phi
+    ret 0.0
+  # 16-point Gauss-Legendre nodes and weights on [-1, 1], stored as positive pairs.
+  let x0 f64 0.09501250983763744
+  let x1 f64 0.28160355077925891
+  let x2 f64 0.45801677765722739
+  let x3 f64 0.61787624440264375
+  let x4 f64 0.75540440835500303
+  let x5 f64 0.86563120238783174
+  let x6 f64 0.94457502307323258
+  let x7 f64 0.98940093499164993
+  let w0 f64 0.18945061045506850
+  let w1 f64 0.18260341504492359
+  let w2 f64 0.16915651939500254
+  let w3 f64 0.14959598881657673
+  let w4 f64 0.12462897125553388
+  let w5 f64 0.09515851168249278
+  let w6 f64 0.06225352393864789
+  let w7 f64 0.02715245941175409
+  let half f64 / phi 2.0
+  mut sum f64 0.0
+  set sum + sum (* w0 (+ (ellipticPiIntegrand (* half (+ 1.0 x0)) n k) (ellipticPiIntegrand (* half (- 1.0 x0)) n k)))
+  set sum + sum (* w1 (+ (ellipticPiIntegrand (* half (+ 1.0 x1)) n k) (ellipticPiIntegrand (* half (- 1.0 x1)) n k)))
+  set sum + sum (* w2 (+ (ellipticPiIntegrand (* half (+ 1.0 x2)) n k) (ellipticPiIntegrand (* half (- 1.0 x2)) n k)))
+  set sum + sum (* w3 (+ (ellipticPiIntegrand (* half (+ 1.0 x3)) n k) (ellipticPiIntegrand (* half (- 1.0 x3)) n k)))
+  set sum + sum (* w4 (+ (ellipticPiIntegrand (* half (+ 1.0 x4)) n k) (ellipticPiIntegrand (* half (- 1.0 x4)) n k)))
+  set sum + sum (* w5 (+ (ellipticPiIntegrand (* half (+ 1.0 x5)) n k) (ellipticPiIntegrand (* half (- 1.0 x5)) n k)))
+  set sum + sum (* w6 (+ (ellipticPiIntegrand (* half (+ 1.0 x6)) n k) (ellipticPiIntegrand (* half (- 1.0 x6)) n k)))
+  set sum + sum (* w7 (+ (ellipticPiIntegrand (* half (+ 1.0 x7)) n k) (ellipticPiIntegrand (* half (- 1.0 x7)) n k)))
+  ret * half sum
+
+# Complete elliptic integral of the third kind Π(n, k).
+# Π(n, k) = integral_0^{pi/2} d(theta) / ((1 - n*sin^2(theta)) * sqrt(1 - k^2*sin^2(theta)))
+# Returns EllipticPiResult with ok=false if |k| >= 1 or n >= 1 (out of domain).
+#
+pub fn ellipticPi EllipticPiResult n f64 k f64
+  let k2 f64 * k k
+  if || (>= (abs k2) 1.0) (>= n 1.0)
+    ret EllipticPiResult . ok false value 0.0
+  if isZero n
+    ret EllipticPiResult . ok true value (ellipticK k)
+  if isZero k
+    ret EllipticPiResult . ok true value (/ PI_2 (sqrt (- 1.0 n)))
+  ret EllipticPiResult . ok true value (ellipticPiQuadrature PI_2 n k)
+
+# Incomplete elliptic integral of the third kind Π(phi, n, k).
+# Π(phi, n, k) = integral_0^phi d(theta) / ((1 - n*sin^2(theta)) * sqrt(1 - k^2*sin^2(theta)))
+# Returns EllipticPiResult with ok=false if |k| >= 1 or n >= 1.
+#
+pub fn ellipticPiIncomplete EllipticPiResult phi f64 n f64 k f64
+  let k2 f64 * k k
+  let s f64 sin phi
+  if || (>= (abs k2) 1.0) (|| (>= n 1.0) (>= (abs (* k s)) 1.0))
+    ret EllipticPiResult . ok false value 0.0
+  if isZero phi
+    ret EllipticPiResult . ok true value 0.0
+  ret EllipticPiResult . ok true value (ellipticPiQuadrature phi n k)
+
+# Test elliptic integrals
+test "ellipticK and ellipticE work"
+  expect (approxEq (ellipticK 0.0) PI_2 1.0e-10)
+  expect (approxEq (ellipticE 0.0) PI_2 1.0e-10)
+  expect (approxEq (ellipticK 0.5) 1.68575035 1.0e-6)
+  expect (approxEq (ellipticE 0.5) 1.46746221 1.0e-6)
+
+# Test EllipticPiResult type
+test "EllipticPiResult type structure"
+  let r1 EllipticPiResult ellipticPi 0.1 0.5
+  expect r1.ok
+  expect > r1.value 0.0
+  let r2 EllipticPiResult ellipticPi 1.5 0.5
+  expect (! r2.ok)
+  expect == r2.value 0.0
+
+# --- Digamma and Polygamma Functions ---
+
+# Compute the digamma function psi(x) for x > 0.
+# Uses the asymptotic series for large x and recurrence for small x.
+#
+pub fn digamma f64 x f64
+  if <= x 0.0
+    ret 0.0
+  if approxEq x 1.0 DEFAULT_TOLERANCE
+    ret (- 0.0 GAMMA)
+  if approxEq x 0.5 DEFAULT_TOLERANCE
+    ret (+ (- 0.0 GAMMA) (* (- 0.0 2.0) LN2))
+  mut z f64 x
+  mut shift f64 0.0
+  # Use recurrence psi(x+1) = psi(x) + 1/x to shift small values
+  while < z 5.0
+    set shift + shift (/ 1.0 z)
+    set z + z 1.0
+  # Asymptotic series for large z
+  let invZ f64 / 1.0 z
+  let invZ2 f64 * invZ invZ
+  ret - (+ (- (ln z) (/ 1.0 (* 2.0 z))) (* invZ (/ 1.0 12.0))) (+ (* invZ2 (/ 1.0 120.0)) (* (* invZ2 invZ2) (/ 1.0 252.0))) shift
+
+# Compute the trigamma function psi_1(x) (derivative of digamma).
+#
+pub fn trigamma f64 x f64
+  if <= x 0.0
+    ret 0.0
+  mut z f64 x
+  mut shift f64 0.0
+  while < z 5.0
+    set shift + shift (/ 1.0 (* z z))
+    set z + z 1.0
+  let invZ f64 / 1.0 z
+  let invZ2 f64 * invZ invZ
+  ret + (+ invZ (* invZ2 0.5)) (+ (* (* invZ2 invZ) (/ 1.0 6.0)) (- (* (* (* invZ2 invZ2) 0.0) (/ 1.0 30.0)) (* (* (* invZ2 invZ2) invZ) (/ 1.0 42.0)))) shift
+
+# --- Incomplete Gamma and Beta Functions ---
+
+# Lower incomplete gamma function gamma(s, x).
+# Uses series representation: gamma(s, x) = x^s * sum_{n=0}^{inf} (-x)^n / (n! * (s+n))
+#
+pub fn lowerIncompleteGamma f64 s f64 x f64
+  if < x 0.0
+    ret 0.0
+  if isZero x
+    ret 0.0
+  if approxEq s 1.0 DEFAULT_TOLERANCE
+    ret - 1.0 (exp (- 0.0 x))
+  let ex f64 exp (- 0.0 x)
+  mut term f64 1.0
+  mut sum f64 1.0
+  mut n u32 1
+  while < n 100_u32
+    set term * term (/ x (+ s (as f64 n)))
+    set sum + sum term
+    if < term 1.0e-15
+      break_loop
+    set n + n 1
+  ret * (* (pow x s) ex) sum
+
+# Upper incomplete gamma function Gamma(s, x) = Gamma(s) - gamma(s, x).
+#
+pub fn upperIncompleteGamma f64 s f64 x f64
+  ret - (gamma s) (lowerIncompleteGamma s x)
+
+# Incomplete beta function I_x(a, b).
+# Uses the continued fraction representation.
+#
+pub fn incompleteBeta f64 x f64 a f64 b f64
+  if || (< x 0.0) (> x 1.0)
+    ret 0.0
+  if || (isZero x) (approxEq x 1.0 DEFAULT_TOLERANCE)
+    if isZero x
+      ret 0.0
+    ret 1.0
+  # Use the series representation for computational simplicity
+  mut term f64 1.0
+  mut sum f64 1.0
+  mut n u32 1
+  while < n 100_u32
+    let num f64 * (- (+ (as f64 n) b) 1.0) x
+    let den f64 + (as f64 n) a
+    set term * term (/ num den)
+    set sum + sum term
+    set n + n 1
+  ret * (/ (pow x a) a) sum
+  # Normalize by beta function
+  ret / (* (/ (pow x a) a) sum) (beta a b)
+
+# Test special functions
+test "bessel functions work"
+  expect (approxEq (besselJ0 0.0) 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq (besselJ1 0.0) 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (besselJ0 1.0) 0.76519769 1.0e-4)
+  expect (approxEq (besselJ1 1.0) 0.44005059 1.0e-4)
+
+test "millerRecurrence helper works"
+  # Test J_0(0) = 1, J_1(0) = 0
+  mut j0 f64 0.0
+  mut j1 f64 0.0
+  millerRecurrence 0.0 &j0 &j1
+  expect (approxEq j0 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq j1 0.0 DEFAULT_TOLERANCE)
+
+  # Test J_0(1) and J_1(1) against known values
+  millerRecurrence 1.0 &j0 &j1
+  expect (approxEq j0 0.76519769 1.0e-4)
+  expect (approxEq j1 0.44005059 1.0e-4)
+
+  # Test J_0(5) and J_1(5) against known values
+  millerRecurrence 5.0 &j0 &j1
+  expect (approxEq j0 -0.17759677 1.0e-4)
+  expect (approxEq j1 -0.32757914 1.0e-4)
+
+  # Test J_0(10) and J_1(10) against known values
+  millerRecurrence 10.0 &j0 &j1
+  expect (approxEq j0 -0.24593576 1.0e-4)
+  expect (approxEq j1 0.04347275 1.0e-4)
+
+test "lambertW works"
+  expect (approxEq (lambertW 0.0) 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (lambertW E) 1.0 1.0e-4)
+
+test "zeta works"
+  expect (approxEq (zeta 2.0) 1.644934 1.0e-3)
+  expect (approxEq (zeta 4.0) 1.082323 1.0e-3)
+
+# Test numerical functions
+test "bisect works"
+  let f (fn f64) f64 let x f64 args[0]; ret - x 2.0
+  let root bisect f 0.0 4.0 1e-6
+  expect (approxEq root 2.0 1e-4)
+
+test "linear regression works"
+  let x [5]f64 [1.0, 2.0, 3.0, 4.0, 5.0]
+  let y [5]f64 [2.0, 4.0, 6.0, 8.0, 10.0]
+  let fit LinearFit linearRegression x y 5_u32
+  let slopeR f64 (as f64 (as i32 (* fit.b 1000.0))) / 1000.0
+  let intcR f64 (as f64 (as i32 (* fit.a 1000.0))) / 1000.0
+  expect (approxEq slopeR 2.0 1e-2)
+  expect (approxEq intcR 0.0 1e-2)
+
+test "interpolation works"
+  let x [4]f64 [0.0, 1.0, 2.0, 3.0]
+  let y [4]f64 [0.0, 1.0, 4.0, 9.0]
+  let v interpolateLinear x y 4_u32 1.5
+  expect (approxEq v 2.5 1e-6)
+  let v2 interpolateLagrange x y 4_u32 2.0
+  expect (approxEq v2 4.0 1e-4)
+
+test "erf and gamma work"
+  expect (approxEq (erf 0.0) 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (gamma 1.0) 1.0 1e-4)
+  expect (approxEq (gamma 2.0) 1.0 1e-4)
+  expect (approxEq (beta 1.0 1.0) 1.0 1e-4)
+
+test "sinc works"
+  expect (approxEq (sinc 0.0) 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq (sinc 1.0) 0.0 1e-6)

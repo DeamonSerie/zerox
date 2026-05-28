@@ -1,0 +1,100 @@
+# std.math.matrix example
+#
+# Demonstrates matrix operations: addition, multiplication,
+# transpose, determinant, inverse, and linear system solving.
+#
+# Build:  bin/zerox check examples/math-matrix-demo.0
+# Test:   bin/zerox test examples/math-matrix-demo.0
+
+# Matrix addition
+test "matrix addition works"
+  mut a_data [4]f64 [1.0, 2.0, 3.0, 4.0]
+  mut b_data [4]f64 [5.0, 6.0, 7.0, 8.0]
+  mut out [4]f64 [0.0, 0.0, 0.0, 0.0]
+  let a std.math.matrix.matrixView 2_u32 2_u32 a_data
+  let b std.math.matrix.matrixView 2_u32 2_u32 b_data
+  let outMut std.math.matrix.matrixMutView 2_u32 2_u32 out
+  std.math.matrix.add a b outMut
+  expect (std.math.approxEq out[0] 6.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq out[3] 12.0 std.math.DEFAULT_TOLERANCE)
+
+# Matrix multiplication
+test "matrix multiplication works"
+  # A = [[1,2,3],[4,5,6]], B = [[7,8],[9,10],[11,12]]
+  mut a_data [6]f64 [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+  mut b_data [6]f64 [7.0, 8.0, 9.0, 10.0, 11.0, 12.0]
+  mut out [4]f64 [0.0, 0.0, 0.0, 0.0]
+  let a std.math.matrix.matrixView 2_u32 3_u32 a_data
+  let b std.math.matrix.matrixView 3_u32 2_u32 b_data
+  let outMut std.math.matrix.matrixMutView 2_u32 2_u32 out
+  std.math.matrix.mul a b outMut
+  # Expected: [[58, 64], [139, 154]]
+  expect (std.math.approxEq out[0] 58.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq out[1] 64.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq out[2] 139.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq out[3] 154.0 std.math.DEFAULT_TOLERANCE)
+
+# 2x2 determinant
+test "2x2 determinant works"
+  mut a_data [4]f64 [1.0, 2.0, 3.0, 4.0]
+  let a std.math.matrix.matrixView 2_u32 2_u32 a_data
+  let det std.math.matrix.det2 a
+  expect (std.math.approxEq det (- 0.0 2.0) std.math.DEFAULT_TOLERANCE)
+
+# 3x3 determinant
+test "3x3 determinant works"
+  mut a_data [9]f64 [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0]
+  let a std.math.matrix.matrixView 3_u32 3_u32 a_data
+  let det std.math.matrix.det3 a
+  expect (std.math.approxEq det (- 0.0 3.0) 1e-6)
+
+# 2x2 inverse: A = [[4,7],[2,6]], A^-1 = [[0.6, -0.7], [-0.2, 0.4]]
+test "2x2 inverse works"
+  mut a_data [4]f64 [4.0, 7.0, 2.0, 6.0]
+  mut inv_data [4]f64 [0.0, 0.0, 0.0, 0.0]
+  let a std.math.matrix.matrixView 2_u32 2_u32 a_data
+  let invMut std.math.matrix.matrixMutView 2_u32 2_u32 inv_data
+  let ok std.math.matrix.inv2 a invMut
+  expect ok
+  # Verify: A * A^-1 = I
+  mut prod_data [4]f64 [0.0, 0.0, 0.0, 0.0]
+  let prodMut std.math.matrix.matrixMutView 2_u32 2_u32 prod_data
+  let inv std.math.matrix.matrixView 2_u32 2_u32 inv_data
+  std.math.matrix.mul a inv prodMut
+  expect (std.math.approxEq prod_data[0] 1.0 1e-6)
+  expect (std.math.approxEq prod_data[3] 1.0 1e-6)
+
+# Transpose
+test "transpose works"
+  mut a_data [6]f64 [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+  mut out_data [6]f64 [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  let a std.math.matrix.matrixView 2_u32 3_u32 a_data
+  let outMut std.math.matrix.matrixMutView 3_u32 2_u32 out_data
+  std.math.matrix.transpose a outMut
+  expect (std.math.approxEq out_data[0] 1.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq out_data[1] 4.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq out_data[2] 2.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq out_data[3] 5.0 std.math.DEFAULT_TOLERANCE)
+
+# Identity and trace
+test "identity matrix trace works"
+  mut id_data [9]f64 [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  let idMut std.math.matrix.matrixMutView 3_u32 3_u32 id_data
+  std.math.matrix.identity 3_u32 idMut
+  let id std.math.matrix.matrixView 3_u32 3_u32 id_data
+  expect (std.math.approxEq (std.math.matrix.trace id) 3.0 std.math.DEFAULT_TOLERANCE)
+
+# Scale and norms
+test "matrix scaling and norms work"
+  mut a_data [4]f64 [1.0, 2.0, 3.0, 4.0]
+  mut out_data [4]f64 [0.0, 0.0, 0.0, 0.0]
+  let a std.math.matrix.matrixView 2_u32 2_u32 a_data
+  let outMut std.math.matrix.matrixMutView 2_u32 2_u32 out_data
+  std.math.matrix.scale a 3.0 outMut
+  expect (std.math.approxEq out_data[0] 3.0 std.math.DEFAULT_TOLERANCE)
+  expect (std.math.approxEq out_data[3] 12.0 std.math.DEFAULT_TOLERANCE)
+  let norm std.math.matrix.normFrobenius a
+  expect (std.math.approxEq norm 5.477225575051661 1e-6)
+
+pub fn main Void world World !
+  check world.out.write "math matrix demo: run 'bin/zerox test examples/math-matrix-demo.0'\n"

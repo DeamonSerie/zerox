@@ -1,0 +1,6 @@
+fn identity f32 x f32
+  ret x
+
+pub fn main Void world World !
+  if == (identity 1.0) 1.0
+    check world.out.write "float identity call ok\n"

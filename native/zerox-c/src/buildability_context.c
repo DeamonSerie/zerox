@@ -14,6 +14,8 @@ const char *z_build_type_name(IrTypeKind type) {
     case IR_TYPE_U32: return "u32";
     case IR_TYPE_I64: return "i64";
     case IR_TYPE_U64: return "u64";
+    case IR_TYPE_F32: return "f32";
+    case IR_TYPE_F64: return "f64";
     case IR_TYPE_BYTE_VIEW: return "Span<u8>";
     case IR_TYPE_ALLOC: return "FixedBufAlloc";
     case IR_TYPE_VEC: return "Vec";
@@ -106,12 +108,13 @@ const char *z_build_value_kind_name(IrValueKind kind) {
 
 bool z_build_is_elf_scalar(IrTypeKind type) {
   return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_USIZE ||
-         type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_I64 || type == IR_TYPE_U64;
+         type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_I64 || type == IR_TYPE_U64 ||
+         type == IR_TYPE_F32 || type == IR_TYPE_F64;
 }
 
 bool z_build_is_scalar32(IrTypeKind type) {
   return type == IR_TYPE_BOOL || type == IR_TYPE_U8 || type == IR_TYPE_U16 || type == IR_TYPE_USIZE ||
-         type == IR_TYPE_I32 || type == IR_TYPE_U32;
+         type == IR_TYPE_I32 || type == IR_TYPE_U32 || type == IR_TYPE_F32 || type == IR_TYPE_F64;
 }
 
 bool z_build_diag(const ZBuildability *ctx, ZDiag *diag, const char *message, int line, int column, const char *actual) {
@@ -140,7 +143,7 @@ static const char *build_expected_for_backend(ZDirectBackend backend, bool execu
   switch (backend) {
     case Z_DIRECT_BACKEND_ELF64: return executable ? "direct ELF64 executable buildability subset" : "direct ELF64 object buildability subset";
     case Z_DIRECT_BACKEND_ELF_AARCH64: return executable ? "direct AArch64 ELF executable MVP subset" : "direct AArch64 ELF object MVP subset";
-    case Z_DIRECT_BACKEND_MACHO64: return executable ? "direct AArch64 Mach-O executable buildability subset" : "direct AArch64 Mach-O object buildability subset";
+    case Z_DIRECT_BACKEND_VOID64: return executable ? "direct AArch64 Mach-O executable buildability subset" : "direct AArch64 Mach-O object buildability subset";
     case Z_DIRECT_BACKEND_COFF_X64: return executable ? "direct COFF x64 executable buildability subset" : "direct COFF x64 object buildability subset";
     default: return "direct backend buildability subset";
   }
@@ -152,7 +155,7 @@ static const char *build_help_for_backend(ZDirectBackend backend) {
       return "choose a supported direct target or restrict this program to exported functions returning small integer literals";
     case Z_DIRECT_BACKEND_COFF_X64:
       return "reduce the program to primitive direct-backend constructs or choose a supported direct target";
-    case Z_DIRECT_BACKEND_MACHO64:
+    case Z_DIRECT_BACKEND_VOID64:
       return "choose a supported direct target or reduce the program to Mach-O supported direct-backend constructs";
     default:
       return "choose a supported direct target or restrict this program to the ELF64 direct-backend subset";

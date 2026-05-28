@@ -1,0 +1,84 @@
+# std.math Library
+#
+# Location: zeroStandardLibrary/std/math/
+#
+# This directory contains the Zero standard library mathematics module.
+# It provides algebraic operations, calculus, matrix manipulations,
+# numerical analysis, and debugging capabilities.
+#
+# API Conventions:
+- All functions use `f64` as the primary numeric type for real-valued math
+- Complex numbers use the `Complex` type with `.real` and `.imag` fields
+- Vector types (`Vec2`, `Vec3`) use `.x`, `.y`, `.z` fields for component access
+- Matrix operations use flat arrays and `Matrix`/`MatrixMut` view types
+- Debugging uses a `MathContext` type that captures computation history
+- Output is written to caller-provided buffers for matrix results
+- Pure functions have no `world World !` parameter
+- I/O and tracing functions use `world World !` for output
+
+# Sub-modules:
+  math.0         - Constants (PI, E, GAMMA, CATALAN, APERY, ...),
+                   comparison, clamp, sign, min/max, lerp, map,
+                   deg/rad, step functions, factorial, abs,
+                   sq/cube/powi, arraySum
+  algebra.0      - Polynomial evaluation, quadratic/cubic solvers,
+                   sqrt/cbrt, sin/cos/tan/asin/acos/atan/atan2,
+                   ln/log10/log2, pow, exp, gcd/lcm, binomial, agm,
+                   hyperbolic (sinh/cosh/tanh/asinh/acosh/atanh),
+                   reciprocal trig (csc/sec/cot/acsc/asec/acot),
+                   exp2/exp10/expm1/log1p/hypot/logb/ilogb
+  calculus.0     - Numerical differentiation (3-point, 5-point),
+                   2nd/3rd derivative, trapezoidal/Simpson/adaptive/
+                   Romberg integration, Riemann sums, diffData
+  matrix.0       - Matrix/MatrixMut types, add/sub/scale/mul,
+                   transpose, norms, det2/det3, inv2/inv3, identity,
+                   trace, LU decomposition, linear system solver,
+                   QR decomposition (Gram-Schmidt),
+                   Cholesky decomposition,
+                   power iteration (dominant eigenvalue),
+                   conjugate gradient solver
+  numerical.0    - Bisection/Newton/secant root finding, linear/
+                   Lagrange interpolation, linear regression (with R^2),
+                   2nd-degree poly fit, discrete trapz, forward/backward
+                   diff, sinc/erf/erfc/gamma/beta,
+                   Bessel (J0/J1/Jn, Y0/Y1/Yn, I0/I1/In, K0/K1/Kn),
+                   Lambert W, Riemann zeta, elliptic integrals (K, E),
+                   digamma/trigamma,
+                   incomplete gamma (lower/upper), incomplete beta
+  complex.0      - Complex number type, arithmetic (add/sub/mul/div),
+                   conj/modulus/argument, polar conversion,
+                   cexp/clog/cpow/csqrt, complex trig (sin/cos/tan),
+                   complex hyperbolic (sinh/cosh/tanh),
+                   inverse complex trig and hyperbolic functions
+  vector.0       - Vec2/Vec3 types, add/sub/scale, dot/cross,
+                   normalize/length/distance, reflect/refract, lerp
+  stats.0        - Mean, variance, stddev (sample & population),
+                   skewness, kurtosis, normal PDF/CDF,
+                   uniform PDF/CDF, exponential PDF/CDF
+  ode.0          - ODE solvers: Euler method (step + solve),
+                   RK4 (classical 4th-order, step + solve),
+                   Adams-Bashforth 2nd-order, Adams-Bashforth 4th-order
+  optim.0        - 1D optimization: golden-section search,
+                   Brent's method (parabolic + golden-section),
+                   gradient descent (1D),
+                   Nelder-Mead simplex (1D)
+  quaternion.0   - Quaternion type (w, x, y, z),
+                   add/sub/mul/scale, conj/norm/normalize/inverse,
+                   axis-angle conversion, vector rotation,
+                   spherical linear interpolation (slerp)
+  debug.0        - TraceEntry/TraceLog/MathContext types,
+                   trace recording, convergence monitoring,
+                   iterate wrapper, Newton tracer
+
+# Getting Started:
+  1. Import the desired sub-module
+  2. Declare input values and buffers
+  3. Call the desired function
+  4. For debug/trace, inspect the MathContext struct
+
+# Examples:
+  examples/math-algebra-demo.0
+  examples/math-calculus-demo.0
+  examples/math-matrix-demo.0
+  examples/math-numerical-demo.0
+  examples/math-debug-demo.0

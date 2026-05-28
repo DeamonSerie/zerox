@@ -26,10 +26,28 @@ uint32_t zerox_crypto_sha256(const unsigned char *data, size_t data_len,
                             unsigned char *out, size_t out_cap);
 uint32_t zerox_crypto_sha512(const unsigned char *data, size_t data_len,
                             unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_sha384(const unsigned char *data, size_t data_len,
+                            unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_sha3_256(const unsigned char *data, size_t data_len,
+                              unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_sha3_512(const unsigned char *data, size_t data_len,
+                              unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_sha3_384(const unsigned char *data, size_t data_len,
+                              unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_blake2b(const unsigned char *data, size_t data_len,
+                             unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_blake2s(const unsigned char *data, size_t data_len,
+                             unsigned char *out, size_t out_cap);
 
 /* ---------- MAC / KDF ---------- */
 
 uint32_t zerox_crypto_hmac_sha256(const unsigned char *key, size_t key_len,
+                                 const unsigned char *data, size_t data_len,
+                                 unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_hmac_sha384(const unsigned char *key, size_t key_len,
+                                 const unsigned char *data, size_t data_len,
+                                 unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_hmac_sha512(const unsigned char *key, size_t key_len,
                                  const unsigned char *data, size_t data_len,
                                  unsigned char *out, size_t out_cap);
 uint32_t zerox_crypto_pbkdf2(const unsigned char *password, size_t password_len,
@@ -37,15 +55,17 @@ uint32_t zerox_crypto_pbkdf2(const unsigned char *password, size_t password_len,
                             uint32_t iterations, uint32_t out_len,
                             unsigned char *out, size_t out_cap);
 
-/* ---------- AES (CBC mode, key size determines AES-128/192/256) ---------- */
+/* ---------- AES (key size determines AES-128/192/256, mode selects ECB/CBC/CFB/OFB/CTR/GCM/CCM) ---------- */
 
 uint32_t zerox_crypto_aes_encrypt(const unsigned char *key, size_t key_len,
                                  const unsigned char *iv, size_t iv_len,
                                  const unsigned char *data, size_t data_len,
+                                 uint32_t mode,
                                  unsigned char *out, size_t out_cap);
 uint32_t zerox_crypto_aes_decrypt(const unsigned char *key, size_t key_len,
                                  const unsigned char *iv, size_t iv_len,
                                  const unsigned char *data, size_t data_len,
+                                 uint32_t mode,
                                  unsigned char *out, size_t out_cap);
 
 /* ---------- Stream Ciphers ---------- */
@@ -62,6 +82,17 @@ uint32_t zerox_crypto_salsa20(const unsigned char *key, size_t key_len,
                              unsigned char *out, size_t out_cap);
 
 /* ---------- AEAD ---------- */
+
+uint32_t zerox_crypto_aes_gcm_encrypt(const unsigned char *key, size_t key_len,
+                                      const unsigned char *iv, size_t iv_len,
+                                      const unsigned char *data, size_t data_len,
+                                      const unsigned char *aad, size_t aad_len,
+                                      unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_aes_gcm_decrypt(const unsigned char *key, size_t key_len,
+                                      const unsigned char *iv, size_t iv_len,
+                                      const unsigned char *data, size_t data_len,
+                                      const unsigned char *aad, size_t aad_len,
+                                      unsigned char *out, size_t out_cap);
 
 uint32_t zerox_crypto_chacha20_poly1305_encrypt(
     const unsigned char *key, size_t key_len,
@@ -196,6 +227,25 @@ uint32_t zerox_crypto_ecc_ed25519_sign(const unsigned char *priv_key, size_t pri
 int zerox_crypto_ecc_ed25519_verify(const unsigned char *pub_key, size_t pub_key_len,
                                    const unsigned char *data, size_t data_len,
                                    const unsigned char *sig, size_t sig_len);
+uint32_t zerox_crypto_ecc_ed25519_generate_keypair(
+    unsigned char *pub_out, size_t pub_cap,
+    unsigned char *priv_out, size_t priv_cap);
+uint32_t zerox_crypto_ecc_x25519_ecdh(
+    const unsigned char *priv_key, size_t priv_key_len,
+    const unsigned char *peer_public, size_t peer_public_len,
+    unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_ecc_x25519_generate_keypair(
+    unsigned char *pub_out, size_t pub_cap,
+    unsigned char *priv_out, size_t priv_cap);
+
+/* ---------- XOF Hash ---------- */
+
+uint32_t zerox_crypto_shake128(const unsigned char *data, size_t data_len,
+                               uint32_t out_len,
+                               unsigned char *out, size_t out_cap);
+uint32_t zerox_crypto_shake256(const unsigned char *data, size_t data_len,
+                               uint32_t out_len,
+                               unsigned char *out, size_t out_cap);
 
 #ifdef __cplusplus
 }

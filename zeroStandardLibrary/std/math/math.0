@@ -1,0 +1,361 @@
+# std.math
+#
+# Core mathematics constants, type definitions, and utility functions.
+# Provides fundamental constants and helper functions used by
+# algebra, calculus, matrix, and numerical analysis sub-modules.
+#
+# Mathematical Constants
+
+# Pi (π) - ratio of circumference to diameter
+const PI f64 3.14159265358979323846
+
+# Tau (τ) - 2π
+const TAU f64 6.28318530717958647692
+
+# Euler's number (e)
+const E f64 2.71828182845904523536
+
+# Natural log of 2
+const LN2 f64 0.69314718055994530942
+
+# Natural log of 10
+const LN10 f64 2.30258509299404568402
+
+# Log base 2 of e
+const LOG2E f64 1.44269504088896340736
+
+# Log base 10 of e
+const LOG10E f64 0.43429448190325182765
+
+# Square root of 2
+const SQRT2 f64 1.41421356237309504880
+
+# Reciprocal of square root of 2
+const SQRT1_2 f64 0.70710678118654752440
+
+# Square root of 3
+const SQRT3 f64 1.73205080756887729353
+
+# Golden ratio (φ)
+const PHI f64 1.61803398874989484820
+
+# Pi / 2 (90 degrees in radians)
+const PI_2 f64 1.57079632679489661923
+
+# Pi / 4 (45 degrees in radians)
+const PI_4 f64 0.78539816339744830962
+
+# Small epsilon for floating-point comparisons
+const EPSILON f64 2.220446049250313e-16
+
+# Maximum finite value for f64
+const MAX f64 1.7976931348623157e308
+
+# Euler-Mascheroni constant (γ)
+const GAMMA f64 0.57721566490153286060
+
+# Catalan's constant (G)
+const CATALAN f64 0.91596559417721901505
+
+# Apéry's constant ζ(3)
+const APERY f64 1.20205690315959428540
+
+# Minimum positive normalized f64
+const MIN f64 2.2250738585072014e-308
+
+# --- Tolerance Constants ---
+
+# Default tolerance for numerical comparisons
+const DEFAULT_TOLERANCE f64 1.0e-12
+
+# Loose tolerance for less precise computations
+const LOOSE_TOLERANCE f64 1.0e-6
+
+# --- Comparison Functions ---
+
+# Check if two f64 values are approximately equal within a tolerance.
+#
+# Parameters:
+#   a - First value
+#   b - Second value
+#   tolerance - Maximum allowed absolute difference
+#
+# Returns true when |a - b| <= tolerance.
+#
+pub fn approxEq Bool a f64 b f64 tolerance f64
+  let diff f64 a
+  set diff - diff b
+  if < diff 0.0
+    set diff - 0.0 diff
+  if <= diff tolerance
+    ret true
+  ret false
+
+# Check if two f64 values are approximately equal using DEFAULT_TOLERANCE.
+#
+pub fn approxEqDefault Bool a f64 b f64
+  ret approxEq a b DEFAULT_TOLERANCE
+
+# Check if a value is approximately zero.
+#
+pub fn isZero Bool value f64
+  ret approxEq value 0.0 DEFAULT_TOLERANCE
+
+# Check if a value is approximately zero with given tolerance.
+#
+pub fn isZeroTol Bool value f64 tolerance f64
+  ret approxEq value 0.0 tolerance
+
+# --- Clamp Function ---
+
+# Clamp a value between a minimum and maximum.
+#
+pub fn clamp f64 value f64 min f64 max f64
+  if < value min
+    ret min
+  if > value max
+    ret max
+  ret value
+
+# --- Sign Functions ---
+
+# Return the sign of a value: -1.0, 0.0, or 1.0.
+#
+pub fn sign f64 value f64
+  if > value 0.0
+    ret 1.0
+  if < value 0.0
+    ret -1.0
+  ret 0.0
+
+# Return the sign of a value, returning 0 with tolerance for near-zero.
+#
+pub fn signTol f64 value f64 tolerance f64
+  if isZeroTol value tolerance
+    ret 0.0
+  if > value 0.0
+    ret 1.0
+  ret -1.0
+
+# --- Min/Max Functions ---
+
+# Return the minimum of two values.
+#
+pub fn min f64 a f64 b f64
+  if < a b
+    ret a
+  ret b
+
+# Return the maximum of two values.
+#
+pub fn max f64 a f64 b f64
+  if > a b
+    ret a
+  ret b
+
+# Return the minimum of three values.
+#
+pub fn min3 f64 a f64 b f64 c f64
+  let r f64 a
+  if < b r
+    set r b
+  if < c r
+    set r c
+  ret r
+
+# Return the maximum of three values.
+#
+pub fn max3 f64 a f64 b f64 c f64
+  let r f64 a
+  if > b r
+    set r b
+  if > c r
+    set r c
+  ret r
+
+# --- Linear Interpolation ---
+
+# Linearly interpolate between a and b by factor t.
+# t = 0 returns a, t = 1 returns b.
+#
+pub fn lerp f64 a f64 b f64 t f64
+  ret + a (* t (- b a))
+
+# --- Map Range ---
+
+# Map a value from one range to another.
+#
+# Parameters:
+#   value - Value to map
+#   inMin - Source range minimum
+#   inMax - Source range maximum
+#   outMin - Target range minimum
+#   outMax - Target range maximum
+#
+pub fn mapRange f64 value f64 inMin f64 inMax f64 outMin f64 outMax f64
+  let normalized f64 / (- value inMin) (- inMax inMin)
+  ret + outMin (* normalized (- outMax outMin))
+
+# --- Deg/Rad Conversion ---
+
+# Convert degrees to radians.
+#
+pub fn degToRad f64 degrees f64
+  ret / (* degrees PI) 180.0
+
+# Convert radians to degrees.
+#
+pub fn radToDeg f64 radians f64
+  ret / (* radians 180.0) PI
+
+# --- Step Functions ---
+
+# Heaviside step function.
+# Returns 0.0 for x < 0, 0.5 for x = 0, 1.0 for x > 0.
+#
+pub fn step f64 x f64
+  if > x 0.0
+    ret 1.0
+  if < x 0.0
+    ret 0.0
+  ret 0.5
+
+# Smooth step function using Hermite interpolation.
+# Returns 0 for x <= 0, 1 for x >= 1, smooth in between.
+#
+pub fn smoothStep f64 x f64
+  if <= x 0.0
+    ret 0.0
+  if >= x 1.0
+    ret 1.0
+  ret (* (* x x) (- 3.0 (* 2.0 x)))
+
+# --- Factorial ---
+#
+# Compute factorial n! for non-negative integer n.
+# Returns 0 for negative input (error sentinel).
+#
+pub fn factorial f64 n i32
+  if < n 0
+    ret 0.0
+  if == n 0
+    ret 1.0
+  mut result f64 1.0
+  mut i i32 1
+  while <= i n
+    set result * result (as f64 i)
+    set i + i 1
+  ret result
+
+# --- Floating-point Helper ---
+
+# Absolute value for f64.
+#
+pub fn abs f64 x f64
+  if < x 0.0
+    ret - x
+  ret x
+
+# Compute x^2 (square).
+#
+pub fn sq f64 x f64
+  ret * x x
+
+# Compute x^3 (cube).
+#
+pub fn cube f64 x f64
+  ret * (* x x) x
+
+# Compute integer power using exponentiation by squaring.
+#
+pub fn powi f64 base f64 exp i32
+  if == exp 0
+    ret 1.0
+  if == exp 1
+    ret base
+  if < exp 0
+    ret 1.0 / (powi base (- 0 exp))
+  mut result f64 1.0
+  mut b f64 base
+  mut e i32 exp
+  while > e 0
+    if == (& e 1) 1
+      set result * result b
+    set e >> e 1
+    if > e 0
+      set b * b b
+  ret result
+
+# MapReduce-style sum over an array section.
+#
+# Sums f64 values in an array from index `start` to `start + count - 1`.
+# Returns 0.0 when count is 0.
+#
+pub fn arraySum f64 values Span<f64> start usize count usize
+  mut sum f64 0.0
+  mut i usize 0
+  while < i count
+    set sum + sum values[start + i]
+    set i + i 1
+  ret sum
+
+# Test: basic constants and comparison
+test "math constants are defined"
+  expect (== PI 3.14159265358979323846)
+  expect (== E 2.71828182845904523536)
+  expect (== TAU (* 2.0 PI))
+
+test "approxEq works"
+  expect (approxEq 1.0 1.0000000001 1e-6)
+  expect (! approxEq 1.0 2.0 1e-6)
+  expect (approxEqDefault 1.0 1.0)
+
+test "clamp works"
+  expect (== (clamp 5.0 0.0 3.0) 3.0)
+  expect (== (clamp (- 0.0 5.0) 0.0 3.0) 0.0)
+  expect (== (clamp 2.0 0.0 3.0) 2.0)
+
+test "sign works"
+  expect (== (sign 5.0) 1.0)
+  expect (== (sign (- 0.0 3.0)) (- 0.0 1.0))
+  expect (== (sign 0.0) 0.0)
+  expect (== (signTol 1e-10 1e-6) 0.0)
+
+test "min max work"
+  expect (== (min 3.0 7.0) 3.0)
+  expect (== (max 3.0 7.0) 7.0)
+  expect (== (min3 3.0 7.0 1.0) 1.0)
+  expect (== (max3 3.0 7.0 1.0) 7.0)
+
+test "lerp and mapRange work"
+  expect (approxEq (lerp 0.0 10.0 0.5) 5.0 DEFAULT_TOLERANCE)
+  expect (== (lerp 0.0 10.0 0.0) 0.0)
+  expect (== (lerp 0.0 10.0 1.0) 10.0)
+  expect (== (mapRange 5.0 0.0 10.0 0.0 100.0) 50.0)
+
+test "deg/rad conversion works"
+  expect (approxEq (degToRad 180.0) PI DEFAULT_TOLERANCE)
+  expect (approxEq (radToDeg PI) 180.0 DEFAULT_TOLERANCE)
+  expect (approxEq (degToRad 90.0) PI_2 DEFAULT_TOLERANCE)
+
+test "factorial works"
+  expect (== (factorial 0) 1.0)
+  expect (== (factorial 1) 1.0)
+  expect (== (factorial 5) 120.0)
+  expect (== (factorial (- 0 1)) 0.0)
+
+test "abs and powi work"
+  expect (== (abs (- 0.0 5.0)) 5.0)
+  expect (== (abs 3.0) 3.0)
+  expect (== (sq 4.0) 16.0)
+  expect (== (cube 3.0) 27.0)
+  expect (approxEq (powi 2.0 10) 1024.0 DEFAULT_TOLERANCE)
+  expect (approxEq (powi 2.0 (- 0 2)) 0.25 DEFAULT_TOLERANCE)
+  expect (== (powi 2.0 0) 1.0)
+
+test "step and smoothStep work"
+  expect (== (step 5.0) 1.0)
+  expect (== (step (- 0.0 2.0)) 0.0)
+  expect (== (step 0.0) 0.5)
+  expect (== (smoothStep 0.0) 0.0)
+  expect (== (smoothStep 1.0) 1.0)

@@ -792,3 +792,170 @@ void z_x64_emit_add_rsp(ZBuf *buf, unsigned amount) {
     z_x64_append_u32(buf, amount);
   }
 }
+
+/* ===== SSE/SSE2 XMM Instruction Emitters ===== */
+
+/*
+ * Helper for XMM register-to-register operations (arithmetic/shifts/etc).
+  * Intel SDM: for SSE arithmetic (ADDSS, SUBSS, etc.) and UCOMISS/UCOMISD,
+  * ModRM.reg encodes the first (destination) operand, ModRM.r/m encodes the second (source) operand.
+  * Encodes: [prefix] [REX] 0x0F opcode ModRM(mod=0xC0, reg=dst, r/m=src)
+  */
+ static void z_x64_emit_xmm_xmm_op(ZBuf *buf, unsigned prefix, unsigned opcode, unsigned dst_xmm, unsigned src_xmm) {
+   if (prefix) z_x64_append_u8(buf, prefix);
+   unsigned rex = 0x40;
+   if (dst_xmm >= 8) rex |= 0x04; /* REX.R extends ModRM.reg (dst) */
+   if (src_xmm >= 8) rex |= 0x01; /* REX.B extends ModRM.r/m (src) */
+   if (rex != 0x40) z_x64_append_u8(buf, rex);
+   z_x64_append_u8(buf, 0x0f);
+   z_x64_append_u8(buf, opcode);
+   z_x64_append_u8(buf, 0xc0 | ((dst_xmm & 7u) << 3) | (src_xmm & 7u));
+ }
+
+/*
+ * Helper for XMM load/store via [rbp - offset].
+ * Encodes: [prefix] [REX.R] 0x0F opcode ModRM(mod, reg=xmm, r/m=0x05) [disp]
+ * opcode 0x10 = load (movss/movsd xmm, [rbp-offset])
+ * opcode 0x11 = store (movss/movsd [rbp-offset], xmm)
+ */
+static void z_x64_emit_xmm_ptr_rbp_disp_op(ZBuf *buf, unsigned prefix, unsigned opcode, unsigned xmm_reg, unsigned offset) {
+  if (prefix) z_x64_append_u8(buf, prefix);
+  if (xmm_reg >= 8) z_x64_append_u8(buf, 0x44); /* REX.R extends ModRM.reg */
+  z_x64_append_u8(buf, 0x0f);
+  z_x64_append_u8(buf, opcode);
+  unsigned reg_low = xmm_reg & 7u;
+  if (offset <= 127) {
+    z_x64_append_u8(buf, 0x40 | (reg_low << 3) | 0x05);
+    z_x64_append_u8(buf, (unsigned char)(-(int)offset));
+  } else {
+    z_x64_append_u8(buf, 0x80 | (reg_low << 3) | 0x05);
+    z_x64_append_u32(buf, (uint32_t)(-(int32_t)offset));
+  }
+}
+
+/* XMM register-to-register moves */
+void z_x64_emit_movss_xmm_reg(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm) {
+  /* movss xmm, xmm: F3 0F 10 /r */
+  z_x64_emit_xmm_xmm_op(buf, 0xf3, 0x10, dst_xmm, src_xmm);
+}
+
+void z_x64_emit_movsd_xmm_reg(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm) {
+  /* movsd xmm, xmm: F2 0F 10 /r */
+  z_x64_emit_xmm_xmm_op(buf, 0xf2, 0x10, dst_xmm, src_xmm);
+}
+
+/* GPR to XMM moves */
+void z_x64_emit_movd_xmm_from_gpr(ZBuf *buf, unsigned xmm_reg, unsigned gpr_reg) {
+  /* movd xmm, r32: 66 0F 6E /r, reg=xmm, r/m=gpr */
+  z_x64_append_u8(buf, 0x66);
+  unsigned rex = 0x40;
+  if (xmm_reg >= 8) rex |= 0x04; /* REX.R extends ModRM.reg (xmm) */
+  if (gpr_reg >= 8) rex |= 0x01; /* REX.B extends ModRM.r/m (gpr) */
+  if (rex != 0x40) z_x64_append_u8(buf, rex);
+  z_x64_append_u8(buf, 0x0f);
+  z_x64_append_u8(buf, 0x6e);
+  z_x64_append_u8(buf, 0xc0 | ((xmm_reg & 7u) << 3) | (gpr_reg & 7u));
+}
+
+void z_x64_emit_movq_xmm_from_gpr(ZBuf *buf, unsigned xmm_reg, unsigned gpr_reg) {
+  /* movq xmm, r64: 66 REX.W 0F 6E /r, reg=xmm, r/m=gpr */
+  z_x64_append_u8(buf, 0x66);
+  unsigned rex = 0x48; /* REX.W for 64-bit operand */
+  if (xmm_reg >= 8) rex |= 0x04;
+  if (gpr_reg >= 8) rex |= 0x01;
+  z_x64_append_u8(buf, rex);
+  z_x64_append_u8(buf, 0x0f);
+  z_x64_append_u8(buf, 0x6e);
+  z_x64_append_u8(buf, 0xc0 | ((xmm_reg & 7u) << 3) | (gpr_reg & 7u));
+}
+
+/* XMM to GPR moves */
+void z_x64_emit_movd_gpr_from_xmm(ZBuf *buf, unsigned gpr_reg, unsigned xmm_reg) {
+  /* movd r32, xmm: 66 0F 7E /r, reg=xmm, r/m=gpr */
+  z_x64_append_u8(buf, 0x66);
+  unsigned rex = 0x40;
+  if (xmm_reg >= 8) rex |= 0x04; /* REX.R extends ModRM.reg (xmm) */
+  if (gpr_reg >= 8) rex |= 0x01; /* REX.B extends ModRM.r/m (gpr) */
+  if (rex != 0x40) z_x64_append_u8(buf, rex);
+  z_x64_append_u8(buf, 0x0f);
+  z_x64_append_u8(buf, 0x7e);
+  z_x64_append_u8(buf, 0xc0 | ((xmm_reg & 7u) << 3) | (gpr_reg & 7u));
+}
+
+void z_x64_emit_movq_gpr_from_xmm(ZBuf *buf, unsigned gpr_reg, unsigned xmm_reg) {
+  /* movq r64, xmm: 66 REX.W 0F 7E /r, reg=xmm, r/m=gpr */
+  z_x64_append_u8(buf, 0x66);
+  unsigned rex = 0x48; /* REX.W for 64-bit operand */
+  if (xmm_reg >= 8) rex |= 0x04;
+  if (gpr_reg >= 8) rex |= 0x01;
+  z_x64_append_u8(buf, rex);
+  z_x64_append_u8(buf, 0x0f);
+  z_x64_append_u8(buf, 0x7e);
+  z_x64_append_u8(buf, 0xc0 | ((xmm_reg & 7u) << 3) | (gpr_reg & 7u));
+}
+
+/* XMM arithmetic (dst_xmm = dst_xmm op src_xmm) */
+void z_x64_emit_addss_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm) {
+  z_x64_emit_xmm_xmm_op(buf, 0xf3, 0x58, dst_xmm, src_xmm);
+}
+
+void z_x64_emit_addsd_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm) {
+  z_x64_emit_xmm_xmm_op(buf, 0xf2, 0x58, dst_xmm, src_xmm);
+}
+
+void z_x64_emit_subss_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm) {
+  z_x64_emit_xmm_xmm_op(buf, 0xf3, 0x5c, dst_xmm, src_xmm);
+}
+
+void z_x64_emit_subsd_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm) {
+  z_x64_emit_xmm_xmm_op(buf, 0xf2, 0x5c, dst_xmm, src_xmm);
+}
+
+void z_x64_emit_mulss_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm) {
+  z_x64_emit_xmm_xmm_op(buf, 0xf3, 0x59, dst_xmm, src_xmm);
+}
+
+void z_x64_emit_mulsd_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm) {
+  z_x64_emit_xmm_xmm_op(buf, 0xf2, 0x59, dst_xmm, src_xmm);
+}
+
+void z_x64_emit_divss_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm) {
+  z_x64_emit_xmm_xmm_op(buf, 0xf3, 0x5e, dst_xmm, src_xmm);
+}
+
+void z_x64_emit_divsd_xmm_xmm(ZBuf *buf, unsigned dst_xmm, unsigned src_xmm) {
+  z_x64_emit_xmm_xmm_op(buf, 0xf2, 0x5e, dst_xmm, src_xmm);
+}
+
+/* XMM unordered compare (sets EFLAGS like cmp: ZF=1 if equal, CF=1 if less)
+ * Flags: ZF=1 & CF=0 → equal; CF=1 → xmm_left < xmm_right;
+ *        CF=0 & ZF=0 → xmm_left > xmm_right;
+ *        ZF=1 & PF=1 & CF=1 → unordered (NaN)
+ */
+void z_x64_emit_ucomiss_xmm_xmm(ZBuf *buf, unsigned xmm_left, unsigned xmm_right) {
+  /* ucomiss xmm1, xmm2: 0F 2E /r, reg=xmm_left (first op), r/m=xmm_right (second op) */
+  z_x64_emit_xmm_xmm_op(buf, 0, 0x2e, xmm_left, xmm_right);
+}
+
+void z_x64_emit_ucomisd_xmm_xmm(ZBuf *buf, unsigned xmm_left, unsigned xmm_right) {
+  /* ucomisd xmm1, xmm2: 66 0F 2E /r, reg=xmm_left (first op), r/m=xmm_right (second op) */
+  z_x64_emit_xmm_xmm_op(buf, 0x66, 0x2e, xmm_left, xmm_right);
+}
+
+/* XMM load from stack [rbp - offset] */
+void z_x64_emit_movss_xmm_ptr_rbp_disp(ZBuf *buf, unsigned xmm_reg, unsigned offset) {
+  z_x64_emit_xmm_ptr_rbp_disp_op(buf, 0xf3, 0x10, xmm_reg, offset);
+}
+
+void z_x64_emit_movsd_xmm_ptr_rbp_disp(ZBuf *buf, unsigned xmm_reg, unsigned offset) {
+  z_x64_emit_xmm_ptr_rbp_disp_op(buf, 0xf2, 0x10, xmm_reg, offset);
+}
+
+/* XMM store to stack [rbp - offset] */
+void z_x64_emit_movss_ptr_rbp_disp_xmm(ZBuf *buf, unsigned xmm_reg, unsigned offset) {
+  z_x64_emit_xmm_ptr_rbp_disp_op(buf, 0xf3, 0x11, xmm_reg, offset);
+}
+
+void z_x64_emit_movsd_ptr_rbp_disp_xmm(ZBuf *buf, unsigned xmm_reg, unsigned offset) {
+  z_x64_emit_xmm_ptr_rbp_disp_op(buf, 0xf2, 0x11, xmm_reg, offset);
+}

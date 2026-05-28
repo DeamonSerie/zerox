@@ -1,0 +1,6 @@
+fn takeTwo f32 left f32 right f32
+  ret left
+
+pub fn main Void world World !
+  if == (takeTwo 1.0 2.0) 1.0
+    check world.out.write "two param call ok\n"

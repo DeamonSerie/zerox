@@ -71,7 +71,7 @@ bool z_build_check_coff_byte_view(const ZBuildability *ctx, const IrFunction *fu
   return build_check_coff_byte_view_ptr(ctx, fun, view, diag) && z_build_check_coff_byte_view_len(ctx, fun, view, diag);
 }
 
-static bool build_check_macho_byte_view_ptr(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
+static bool build_check_void_byte_view_ptr(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
   if (!view) return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte view is missing", 1, 1, "missing byte view");
   if (view->kind == IR_VALUE_LOCAL && fun && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_BYTE_VIEW) return true;
   if (view->kind == IR_VALUE_MAYBE_VALUE && fun && view->local_index < fun->local_len && fun->locals[view->local_index].type == IR_TYPE_MAYBE_BYTE_VIEW) return true;
@@ -85,7 +85,7 @@ static bool build_check_macho_byte_view_ptr(const ZBuildability *ctx, const IrFu
   if (view->kind == IR_VALUE_STRING_LITERAL) return true;
   if (view->kind == IR_VALUE_BYTE_SLICE) {
     unsigned start = 0;
-    if (!build_check_macho_byte_view_ptr(ctx, fun, view->left, diag)) return false;
+    if (!build_check_void_byte_view_ptr(ctx, fun, view->left, diag)) return false;
     if (build_const_u32_value(view->index, &start) && start > BUILD_AARCH64_IMM12_MAX) {
       return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte slice constant start is too large", view->line, view->column, "unsupported byte slice");
     }
@@ -94,7 +94,7 @@ static bool build_check_macho_byte_view_ptr(const ZBuildability *ctx, const IrFu
   return z_build_diag(ctx, diag, "direct AArch64 Mach-O value is not a supported byte view", view->line, view->column, "unsupported byte view");
 }
 
-bool z_build_check_macho_byte_view_len(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
+bool z_build_check_void_byte_view_len(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
   if (!view) return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte view is missing", 1, 1, "missing byte view");
   if (view->kind == IR_VALUE_STRING_LITERAL || view->kind == IR_VALUE_ARRAY_BYTE_VIEW) {
     if (view->data_len > 65535u) {
@@ -121,8 +121,8 @@ bool z_build_check_macho_byte_view_len(const ZBuildability *ctx, const IrFunctio
   return z_build_diag(ctx, diag, "direct AArch64 Mach-O byte-view length currently requires a literal, constant slice, or byte-view local", view->line, view->column, "unsupported byte view length");
 }
 
-bool z_build_check_macho_byte_view(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
-  return build_check_macho_byte_view_ptr(ctx, fun, view, diag) && z_build_check_macho_byte_view_len(ctx, fun, view, diag);
+bool z_build_check_void_byte_view(const ZBuildability *ctx, const IrFunction *fun, const IrValue *view, ZDiag *diag) {
+  return build_check_void_byte_view_ptr(ctx, fun, view, diag) && z_build_check_void_byte_view_len(ctx, fun, view, diag);
 }
 
 static bool build_aarch64_return_type_ok(IrTypeKind type) {

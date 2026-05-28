@@ -25,7 +25,7 @@ typedef struct {
 static const ZDirectBackendDescriptor direct_backend_descriptors[] = {
   {Z_DIRECT_BACKEND_ELF64, "zerox-elf64", "zerox-elf64-exe", "elf64", "direct-elf64-object", "direct-elf64-exe", true},
   {Z_DIRECT_BACKEND_ELF_AARCH64, "zerox-elf-aarch64", "zerox-elf-aarch64-exe", "elf64", "direct-elf-aarch64-object", "direct-elf-aarch64-exe", false},
-  {Z_DIRECT_BACKEND_MACHO64, "zerox-macho64", "zerox-macho64-exe", "macho64", "direct-macho64-object", "direct-macho64-exe", true},
+  {Z_DIRECT_BACKEND_VOID64, "zerox-Void64", "zerox-Void64-exe", "Void64", "direct-Void64-object", "direct-Void64-exe", true},
   {Z_DIRECT_BACKEND_COFF_X64, "zerox-coff-x64", "zerox-coff-x64-exe", "coff", "direct-coff-x64-object", "direct-coff-x64-exe", false},
 };
 
@@ -34,7 +34,7 @@ static const ZDirectBackendRule direct_backend_rules[] = {
   {"elf", "linux", "x86_64", "musl", Z_DIRECT_BACKEND_ELF64, true, true},
   {"elf", "linux", "aarch64", "gnu", Z_DIRECT_BACKEND_ELF_AARCH64, true, true},
   {"elf", "linux", "aarch64", "musl", Z_DIRECT_BACKEND_ELF_AARCH64, true, true},
-  {"macho", "macos", "aarch64", "darwin", Z_DIRECT_BACKEND_MACHO64, true, true},
+  {"macho", "macos", "aarch64", "darwin", Z_DIRECT_BACKEND_VOID64, true, true},
   {"coff", "windows", "x86_64", "msvc", Z_DIRECT_BACKEND_COFF_X64, true, true},
 };
 

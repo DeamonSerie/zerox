@@ -1,0 +1,616 @@
+# std.math.algebra
+#
+# Algebraic operations: polynomial evaluation, root finding,
+# algebraic equation solving, and basic symbolic helpers.
+#
+# All functions use f64 precision.
+
+# --- Polynomial Evaluation ---
+
+# Evaluate a polynomial at point x using Horner's method.
+#
+# Coefficients are ordered from highest degree to constant term:
+#   polyEval([a_n, a_{n-1}, ..., a_0], x) = a_n*x^n + ... + a_1*x + a_0
+#
+# Parameters:
+#   coeffs - Polynomial coefficients (highest degree first)
+#   degree - Degree of the polynomial (number of coeffs - 1)
+#   x      - Point at which to evaluate
+#
+# Returns the polynomial value at x.
+#
+pub fn polyEval f64 coeffs Span<f64> degree u32 x f64
+  mut result f64 coeffs[0]
+  mut i u32 1
+  while <= i degree
+    set result + (* result x) coeffs[i]
+    set i + i 1
+  ret result
+
+# Evaluate a polynomial and its derivative at point x.
+# Useful for Newton's method root finding.
+#
+# Returns a struct with:
+#   f  - Polynomial value at x
+#   df - Derivative value at x
+#
+pub type PolyValue
+  f f64
+  df f64
+
+pub fn polyEvalWithDerivative PolyValue coeffs Span<f64> degree u32 x f64
+  mut f f64 coeffs[0]
+  mut df f64 0.0
+  mut i u32 1
+  while <= i degree
+    set df + (* df x) f
+    set f + (* f x) coeffs[i]
+    set i + i 1
+  ret PolyValue . f f df df
+
+# --- Quadratic Formula ---
+#
+# Solve ax^2 + bx + c = 0 for real roots.
+# Returns number of real roots found (0, 1, or 2).
+# Roots are written to the provided root buffer.
+#
+# Parameters:
+#   a     - Quadratic coefficient
+#   b     - Linear coefficient
+#   c     - Constant term
+#   roots - Output buffer for up to 2 roots
+#
+# Returns number of real roots written.
+#
+pub fn solveQuadratic u32 a f64 b f64 c f64 roots MutSpan<f64>
+  let disc f64 (- (* b b) (* 4.0 (* a c)))
+  if < disc 0.0
+    ret 0_u32
+  if approxEq disc 0.0 DEFAULT_TOLERANCE
+    set roots[0] / (- 0.0 b) (* 2.0 a)
+    ret 1_u32
+  let sqrtDisc f64 sqrt disc
+  set roots[0] / (- (- 0.0 b) sqrtDisc) (* 2.0 a)
+  set roots[1] / (+ (- 0.0 b) sqrtDisc) (* 2.0 a)
+  ret 2_u32
+
+# Solve ax^2 + bx + c = 0 with fallback for degenerate cases.
+# Handles a = 0 (linear equation) and a = b = 0 (constant).
+#
+pub fn solveQuadraticRobust u32 a f64 b f64 c f64 roots MutSpan<f64>
+  # Linear case: bx + c = 0
+  if isZero a
+    if isZero b
+      ret 0_u32
+    set roots[0] / (- 0.0 c) b
+    ret 1_u32
+  ret solveQuadratic a b c roots
+
+# --- Cubic Equation (Cardano's method) ---
+#
+# Solve x^3 + px + q = 0 (depressed cubic) for real roots.
+# The general cubic a*x^3 + b*x^2 + c*x + d = 0 is first
+# reduced to depressed form via substitution x = t - b/(3a).
+#
+# Returns number of real roots found (1 or 3).
+#
+pub fn solveDepressedCubic u32 p f64 q f64 roots MutSpan<f64>
+  let disc f64 (+ (* (* q q) 0.25) (/ (* p p p) 27.0))
+  if > disc 0.0
+    # One real root
+    let sqrtDisc f64 sqrt disc
+    let u f64 cbrt (+ (/ (- 0.0 q) 2.0) sqrtDisc)
+    let v f64 cbrt (- (/ (- 0.0 q) 2.0) sqrtDisc)
+    set roots[0] + u v
+    ret 1_u32
+  if isZero disc
+    # Multiple real roots
+    let u f64 cbrt (/ (- 0.0 q) 2.0)
+    set roots[0] * 2.0 u
+    set roots[1] (- 0.0 u)
+    ret 2_u32
+  # Three real roots (casus irreducibilis)
+  let r f64 sqrt (/ (* (- 0.0 p) p p) 27.0)
+  let phi f64 acos (/ (/ (- 0.0 q) 2.0) r)
+  # Divide phi by 3 for each root
+  let phi3 f64 / phi 3.0
+  let twoPi3 f64 / TAU 3.0
+  set roots[0] * (* 2.0 (cbrt r)) (cos phi3)
+  set roots[1] * (* 2.0 (cbrt r)) (cos (+ phi3 twoPi3))
+  set roots[2] * (* 2.0 (cbrt r)) (cos (- phi3 twoPi3))
+  ret 3_u32
+
+# --- Arithmetic-Geometric Mean ---
+#
+# Compute the arithmetic-geometric mean (AGM) of a and b.
+# The AGM converges quadratically and is useful for computing
+# logarithms, elliptic integrals, and other special functions.
+#
+pub fn agm f64 a f64 b f64
+  mut x f64 a
+  mut y f64 b
+  mut diff f64 1.0
+  while > diff DEFAULT_TOLERANCE
+    let nextX f64 / (+ x y) 2.0
+    let nextY f64 sqrt (* x y)
+    set diff abs (- nextX x)
+    set x nextX
+    set y nextY
+  ret x
+
+# --- Compute GCD of two integers ---
+#
+pub fn gcd i64 a i64 b i64
+  mut x i64 a
+  mut y i64 b
+  while != y 0_i64
+    let t i64 y
+    set y % x y
+    set x t
+  if < x 0_i64
+    ret - x
+  ret x
+
+# --- Compute LCM of two integers ---
+#
+pub fn lcm i64 a i64 b i64
+  if || (== a 0_i64) (== b 0_i64)
+    ret 0_i64
+  let g i64 gcd a b
+  ret abs (* (/ a g) b)
+
+# --- Binomial Coefficient ---
+#
+# Compute C(n, k) = n! / (k! * (n - k)!)
+# Returns 0 for invalid inputs.
+#
+pub fn binomial f64 n i64 k i64
+  if || (< n 0_i64) (|| (< k 0_i64) (> k n))
+    ret 0.0
+  if || (== k 0_i64) (== k n)
+    ret 1.0
+  mut result f64 1.0
+  mut i i64 1
+  while <= i k
+    set result * result (/ (as f64 (+ (- n k) i)) (as f64 i))
+    set i + i 1
+  ret result
+
+# --- Horner's method for polynomial with coefficient array ---
+#
+# Evaluate using coefficient Span and length.
+# Convenience wrapper for polyEval.
+#
+pub fn polyVal f64 coeffs Span<f64> numCoeffs u32 x f64
+  if == numCoeffs 0_u32
+    ret 0.0
+  ret polyEval coeffs (- numCoeffs 1_u32) x
+
+# --- sqrt using Newton's method ---
+#
+# Compute square root of a non-negative number using Newton's method.
+# Falls back to 0 for negative input.
+#
+pub fn sqrt f64 x f64
+  if <= x 0.0
+    ret 0.0
+  if == x 1.0
+    ret 1.0
+  mut guess f64 x
+  mut prev f64 0.0
+  while > (abs (- guess prev)) DEFAULT_TOLERANCE
+    set prev guess
+    set guess / (+ guess (/ x guess)) 2.0
+  ret guess
+
+# Compute cube root using Newton's method.
+#
+pub fn cbrt f64 x f64
+  if == x 0.0
+    ret 0.0
+  if == x 1.0
+    ret 1.0
+  if == x (- 0.0 1.0)
+    ret (- 0.0 1.0)
+  mut guess f64 x
+  mut prev f64 0.0
+  while > (abs (- guess prev)) DEFAULT_TOLERANCE
+    set prev guess
+    set guess / (+ (* 2.0 guess) (/ x (* guess guess))) 3.0
+  ret guess
+
+# Compute sin(x) using Taylor series.
+#
+# Parameters:
+#   x - Angle in radians
+#
+pub fn sin f64 x f64
+  # Reduce to [-π, π]
+  mut angle f64 x
+  while > angle PI
+    set angle - angle TAU
+  while < angle (- 0.0 PI)
+    set angle + angle TAU
+  # Taylor series: sin(x) = x - x^3/3! + x^5/5! - ...
+  let x2 f64 * angle angle
+  mut term f64 angle
+  mut sum f64 angle
+  mut n i32 1
+  while <= n 15
+    set term * term (- 0.0 (/ x2 (* (as f64 (+ (* n 2) 1)) (as f64 (* n 2)))))
+    set sum + sum term
+    set n + n 1
+  ret sum
+
+# Compute cos(x) using Taylor series.
+#
+pub fn cos f64 x f64
+  # Reduce to [-π, π]
+  mut angle f64 x
+  while > angle PI
+    set angle - angle TAU
+  while < angle (- 0.0 PI)
+    set angle + angle TAU
+  # Taylor series: cos(x) = 1 - x^2/2! + x^4/4! - ...
+  let x2 f64 * angle angle
+  mut term f64 1.0
+  mut sum f64 1.0
+  mut n i32 1
+  while <= n 15
+    set term * term (- 0.0 (/ x2 (* (as f64 (* n 2)) (as f64 (- (* n 2) 1)))))
+    set sum + sum term
+    set n + n 1
+  ret sum
+
+# Compute tan(x) = sin(x) / cos(x).
+#
+pub fn tan f64 x f64
+  ret / (sin x) (cos x)
+
+# Compute arcsin(x) using Taylor series for |x| < 1.
+# Returns NaN sentinel (0) for |x| > 1.
+#
+pub fn asin f64 x f64
+  if > (abs x) 1.0
+    ret 0.0
+  if approxEq x 1.0 DEFAULT_TOLERANCE
+    ret PI_2
+  if approxEq x (- 0.0 1.0) DEFAULT_TOLERANCE
+    ret (- 0.0 PI_2)
+  # arcsin(x) = x + (1/2)x^3/3 + (1*3/2*4)x^5/5 + ...
+  mut term f64 x
+  mut sum f64 x
+  mut n i32 1
+  while <= n 15
+    set term * term (/ (* x x (* (as f64 (- (* n 2) 1)) (- (* n 2) 1))) (* (as f64 (* n 2)) (as f64 (+ (* n 2) 1))))
+    set sum + sum (/ term (as f64 (+ (* n 2) 1)))
+    set n + n 1
+  ret sum
+
+# Compute arccos(x) = π/2 - arcsin(x).
+#
+pub fn acos f64 x f64
+  ret (- PI_2 (asin x))
+
+# Compute atan(x) using Taylor series.
+#
+pub fn atan f64 x f64
+  if > (abs x) 1.0
+    ret (- (/ PI_2) (atan (/ 1.0 x)))
+  # atan(x) = x - x^3/3 + x^5/5 - x^7/7 + ...
+  let x2 f64 * x x
+  mut term f64 x
+  mut sum f64 x
+  mut n i32 1
+  while <= n 30
+    set term * term (- 0.0 (* x2 (/ (as f64 (- (* n 2) 1)) (as f64 (+ (* n 2) 1)))))
+    set sum + sum term
+    set n + n 1
+  ret sum
+
+# Compute atan2(y, x) - the angle from the positive x-axis to point (x, y).
+#
+pub fn atan2 f64 y f64 x f64
+  if > x 0.0
+    ret atan (/ y x)
+  if < x 0.0
+    if >= y 0.0
+      ret + (atan (/ y x)) PI
+    ret - (atan (/ y x)) PI
+  if > y 0.0
+    ret PI_2
+  if < y 0.0
+    ret (- 0.0 PI_2)
+  ret 0.0
+
+# Compute natural logarithm using AGM-based method.
+# ln(x) ≈ π / (2 * AGM(1, 4/x)) - 2*ln(2) for x > 0
+#
+pub fn ln f64 x f64
+  if <= x 0.0
+    ret 0.0
+  if == x 1.0
+    ret 0.0
+  # Compute ln using AGM method
+  let m f64 agm 1.0 (/ 4.0 x)
+  ret (- (/ PI (* 2.0 m)) (* 2.0 LN2))
+
+# Compute log base 10.
+#
+pub fn log10 f64 x f64
+  ret / (ln x) LN10
+
+# Compute log base 2.
+#
+pub fn log2 f64 x f64
+  ret / (ln x) LN2
+
+# Compute a^b for real exponent b.
+#
+pub fn pow f64 a f64 b f64
+  if == a 0.0
+    ret 0.0
+  if == b 0.0
+    ret 1.0
+  if == b 1.0
+    ret a
+  if == b 2.0
+    ret * a a
+  if == b 0.5
+    ret sqrt a
+  # a^b = e^(b * ln(a))
+  ret exp (* b (ln a))
+
+# Compute e^x using Taylor series.
+#
+pub fn exp f64 x f64
+  mut term f64 1.0
+  mut sum f64 1.0
+  mut n i32 1
+  while <= n 20
+    set term * term (/ x (as f64 n))
+    set sum + sum term
+    set n + n 1
+  ret sum
+
+# --- Missing Transcendental Functions ---
+
+# Compute 2^x.
+#
+pub fn exp2 f64 x f64
+  ret exp (* x LN2)
+
+# Compute 10^x.
+#
+pub fn exp10 f64 x f64
+  ret exp (* x LN10)
+
+# Compute e^x - 1 accurately for small x.
+# Uses Taylor series for |x| < 0.01, direct computation otherwise.
+#
+pub fn expm1 f64 x f64
+  if > (abs x) 0.01
+    ret - (exp x) 1.0
+  mut term f64 x
+  mut sum f64 x
+  mut n i32 2
+  while <= n 20
+    set term * term (/ x (as f64 n))
+    set sum + sum term
+    set n + n 1
+  ret sum
+
+# Compute ln(1 + x) accurately for small x.
+# Uses Taylor series for |x| < 0.01, direct computation otherwise.
+#
+pub fn log1p f64 x f64
+  if <= x (- 0.0 1.0)
+    ret 0.0
+  if > (abs x) 0.01
+    ret ln (+ 1.0 x)
+  mut term f64 x
+  mut sum f64 x
+  mut n i32 2
+  while <= n 30
+    set term * term (- 0.0 (* x (/ (as f64 (- n 1)) (as f64 n))))
+    set sum + sum term
+    set n + n 1
+  ret sum
+
+# Compute sqrt(x^2 + y^2) avoiding unnecessary overflow.
+#
+pub fn hypot f64 x f64 y f64
+  let absX f64 abs x
+  let absY f64 abs y
+  if > absX absY
+    let t f64 / absY absX
+    ret * absX (sqrt (+ 1.0 (* t t)))
+  if > absY 0.0
+    let t f64 / absX absY
+    ret * absY (sqrt (+ 1.0 (* t t)))
+  ret 0.0
+
+# Extract exponent of x as f64 (floor(log2|x|)).
+#
+pub fn logb f64 x f64
+  if == x 0.0
+    ret (- 0.0 1.0e308)
+  if == x 1.0
+    ret 0.0
+  mut val f64 abs x
+  mut exponent f64 0.0
+  if > val 1.0
+    while > val 1.0
+      set val / val 2.0
+      set exponent + exponent 1.0
+  else
+    while < val 1.0
+      set val * val 2.0
+      set exponent - exponent 1.0
+  ret exponent
+
+# Extract exponent of x as i32.
+#
+pub fn ilogb i32 x f64
+  if == x 0.0
+    ret (- 0 2147483647)
+  ret (as i32 (logb x))
+
+# --- Hyperbolic Functions ---
+
+# Compute sinh(x) = (e^x - e^(-x)) / 2.
+#
+pub fn sinh f64 x f64
+  let ex f64 exp x
+  let emx f64 exp (- 0.0 x)
+  ret / (- ex emx) 2.0
+
+# Compute cosh(x) = (e^x + e^(-x)) / 2.
+#
+pub fn cosh f64 x f64
+  let ex f64 exp x
+  let emx f64 exp (- 0.0 x)
+  ret / (+ ex emx) 2.0
+
+# Compute tanh(x) = sinh(x) / cosh(x).
+# Returns ±1 for large |x| to avoid overflow.
+#
+pub fn tanh f64 x f64
+  if > x 20.0
+    ret 1.0
+  if < x (- 0.0 20.0)
+    ret (- 0.0 1.0)
+  let ex f64 exp x
+  let emx f64 exp (- 0.0 x)
+  ret / (- ex emx) (+ ex emx)
+
+# Compute asinh(x) = ln(x + sqrt(x^2 + 1)).
+#
+pub fn asinh f64 x f64
+  ret ln (+ x (sqrt (+ (* x x) 1.0)))
+
+# Compute acosh(x) = ln(x + sqrt(x^2 - 1)) for x >= 1.
+# Returns 0 for x < 1.
+#
+pub fn acosh f64 x f64
+  if < x 1.0
+    ret 0.0
+  ret ln (+ x (sqrt (- (* x x) 1.0)))
+
+# Compute atanh(x) = 0.5 * ln((1 + x) / (1 - x)) for |x| < 1.
+# Returns 0 for |x| >= 1.
+#
+pub fn atanh f64 x f64
+  if || (<= x (- 0.0 1.0)) (>= x 1.0)
+    ret 0.0
+  ret * 0.5 (ln (/ (+ 1.0 x) (- 1.0 x)))
+
+# --- Reciprocal Trigonometric Functions ---
+
+# Compute csc(x) = 1 / sin(x).
+#
+pub fn csc f64 x f64
+  let s f64 sin x
+  if isZero s
+    ret 0.0
+  ret / 1.0 s
+
+# Compute sec(x) = 1 / cos(x).
+#
+pub fn sec f64 x f64
+  let c f64 cos x
+  if isZero c
+    ret 0.0
+  ret / 1.0 c
+
+# Compute cot(x) = cos(x) / sin(x).
+#
+pub fn cot f64 x f64
+  let s f64 sin x
+  if isZero s
+    ret 0.0
+  ret / (cos x) s
+
+# Compute arccsc(x) = arcsin(1/x) for |x| >= 1.
+#
+pub fn acsc f64 x f64
+  if < (abs x) 1.0
+    ret 0.0
+  ret asin (/ 1.0 x)
+
+# Compute arcsec(x) = arccos(1/x) for |x| >= 1.
+#
+pub fn asec f64 x f64
+  if < (abs x) 1.0
+    ret 0.0
+  ret acos (/ 1.0 x)
+
+# Compute arccot(x) = arctan(1/x).
+#
+pub fn acot f64 x f64
+  ret atan (/ 1.0 x)
+
+test "hyperbolic functions work"
+  expect (approxEq (sinh 0.0) 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (cosh 0.0) 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq (tanh 0.0) 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (asinh 0.0) 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (acosh 1.0) 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (atanh 0.0) 0.0 DEFAULT_TOLERANCE)
+
+test "exp2 exp10 expm1 log1p hypot work"
+  expect (approxEq (exp2 0.0) 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq (exp2 3.0) 8.0 1.0e-6)
+  expect (approxEq (exp10 0.0) 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq (exp10 2.0) 100.0 1.0e-6)
+  expect (approxEq (expm1 0.0) 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (log1p 0.0) 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (hypot 3.0 4.0) 5.0 DEFAULT_TOLERANCE)
+
+test "reciprocal trig work"
+  expect (approxEq (csc (/ PI 2.0)) 1.0 1.0e-6)
+  expect (approxEq (sec 0.0) 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq (cot (/ PI 4.0)) 1.0 1.0e-6)
+  expect (approxEq (acot 0.0) PI_2 1.0e-6)
+
+# Test algebra functions
+test "polyEval works"
+  let coeffs [3]f64 [1.0, (- 0.0 2.0), 1.0]
+  expect (approxEq (polyEval coeffs 2_u32 0.0) 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq (polyEval coeffs 2_u32 1.0) 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (polyEval coeffs 2_u32 2.0) 1.0 DEFAULT_TOLERANCE)
+
+test "solveQuadratic works"
+  mut roots [2]f64 [0.0, 0.0]
+  let count solveQuadratic 1.0 (- 0.0 3.0) 2.0 roots
+  expect (== count 2_u32)
+  expect (approxEq roots[0] 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq roots[1] 2.0 DEFAULT_TOLERANCE)
+
+test "gcd and lcm work"
+  expect (== (gcd 12_i64 18_i64) 6_i64)
+  expect (== (lcm 12_i64 18_i64) 36_i64)
+  expect (== (gcd (- 0_i64 12_i64) 18_i64) 6_i64)
+
+test "binomial works"
+  expect (approxEq (binomial 5_i64 2_i64) 10.0 DEFAULT_TOLERANCE)
+  expect (approxEq (binomial 10_i64 5_i64) 252.0 DEFAULT_TOLERANCE)
+  expect (approxEq (binomial 0_i64 0_i64) 1.0 DEFAULT_TOLERANCE)
+
+test "trig functions work"
+  expect (approxEq (sin 0.0) 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (sin PI_2) 1.0 1.0e-6)
+  expect (approxEq (cos 0.0) 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq (cos PI) (- 0.0 1.0) 1.0e-6)
+  expect (approxEq (tan PI_4) 1.0 1.0e-6)
+
+test "sqrt and cbrt work"
+  expect (approxEq (sqrt 4.0) 2.0 DEFAULT_TOLERANCE)
+  expect (approxEq (sqrt 9.0) 3.0 DEFAULT_TOLERANCE)
+  expect (approxEq (cbrt 8.0) 2.0 DEFAULT_TOLERANCE)
+  expect (approxEq (cbrt (- 0.0 8.0)) (- 0.0 2.0) DEFAULT_TOLERANCE)
+
+test "exp and ln work"
+  expect (approxEq (exp 0.0) 1.0 DEFAULT_TOLERANCE)
+  expect (approxEq (ln 1.0) 0.0 DEFAULT_TOLERANCE)
+  expect (approxEq (ln E) 1.0 1.0e-6)

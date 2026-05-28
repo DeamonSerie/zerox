@@ -1,0 +1,7 @@
+pub fn main Void world World !
+  let x i32 1
+  let y i32 1
+  let z i32 + x y
+  if == z 2
+    check world.out.write "int add ok\n"
+  check world.out.write "done\n"

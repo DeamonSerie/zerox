@@ -53,6 +53,21 @@ static const char *const runtime_helper_symbols[ELF_RUNTIME_HELPER_COUNT] = {
   "zerox_crypto_ecc_ecdh",
   "zerox_crypto_ecc_ed25519_sign",
   "zerox_crypto_ecc_ed25519_verify",
+  "zerox_crypto_sha384",
+  "zerox_crypto_sha3_256",
+  "zerox_crypto_sha3_512",
+  "zerox_crypto_blake2b",
+  "zerox_crypto_blake2s",
+  "zerox_crypto_hmac_sha384",
+  "zerox_crypto_sha3_384",
+  "zerox_crypto_shake128",
+  "zerox_crypto_shake256",
+  "zerox_crypto_hmac_sha512",
+  "zerox_crypto_ecc_ed25519_generate_keypair",
+  "zerox_crypto_ecc_x25519_ecdh",
+  "zerox_crypto_aes_gcm_encrypt",
+  "zerox_crypto_aes_gcm_decrypt",
+  "zerox_crypto_ecc_x25519_generate_keypair",
 };
 
 static bool elf_emit_state_diag(ZDiag *diag, const char *message, int line, int column, const char *actual) {
